@@ -45,6 +45,15 @@ public final class Sesion {
         return ultimoAcceso != null && !Duration.between(ultimoAcceso, ahora).minusMinutes(minutos).isNegative();
     }
 
+    /**
+     * ¿Se bloquea un ingreso nuevo? (decisión 7.1 del 2026-10-20; Anexo 5, ítem 3: "no permite sesiones simultáneas del mismo usuario").
+     * Sí, mientras haya una sesión con huella y actividad dentro del plazo de inactividad. La sesión se libera con «Salir» (sin
+     * huella), al vencer la inactividad o cuando el administrador la cierra (sin huella).
+     */
+    public static boolean bloqueaNuevoIngreso(String huellaGuardada, Instant ultimaActividad, Instant ahora, int minutos) {
+        return huellaGuardada != null && !huellaGuardada.isEmpty() && ultimaActividad != null && !vencida(ultimaActividad, ahora, minutos);
+    }
+
     /** Huella que se guarda en usuarios.sesion_huella (nunca el identificador en claro). */
     public static String huella(String idSesion) {
         return Huellas.sha256(idSesion);

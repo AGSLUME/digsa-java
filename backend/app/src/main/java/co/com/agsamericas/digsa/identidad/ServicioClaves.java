@@ -47,6 +47,10 @@ public class ServicioClaves {
         return codificador.encode(Huellas.secreto(24));
     }
 
+    public String codificar(String clave) {
+        return codificador.encode(clave);
+    }
+
     /**
      * Genera un enlace nuevo (reemplaza al anterior) y lo envía. {@code exigirCambio} marca el cambio obligatorio (restablecer del
      * administrador); "olvidé mi contraseña" no lo marca ni cierra sesiones. Sin transacción: el token queda guardado (una sentencia)
@@ -88,12 +92,18 @@ public class ServicioClaves {
             throw ErrorNegocio.validacion("La nueva contraseña debe ser diferente a la actual.");
         }
         Instant ahora = reloj.instant();
+        boolean teniaSesion = u.sesionHuella() != null;
         boolean ok = usuarios.definirClave(u.id(), u.tokenHash(), codificador.encode(clave),
                 ahora.plus(Duration.ofDays(cfg.diasVigenciaClave())), ahora);
         if (!ok) {
             throw ErrorNegocio.validacion("El enlace ya se usó. Pida uno nuevo con «¿Olvidó su contraseña?».");
         }
         bitacora.registrar("clave_cambio", "Contraseña definida por enlace del usuario " + u.usuario(), u.id(), u.usuario());
+        if (teniaSesion) {
+            // Decisión 7.3: la sesión abierta se cierra al cambiar la contraseña, y esa salida queda en la bitácora
+            bitacora.escribir(co.com.agsamericas.digsa.reglas.Bitacora.Operacion.SALIDA, "sesion_cerrada", "sesion",
+                    "Sesión cerrada por cambio de contraseña", u.id(), u.usuario(), null);
+        }
     }
 
     /**

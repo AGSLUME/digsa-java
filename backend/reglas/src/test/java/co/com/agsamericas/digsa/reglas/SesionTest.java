@@ -51,6 +51,17 @@ class SesionTest {
     }
 
     @Test
+    @DisplayName("bloqueo del segundo ingreso (decisión 7.1): con sesión activa sí; sin huella, o vencida por inactividad, no")
+    void bloqueoSegundoIngreso() {
+        String h = Sesion.huella("abc");
+        assertThat(Sesion.bloqueaNuevoIngreso(h, AHORA.minusSeconds(599), AHORA, 10)).isTrue();
+        assertThat(Sesion.bloqueaNuevoIngreso(h, AHORA.minusSeconds(600), AHORA, 10)).isFalse();
+        assertThat(Sesion.bloqueaNuevoIngreso(null, AHORA, AHORA, 10)).as("salió con «Salir» o la cerró el administrador").isFalse();
+        assertThat(Sesion.bloqueaNuevoIngreso("", AHORA, AHORA, 10)).isFalse();
+        assertThat(Sesion.bloqueaNuevoIngreso(h, null, AHORA, 10)).isFalse();
+    }
+
+    @Test
     @DisplayName("huella: SHA-256 en hexadecimal, igual para el mismo id y distinta para otro")
     void huella() {
         String h = Sesion.huella("abc123");

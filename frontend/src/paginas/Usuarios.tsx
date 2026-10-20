@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Checkbox, Group, Modal, ScrollArea, Select, Stack, Table, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Badge, Button, Checkbox, Group, Modal, PasswordInput, ScrollArea, Select, Stack, Switch, Table, Text, TextInput, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
@@ -24,19 +24,37 @@ interface Usuario {
   alcanceFuerza: string | null;
   alcancePunto: number | null;
   alcanceRegional: number | null;
+  sesionAbierta: boolean;
+  claveInicial: boolean;
 }
 
 interface Datos {
   usuarios: Usuario[];
   perfiles: Perfil[];
   fuerzas: { codigo: string; nombre: string }[];
+  puntos: { id: number; nombre: string; sigla: string | null; fuerza: string }[];
+  regionales: { id: number; nombre: string }[];
 }
 
-/** ESM (7) y OPL regional (9) necesitan su punto o su regional, que llegan con los maestros. */
-const PENDIENTES_S2 = [7, 9];
 const SANIDAD = 6;
+/** ESM (7) necesita su establecimiento y OPL regional (9) su regional. */
+const ESM = 7;
+const OPL_REGIONAL = 9;
 
-const VACIO = { id: 0, nombre: '', documento: '', telefono: '', usuario: '', correo: '', perfiles: [] as number[], alcanceFuerza: '' };
+const VACIO = {
+  id: 0,
+  nombre: '',
+  documento: '',
+  telefono: '',
+  usuario: '',
+  correo: '',
+  perfiles: [] as number[],
+  alcanceFuerza: '',
+  alcancePunto: '',
+  alcanceRegional: '',
+  conClaveInicial: false,
+  claveInicial: '',
+};
 type Formulario = typeof VACIO;
 
 /** Usuarios (Administrador). Anexo 5, prueba 2: se crean solo desde aquí; la contraseña la define cada quien con su enlace. */
@@ -45,12 +63,28 @@ export function Usuarios() {
   const datos = useQuery({ queryKey: ['usuarios'], queryFn: () => api<Datos>('/api/usuarios') });
   const [form, setForm] = useState<Formulario | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [claveDe, setClaveDe] = useState<Usuario | null>(null);
+  const [claveNueva, setClaveNueva] = useState('');
+  const [verPerfiles, setVerPerfiles] = useState(false);
+  const [nombresPerfiles, setNombresPerfiles] = useState<Record<number, string>>({});
 
   const guardar = useMutation({
     mutationFn: (f: Formulario) =>
       api<{ mensaje: string; enlaceLocal?: string; correoOk?: boolean }>(f.id ? `/api/usuarios/${f.id}` : '/api/usuarios', {
         metodo: f.id ? 'PUT' : 'POST',
-        cuerpo: { ...f, alcanceFuerza: f.alcanceFuerza || null, documento: f.documento || null, telefono: f.telefono || null },
+        cuerpo: {
+          id: f.id,
+          nombre: f.nombre,
+          usuario: f.usuario,
+          correo: f.correo,
+          perfiles: f.perfiles,
+          alcanceFuerza: f.alcanceFuerza || null,
+          alcancePunto: f.alcancePunto ? Number(f.alcancePunto) : null,
+          alcanceRegional: f.alcanceRegional ? Number(f.alcanceRegional) : null,
+          documento: f.documento || null,
+          telefono: f.telefono || null,
+          claveInicial: !f.id && f.conClaveInicial ? f.claveInicial : null,
+        },
       }),
     onSuccess: (r) => {
       // Si el correo de bienvenida no salió, el aviso no se cierra solo: el usuario no podrá entrar hasta «Restablecer contraseña»
@@ -86,19 +120,32 @@ export function Usuarios() {
   const perfiles = datos.data?.perfiles ?? [];
   const nombrePerfil = (id: number) => perfiles.find((p) => p.id === id)?.nombre ?? String(id);
   const esSanidad = form?.perfiles.includes(SANIDAD);
+  const esEsm = form?.perfiles.includes(ESM);
+  const esOplRegional = form?.perfiles.includes(OPL_REGIONAL);
 
   return (
     <Stack>
       <Group justify="space-between">
         <Title order={3}>Usuarios</Title>
-        <Button
-          onClick={() => {
-            setError(null);
-            setForm({ ...VACIO });
-          }}
-        >
-          Nuevo usuario
-        </Button>
+        <Group gap="xs">
+          <Button
+            variant="default"
+            onClick={() => {
+              setNombresPerfiles(Object.fromEntries(perfiles.map((p) => [p.id, p.nombre])));
+              setVerPerfiles(true);
+            }}
+          >
+            Nombres de perfiles
+          </Button>
+          <Button
+            onClick={() => {
+              setError(null);
+              setForm({ ...VACIO });
+            }}
+          >
+            Nuevo usuario
+          </Button>
+        </Group>
       </Group>
       {datos.error && <Alert color="red">{(datos.error as Error).message}</Alert>}
       <ScrollArea type="auto">
@@ -131,7 +178,11 @@ export function Usuarios() {
                 </Table.Td>
                 <Table.Td>{u.ultimoIngreso ?? '—'}</Table.Td>
                 <Table.Td>
-                  <Badge color={u.activo ? (u.bloqueado ? 'orange' : 'green') : 'gray'}>{u.activo ? (u.bloqueado ? 'Bloqueado' : 'Activo') : 'Inactivo'}</Badge>
+                  <Group gap={4}>
+                    <Badge color={u.activo ? (u.bloqueado ? 'orange' : 'green') : 'gray'}>{u.activo ? (u.bloqueado ? 'Bloqueado' : 'Activo') : 'Inactivo'}</Badge>
+                    {u.sesionAbierta && <Badge color="blue" variant="outline">Sesión abierta</Badge>}
+                    {u.claveInicial && <Badge color="grape" variant="outline">Contraseña inicial</Badge>}
+                  </Group>
                 </Table.Td>
                 <Table.Td>
                   <Group gap={4} wrap="nowrap">
@@ -149,6 +200,10 @@ export function Usuarios() {
                           correo: u.correo,
                           perfiles: u.perfiles,
                           alcanceFuerza: u.alcanceFuerza ?? '',
+                          alcancePunto: u.alcancePunto ? String(u.alcancePunto) : '',
+                          alcanceRegional: u.alcanceRegional ? String(u.alcanceRegional) : '',
+                          conClaveInicial: false,
+                          claveInicial: '',
                         });
                       }}
                     >
@@ -163,6 +218,19 @@ export function Usuarios() {
                       onClick={() => window.confirm(`¿Enviar a ${u.nombre} un enlace para definir una contraseña nueva?`) && accion.mutate({ ruta: `/api/usuarios/${u.id}/restablecer`, metodo: 'POST' })}>
                       Restablecer contraseña
                     </Button>
+                    <Button size="xs" variant="light" color="grape" disabled={accion.isPending} aria-label={'Asignar contraseña inicial a ' + u.nombre}
+                      onClick={() => {
+                        setClaveNueva('');
+                        setClaveDe(u);
+                      }}>
+                      Contraseña inicial
+                    </Button>
+                    {u.sesionAbierta && (
+                      <Button size="xs" variant="light" color="red" disabled={accion.isPending} aria-label={'Cerrar la sesión de ' + u.nombre}
+                        onClick={() => window.confirm(`¿Cerrar la sesión abierta de ${u.nombre}?`) && accion.mutate({ ruta: `/api/usuarios/${u.id}/cerrar-sesion`, metodo: 'POST' })}>
+                        Cerrar sesión
+                      </Button>
+                    )}
                   </Group>
                 </Table.Td>
               </Table.Tr>
@@ -200,12 +268,30 @@ export function Usuarios() {
                       key={p.id}
                       value={String(p.id)}
                       label={p.nombre}
-                      disabled={PENDIENTES_S2.includes(p.id)}
-                      description={PENDIENTES_S2.includes(p.id) ? 'Disponible cuando se carguen los puntos y las regionales.' : p.descripcion}
+                      description={p.descripcion}
                     />
                   ))}
                 </Stack>
               </Checkbox.Group>
+              {esEsm && (
+                <Select
+                  label="Establecimiento (ESM)"
+                  required
+                  searchable
+                  data={(datos.data?.puntos ?? []).map((p) => ({ value: String(p.id), label: `${p.sigla ? p.sigla + ' · ' : ''}${p.nombre} (${p.fuerza})` }))}
+                  value={form.alcancePunto || null}
+                  onChange={(v) => setForm({ ...form, alcancePunto: v ?? '' })}
+                />
+              )}
+              {esOplRegional && (
+                <Select
+                  label="Regional (OPL regional)"
+                  required
+                  data={(datos.data?.regionales ?? []).map((r) => ({ value: String(r.id), label: r.nombre }))}
+                  value={form.alcanceRegional || null}
+                  onChange={(v) => setForm({ ...form, alcanceRegional: v ?? '' })}
+                />
+              )}
               {esSanidad && (
                 <Select
                   label="Fuerza (Sanidad)"
@@ -215,8 +301,28 @@ export function Usuarios() {
                   onChange={(v) => setForm({ ...form, alcanceFuerza: v ?? '' })}
                 />
               )}
+              {!form.id && (
+                <Switch
+                  label="Asignar contraseña inicial (se cambia al primer ingreso)"
+                  checked={form.conClaveInicial}
+                  onChange={(e) => setForm({ ...form, conClaveInicial: e.currentTarget.checked })}
+                />
+              )}
+              {!form.id && form.conClaveInicial && (
+                <PasswordInput
+                  label="Contraseña inicial"
+                  description="Mínimo 12 caracteres, sin tildes ni ñ. El usuario deberá cambiarla en su primer ingreso."
+                  required
+                  autoComplete="new-password"
+                  maxLength={64}
+                  value={form.claveInicial}
+                  onChange={(e) => setForm({ ...form, claveInicial: e.currentTarget.value })}
+                />
+              )}
               <Text size="xs" c="dimmed">
-                Al crear el usuario se le envía un enlace de un solo uso (60 minutos) para definir su contraseña. Nadie más la conoce.
+                {!form.id && form.conClaveInicial
+                  ? 'Entregue la contraseña inicial al usuario por un canal seguro. No se envía correo.'
+                  : 'Al crear el usuario se le envía un enlace de un solo uso (60 minutos) para definir su contraseña. Nadie más la conoce.'}
               </Text>
               <Group justify="flex-end">
                 <Button variant="default" onClick={() => setForm(null)}>
@@ -229,6 +335,71 @@ export function Usuarios() {
             </Stack>
           </form>
         )}
+      </Modal>
+
+      <Modal opened={claveDe !== null} onClose={() => setClaveDe(null)} title="Asignar contraseña inicial">
+        {claveDe && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              accion.mutate(
+                { ruta: `/api/usuarios/${claveDe.id}/clave-inicial`, metodo: 'POST', cuerpo: { clave: claveNueva } },
+                { onSuccess: () => setClaveDe(null) },
+              );
+            }}
+          >
+            <Stack>
+              <Text size="sm">{claveDe.nombre} deberá cambiarla en su próximo ingreso. Si tiene una sesión abierta, se cierra.</Text>
+              <PasswordInput
+                label="Contraseña inicial"
+                required
+                autoComplete="new-password"
+                maxLength={64}
+                value={claveNueva}
+                onChange={(e) => setClaveNueva(e.currentTarget.value)}
+              />
+              <Group justify="flex-end">
+                <Button variant="default" onClick={() => setClaveDe(null)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" loading={accion.isPending}>
+                  Asignar
+                </Button>
+              </Group>
+            </Stack>
+          </form>
+        )}
+      </Modal>
+
+      <Modal opened={verPerfiles} onClose={() => setVerPerfiles(false)} title="Nombres de perfiles" size="lg">
+        <Stack>
+          <Text size="xs" c="dimmed">
+            Los nombres son configurables mientras llega la adenda con el catálogo final de perfiles. Los permisos no cambian.
+          </Text>
+          {perfiles.map((p) => (
+            <Group key={p.id} wrap="nowrap" align="flex-end">
+              <TextInput
+                label={`Perfil ${p.id}`}
+                style={{ flex: 1 }}
+                maxLength={60}
+                value={nombresPerfiles[p.id] ?? ''}
+                onChange={(e) => {
+                  const v = e.currentTarget.value;
+                  setNombresPerfiles((m) => ({ ...m, [p.id]: v }));
+                }}
+              />
+              <Button
+                variant="light"
+                disabled={accion.isPending || (nombresPerfiles[p.id] ?? '') === p.nombre}
+                onClick={() =>
+                  accion.mutate({ ruta: `/api/usuarios/perfiles/${p.id}`, metodo: 'PUT', cuerpo: { nombre: nombresPerfiles[p.id], descripcion: p.descripcion } })
+                }
+              >
+                Guardar
+              </Button>
+            </Group>
+          ))}
+        </Stack>
       </Modal>
     </Stack>
   );

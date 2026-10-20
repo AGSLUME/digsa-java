@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, ingresar, sinDesplazamientoHorizontal, unico } from './apoyo';
+import { ADMIN, ingresar, salir, sinDesplazamientoHorizontal, unico } from './apoyo';
+
+test.afterEach(async ({ page }) => salir(page));
 
 // Anexo 5, prueba 2 (usuarios por la interfaz, contraseñas cifradas) y prueba 15 (logs en el navegador, con descarga y correo).
 

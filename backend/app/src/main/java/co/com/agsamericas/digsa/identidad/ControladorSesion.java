@@ -20,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ControladorSesion {
 
     private final ConfiguracionDigsa cfg;
+    private final RepositorioUsuarios usuarios;
 
-    public ControladorSesion(ConfiguracionDigsa cfg) {
+    public ControladorSesion(ConfiguracionDigsa cfg, RepositorioUsuarios usuarios) {
         this.cfg = cfg;
+        this.usuarios = usuarios;
     }
 
     @GetMapping
@@ -43,7 +45,8 @@ public class ControladorSesion {
         m.put("id", u.id());
         m.put("usuario", u.usuario());
         m.put("nombre", u.nombre());
-        m.put("perfiles", perfiles.stream().map(Perfil::nombre).sorted().toList());
+        Map<Integer, String> nombres = usuarios.nombresPerfiles(); // configurables por el administrador
+        m.put("perfiles", perfiles.stream().map(p -> nombres.getOrDefault(p.id(), p.nombre())).sorted().toList());
         m.put("menu", menu);
         m.put("minutosInactividad", cfg.minutosSesion());
         return m;

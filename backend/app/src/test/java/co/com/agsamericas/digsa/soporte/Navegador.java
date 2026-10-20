@@ -72,6 +72,10 @@ public class Navegador {
         return conCuerpo("PUT", ruta, cuerpo);
     }
 
+    public Respuesta delete(String ruta) {
+        return conCuerpo("DELETE", ruta, null);
+    }
+
     /** Ingreso completo en dos pasos con el código que el correo de desarrollo deja en el mensaje. */
     public Respuesta ingresar(String usuario, String clave) {
         get("/api/auth/inicio");

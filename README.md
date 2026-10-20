@@ -34,12 +34,15 @@ docs                plan, dudas, especificaciones extraídas del PHP (docs/espec
 cd frontend && npm install && npm run build          # la SPA compilada (la sirve el backend local)
 cd ../backend
 export JAVA_HOME="$LOCALAPPDATA/Programs/jdk21"
+./mvnw -q install -DskipTests                         # instala el módulo reglas: spring-boot:test-run -pl app usa el instalado
 # primer administrador (solo una vez): el enlace para definir la contraseña sale en el log
 ./mvnw -pl app spring-boot:test-run -Dspring-boot.run.main-class=co.com.agsamericas.digsa.DigsaLocal \
   "-Dspring-boot.run.arguments=--digsa.crear-admin.correo=admin@example.com --digsa.crear-admin.nombre=Administrador --digsa.crear-admin.usuario=admin"
 # servidor en http://localhost:8080 (PostgreSQL embebido en .local/pgdata, correos en .local/correos)
 ./mvnw -pl app spring-boot:test-run -Dspring-boot.run.main-class=co.com.agsamericas.digsa.DigsaLocal
 ```
+
+La base local trae los datos iniciales editables (V7): 4 fuerzas, los tipos de documento y de factura, las 8 regionales y los 185 puntos del anexo del OPL. Para regenerar los catálogos y el checklist desde la fuente del mockup v6: `py herramientas/generar_catalogos_pg.py` (no reescribe V4 ni V7 si ya existen).
 
 En local, el correo se guarda en archivo y no sale. Para poder probar sin buzón, el código de verificación aparece en el mensaje de la pantalla y el enlace de la contraseña en el log. Esto solo ocurre con `digsa.entorno=local`: en cualquier otro entorno la aplicación no arranca con correo a archivo.
 

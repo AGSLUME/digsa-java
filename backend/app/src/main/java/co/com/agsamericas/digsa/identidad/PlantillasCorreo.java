@@ -1,6 +1,6 @@
 package co.com.agsamericas.digsa.identidad;
 
-import org.springframework.web.util.HtmlUtils;
+import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 
 /** Correos de la identidad, con todo valor escapado. */
 final class PlantillasCorreo {
@@ -9,11 +9,7 @@ final class PlantillasCorreo {
     }
 
     static String marco(String titulo, String cuerpoHtml) {
-        return """
-                <!doctype html><html lang="es"><body style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;max-width:600px">
-                <h2 style="color:#0b3d5c">%s</h2>%s
-                <p style="color:#6b7280;font-size:12px">Suite DIGSA · Interventoría AGS Colombia. Este correo se generó automáticamente; no lo responda.</p>
-                </body></html>""".formatted(e(titulo), cuerpoHtml);
+        return PlantillaCorreo.marco(titulo, cuerpoHtml);
     }
 
     static String enlaceClave(String nombre, String motivo, String enlace, int minutos) {
@@ -33,6 +29,6 @@ final class PlantillasCorreo {
     }
 
     static String e(String s) {
-        return s == null ? "" : HtmlUtils.htmlEscape(s, "UTF-8");
+        return PlantillaCorreo.e(s);
     }
 }

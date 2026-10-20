@@ -14,6 +14,7 @@ public interface Correo {
     record Mensaje(List<String> para, List<String> copia, String asunto, String html, List<Adjunto> adjuntos) {
         public Mensaje {
             para = List.copyOf(para);
+            asunto = asunto == null ? "" : asunto.replaceAll("[\r\n\t]+", " ").strip(); // sin saltos: no inyectan cabeceras ni líneas de log
             copia = copia == null ? List.of() : List.copyOf(copia);
             adjuntos = adjuntos == null ? List.of() : List.copyOf(adjuntos);
         }

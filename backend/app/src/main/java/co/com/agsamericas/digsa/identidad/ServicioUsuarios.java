@@ -3,11 +3,14 @@ package co.com.agsamericas.digsa.identidad;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Alcance;
+import co.com.agsamericas.digsa.reglas.Bitacora;
+import co.com.agsamericas.digsa.reglas.Claves;
 import co.com.agsamericas.digsa.reglas.Correos;
 import co.com.agsamericas.digsa.reglas.Perfil;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,8 +29,11 @@ public class ServicioUsuarios {
     private static final Set<String> FUERZAS_CON_SANIDAD = Set.of("EJC", "ARC", "FAC");
 
     public record Datos(Long id, String nombre, String documento, String telefono, String usuario, String correo, List<Integer> perfiles,
-                        String alcanceFuerza, Long alcancePunto, Long alcanceRegional) {
+                        String alcanceFuerza, Long alcancePunto, Long alcanceRegional, String claveInicial) {
     }
+
+    /** Datos personales (Ley 1581): en la bitácora se dice que cambiaron, sin los valores. */
+    private static final Set<String> PERSONALES = Set.of("nombre", "documento", "telefono", "correo");
 
     public record Guardado(long id, boolean creado, boolean correoOk, String mensaje, String enlaceLocal) {
     }
@@ -90,8 +96,14 @@ public class ServicioUsuarios {
             throw ErrorNegocio.validacion("El perfil ESM necesita el establecimiento (ESM activo).");
         }
         Long regional = perfiles.contains(Perfil.OPL_REGIONAL) ? d.alcanceRegional() : null;
-        if (perfiles.contains(Perfil.OPL_REGIONAL) && !existeActivo("regionales", regional)) {
+        if (perfiles.contains(Perfil.OPL_REGIONAL) && !existeActivo("par_regionales", regional)) {
             throw ErrorNegocio.validacion("El perfil OPL regional necesita la regional (regístrela en Puntos y auditores › Contrato).");
+        }
+        String claveInicial = nuevo ? vacioANulo(d.claveInicial()) : null;
+        if (claveInicial != null) {
+            Claves.problema(claveInicial).ifPresent(p -> {
+                throw ErrorNegocio.validacion("Contraseña inicial: " + p);
+            });
         }
         long excepto = nuevo ? 0 : d.id();
         if (usuarios.existeUsuario(usuario, excepto)) {
@@ -105,11 +117,22 @@ public class ServicioUsuarios {
             if (nuevo) {
                 // El usuario y sus perfiles se confirman en la base antes de que salga el correo (sin enlace a un usuario que no quedó)
                 String claveAleatoria = claves.claveAleatoriaCodificada();
+                String inicialCodificada = claveInicial == null ? null : claves.codificar(claveInicial);
                 long id = tx.execute(t -> {
                     long nuevoId = usuarios.crear(nombre, documento, telefono, usuario, correo, claveAleatoria, fuerza, punto, regional, ahora);
                     usuarios.reemplazarPerfiles(nuevoId, perfiles);
+                    if (inicialCodificada != null) {
+                        usuarios.asignarClaveInicial(nuevoId, inicialCodificada, ahora);
+                    }
                     return nuevoId;
                 });
+                if (inicialCodificada != null) {
+                    // Prueba 2 y condición 12: contraseña inicial del administrador, cambio obligatorio al primer ingreso, sin correo
+                    bitacora.registrar("usuario_creado", "Usuario " + usuario + " creado con contraseña inicial; perfiles: " + ids(perfiles),
+                            quien.id(), quien.usuario());
+                    return new Guardado(id, true, true, "Usuario creado con contraseña inicial. Entréguela al usuario por un canal seguro: "
+                            + "deberá cambiarla en su primer ingreso.", null);
+                }
                 Usuario creado = usuarios.porId(id).orElseThrow();
                 ServicioClaves.EnvioEnlace e = claves.enviarEnlace(creado, "Bienvenido a la Suite DIGSA",
                         "Se creó su usuario «" + usuario + "» en la Suite DIGSA. Defina su contraseña con el siguiente enlace.", false);
@@ -131,7 +154,11 @@ public class ServicioUsuarios {
                     usuarios.anularEnlace(actual.id()); // el enlace enviado al correo anterior deja de servir
                 }
             });
-            bitacora.registrar("usuario_editado", "Usuario " + usuario + " editado; perfiles: " + ids(perfiles), quien.id(), quien.usuario());
+            String cambios = Bitacora.cambios(foto(actual.nombre(), actual.documento(), actual.telefono(), actual.usuario(), actual.correo(),
+                    actual.perfiles(), actual.alcanceFuerza(), actual.alcancePunto(), actual.alcanceRegional()),
+                    foto(nombre, documento, telefono, usuario, correo, perfiles, fuerza, punto, regional), PERSONALES);
+            bitacora.registrar("usuario_editado", "Usuario " + usuario + " editado" + (cambios.isEmpty() ? " (sin cambios)" : ": " + cambios),
+                    quien.id(), quien.usuario());
             return new Guardado(actual.id(), false, true, "Usuario actualizado.", null);
         } catch (DuplicateKeyException e) {
             // Dos administradores a la vez (prueba 2: "de forma simultánea en dos equipos"): la base decide quién gana
@@ -146,10 +173,80 @@ public class ServicioUsuarios {
         }
         Usuario u = usuarios.porId(id).orElseThrow(() -> ErrorNegocio.noEncontrado("El usuario no existe."));
         usuarios.cambiarEstado(id, activo, reloj.instant());
+        boolean cerro = false;
         if (!activo) {
             usuarios.anularEnlace(id); // un enlace pendiente de un usuario inactivado no debe servir
+            cerro = usuarios.cerrarCualquierSesion(id);
         }
         bitacora.registrar("usuario_estado", "Usuario " + u.usuario() + (activo ? " activado" : " inactivado"), quien.id(), quien.usuario());
+        if (cerro) {
+            // Decisión 7.3: la salida forzada por la inactivación queda en la bitácora
+            bitacora.registrar("sesion_cerrada", "Sesión de " + u.usuario() + " cerrada por inactivación del usuario", quien.id(), quien.usuario());
+        }
+    }
+
+    /** Decisión 7.1: el administrador cierra la sesión abierta de un usuario (p. ej. la dejó abierta en otro equipo). */
+    public boolean cerrarSesion(long id, UsuarioSesion quien) {
+        Usuario u = usuarios.porId(id).orElseThrow(() -> ErrorNegocio.noEncontrado("El usuario no existe."));
+        boolean cerro = usuarios.cerrarCualquierSesion(id);
+        if (cerro) {
+            bitacora.registrar("sesion_cerrada", "Sesión de " + u.usuario() + " cerrada por el administrador", quien.id(), quien.usuario());
+        }
+        return cerro;
+    }
+
+    /** Contraseña inicial nueva asignada por el administrador (sin correo); cierra la sesión abierta del usuario. */
+    public void asignarClaveInicial(long id, String clave, UsuarioSesion quien) {
+        Usuario u = usuarios.porId(id).orElseThrow(() -> ErrorNegocio.noEncontrado("El usuario no existe."));
+        Claves.problema(clave == null ? "" : clave).ifPresent(p -> {
+            throw ErrorNegocio.validacion("Contraseña inicial: " + p);
+        });
+        String codificada = claves.codificar(clave);
+        Instant ahora = reloj.instant();
+        boolean cerro = Boolean.TRUE.equals(tx.execute(t -> {
+            usuarios.asignarClaveInicial(id, codificada, ahora);
+            return usuarios.cerrarCualquierSesion(id);
+        }));
+        bitacora.registrar("usuario_restablecer", "Contraseña inicial asignada a " + u.usuario(), quien.id(), quien.usuario());
+        if (cerro) {
+            bitacora.registrar("sesion_cerrada", "Sesión de " + u.usuario() + " cerrada por asignación de contraseña", quien.id(), quien.usuario());
+        }
+    }
+
+    /** Nombres configurables de los perfiles: la lista final llega por adenda (decisión del 2026-10-20). */
+    @Transactional
+    public void renombrarPerfil(int id, String nombre, String descripcion, UsuarioSesion quien) {
+        String n = texto(nombre);
+        String d = vacioANulo(descripcion);
+        if (n.length() < 3 || n.length() > 60) {
+            throw ErrorNegocio.validacion("El nombre del perfil debe tener de 3 a 60 caracteres.");
+        }
+        if (d != null && d.length() > 200) {
+            throw ErrorNegocio.validacion("La descripción tiene máximo 200 caracteres.");
+        }
+        Perfil.deId(id).orElseThrow(() -> ErrorNegocio.noEncontrado("El perfil no existe."));
+        Map<Integer, String> antes = usuarios.nombresPerfiles();
+        if (antes.entrySet().stream().anyMatch(e -> e.getKey() != id && e.getValue().equalsIgnoreCase(n))) {
+            throw ErrorNegocio.validacion("Ya existe otro perfil con ese nombre.");
+        }
+        usuarios.renombrarPerfil(id, n, d);
+        bitacora.registrar("perfil_editado", "Perfil " + id + ": nombre «" + Bitacora.cortar(antes.getOrDefault(id, ""), 60) + "» → «" + n + "»",
+                quien.id(), quien.usuario());
+    }
+
+    private static Map<String, Object> foto(String nombre, String documento, String telefono, String usuario, String correo,
+                                            Set<Perfil> perfiles, String fuerza, Long punto, Long regional) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("nombre", nombre);
+        m.put("documento", documento);
+        m.put("telefono", telefono);
+        m.put("usuario", usuario);
+        m.put("correo", correo);
+        m.put("perfiles", perfiles.stream().map(p -> String.valueOf(p.id())).toList());
+        m.put("fuerza", fuerza);
+        m.put("punto", punto);
+        m.put("regional", regional);
+        return m;
     }
 
     /** Exige el cambio de contraseña y envía un enlace nuevo de 60 minutos (sin transacción: el correo no retiene la conexión). */
@@ -166,6 +263,13 @@ public class ServicioUsuarios {
 
     public List<Map<String, Object>> perfilesDisponibles() {
         return usuarios.perfilesActivos();
+    }
+
+    /** Establecimientos (ESM activos) y regionales activas para el alcance de los perfiles ESM y OPL regional. */
+    public Map<String, Object> opcionesAlcance() {
+        return Map.of(
+                "puntos", jdbc.sql("SELECT id, nombre, sigla, fuerza FROM puntos WHERE activo AND unidad = 'ESM' ORDER BY fuerza, nombre").query().listOfRows(),
+                "regionales", jdbc.sql("SELECT id, nombre FROM par_regionales WHERE activo ORDER BY nombre").query().listOfRows());
     }
 
     private Set<Perfil> perfiles(List<Integer> ids) {

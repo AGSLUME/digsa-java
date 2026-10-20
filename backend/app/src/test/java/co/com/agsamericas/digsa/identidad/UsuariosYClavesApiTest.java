@@ -206,6 +206,18 @@ class UsuariosYClavesApiTest extends PruebaIntegracion {
                 .doesNotContain("Consulta");
         assertThat(n.post("/api/usuarios", datos(unico("esm").toLowerCase(), List.of(7))).mensaje()).contains("necesita el establecimiento");
         assertThat(n.post("/api/usuarios", datos(unico("oplr").toLowerCase(), List.of(9))).mensaje()).contains("necesita la regional");
+
+        // Con los maestros cargados (S2): ESM con su establecimiento y OPL regional con su regional
+        long punto = lista.json().path("puntos").get(0).path("id").asLong();
+        long regional = lista.json().path("regionales").get(0).path("id").asLong();
+        Map<String, Object> esm = datos(unico("esm").toLowerCase(), List.of(7));
+        esm.put("alcancePunto", punto);
+        assertThat(n.post("/api/usuarios", esm).estado()).isEqualTo(201);
+        Map<String, Object> oplr = datos(unico("oplr").toLowerCase(), List.of(9));
+        oplr.put("alcanceRegional", regional);
+        Respuesta r = n.post("/api/usuarios", oplr);
+        assertThat(r.estado()).as(r.texto()).isEqualTo(201);
+        assertThat(usuarios.porId(r.json().path("id").asLong()).orElseThrow().alcanceRegional()).isEqualTo(regional);
     }
 
     @Test

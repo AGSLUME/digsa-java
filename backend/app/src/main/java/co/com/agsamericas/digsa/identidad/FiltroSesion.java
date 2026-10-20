@@ -79,7 +79,7 @@ public class FiltroSesion extends OncePerRequestFilter {
         }
         Optional<Usuario> enBase = usuarios.porId(us.id());
         if (enBase.isEmpty() || !enBase.get().activo()) {
-            cerrar(req, res, s, "Su usuario está inactivo.", "inactivo"); // sin fila de salida (duda 7.3)
+            cerrar(req, res, s, "Su usuario está inactivo.", "inactivo"); // la salida ya quedó en la bitácora al inactivar (decisión 7.3)
             return;
         }
         Usuario u = enBase.get();
@@ -88,10 +88,14 @@ public class FiltroSesion extends OncePerRequestFilter {
             return;
         }
         if (!Sesion.esLaVigente(u.sesionHuella(), marca)) {
-            bitacora.escribir(Bitacora.Operacion.SALIDA, "sesion_reemplazada", "sesion",
-                    "Sesión cerrada: el usuario ingresó desde otro equipo o navegador", u.id(), u.usuario(), ip);
-            cerrar(req, res, s, "Su sesión se cerró porque su usuario ingresó desde otro equipo o navegador. Solo se permite una sesión a la vez.",
-                    "reemplazada");
+            // Sin huella: la cerró el administrador (o «Salir» en otra pestaña); con otra huella: venció por inactividad y hubo otro ingreso
+            boolean cerradaPorOtro = u.sesionHuella() == null;
+            bitacora.escribir(Bitacora.Operacion.SALIDA, cerradaPorOtro ? "sesion_cerrada" : "sesion_reemplazada", "sesion",
+                    cerradaPorOtro ? "Sesión cerrada desde otra pestaña o por el administrador" : "Sesión reemplazada por un ingreso posterior",
+                    u.id(), u.usuario(), ip);
+            cerrar(req, res, s, cerradaPorOtro ? "Su sesión fue cerrada. Vuelva a iniciar sesión."
+                    : "Su sesión se cerró porque su usuario ingresó desde otro equipo o navegador. Solo se permite una sesión a la vez.",
+                    cerradaPorOtro ? "cerrada" : "reemplazada");
             return;
         }
         if (u.cambioPendiente(ahora)) {
@@ -102,6 +106,12 @@ public class FiltroSesion extends OncePerRequestFilter {
         }
 
         s.setAttribute(AtributosSesion.ULTIMO, ahora.toEpochMilli());
+        Long enBaseMs = (Long) s.getAttribute(AtributosSesion.ULTIMO_EN_BASE);
+        if (enBaseMs == null || ahora.toEpochMilli() - enBaseMs >= 30_000) {
+            // Actividad para el bloqueo del segundo ingreso (decisión 7.1); como máximo una escritura cada 30 s
+            usuarios.tocarSesion(u.id(), u.sesionHuella(), ahora);
+            s.setAttribute(AtributosSesion.ULTIMO_EN_BASE, ahora.toEpochMilli());
+        }
         req.setAttribute(RegistroBitacora.ATR_USUARIO_ID, u.id());
         req.setAttribute(RegistroBitacora.ATR_USUARIO, u.usuario());
         AbstractAuthenticationToken auth = (AbstractAuthenticationToken) UsuarioSesion.autenticacion(

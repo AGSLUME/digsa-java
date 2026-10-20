@@ -1,0 +1,648 @@
+import { Alert, Anchor, Badge, Button, Card, Center, Checkbox, Group, List, Loader, Modal, MultiSelect, ScrollArea, Select, SimpleGrid, Stack, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState, type FormEvent, type ReactNode } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { colorEstado, horaCorta, type DetalleVisita, type OpcionesAgenda } from '../shared/agenda';
+import { api, ErrorApi } from '../shared/api';
+import { FormularioVisita, MAX_OTROS } from '../shared/FormularioVisita';
+
+export type OrigenVisita = 'agenda' | 'mis-visitas' | 'calendario';
+
+interface Respuesta {
+  mensaje: string;
+  ok?: boolean;
+  notificacionOk?: boolean | null;
+  advertencias?: string[] | null;
+}
+
+interface Destinatario {
+  correo: string;
+  origen: string;
+  obligatorio: boolean;
+}
+
+interface Borrador {
+  destinatarios: Destinatario[];
+  faltan: string[];
+  asunto: string;
+  cuerpo: string;
+}
+
+type Dialogo = 'editar' | 'reprogramar' | 'cancelar' | 'reasignar' | 'notificar' | null;
+
+const TITULOS: Record<OrigenVisita, string> = { agenda: 'Agenda', 'mis-visitas': 'Mis visitas', calendario: 'Calendario' };
+
+/** Detalle de una visita: el mismo componente sirve a la agenda del coordinador, a Mis visitas y al calendario de consulta. */
+export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
+  const { id } = useParams();
+  const qc = useQueryClient();
+  const base = `/api/${origen}/${id}`;
+  const clave = ['visita', origen, id];
+  const detalle = useQuery({ queryKey: clave, queryFn: () => api<DetalleVisita>(base) });
+  const opciones = useQuery({
+    queryKey: ['agenda', 'opciones'],
+    queryFn: () => api<OpcionesAgenda>('/api/agenda/opciones'),
+    enabled: origen === 'agenda',
+  });
+  const [dialogo, setDialogo] = useState<Dialogo>(null);
+  const [iniciada, setIniciada] = useState(false);
+  const [destinoParte, setDestinoParte] = useState<Record<string, string | null>>({});
+
+  const refrescar = () => {
+    qc.invalidateQueries({ queryKey: clave });
+    qc.invalidateQueries({ queryKey: ['agenda'] });
+  };
+
+  const accion = useMutation({
+    mutationFn: ({ ruta, cuerpo }: { ruta: string; cuerpo?: unknown }) => api<Respuesta>(ruta, { metodo: 'POST', cuerpo: cuerpo ?? {} }),
+    onSuccess: (r) => {
+      // Fallo del envío manual (ok) o de la notificación automática al reprogramar o reasignar (notificacionOk): aviso que no se cierra solo
+      const fallo = r.ok === false || r.notificacionOk === false;
+      notifications.show({ color: fallo ? 'orange' : 'green', autoClose: fallo ? false : 6000, message: r.mensaje });
+      for (const a of r.advertencias ?? []) notifications.show({ color: 'orange', autoClose: 10000, message: a });
+      if (r.ok !== false) setDialogo(null); // si el envío manual falló, el diálogo queda abierto con lo editado
+      refrescar();
+    },
+    onError: (e) => notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo completar la acción.' }),
+  });
+
+  if (detalle.isLoading) {
+    return (
+      <Center py="xl">
+        <Loader />
+      </Center>
+    );
+  }
+  if (detalle.error || !detalle.data) {
+    return (
+      <Stack>
+        <Anchor component={Link} to={'/' + origen}>
+          Volver a {TITULOS[origen]}
+        </Anchor>
+        <Alert color="red">{detalle.error?.message ?? 'No se encontró la visita.'}</Alert>
+      </Stack>
+    );
+  }
+  const v = detalle.data;
+  const deAgenda = origen === 'agenda';
+  const puede = (a: string) => deAgenda && v.acciones.includes(a);
+  const equipo = v.equipo ?? [];
+
+  return (
+    <Stack data-testid="detalle-visita">
+      <Anchor component={Link} to={'/' + origen} size="sm">
+        Volver a {TITULOS[origen]}
+      </Anchor>
+      <Group justify="space-between">
+        <Group gap="sm">
+          <Title order={3}>Visita {v.numero}</Title>
+          <Badge color={colorEstado(v.estado)} size="lg" data-testid="estado-visita">
+            {v.estadoNombre}
+          </Badge>
+        </Group>
+        <Group gap="xs">
+          {puede('editar') && (
+            <Button variant="light" onClick={() => setDialogo('editar')} disabled={!opciones.data}>
+              Editar
+            </Button>
+          )}
+          {puede('reasignar') && (
+            <Button variant="light" onClick={() => setDialogo('reasignar')} disabled={!opciones.data}>
+              Reasignar equipo
+            </Button>
+          )}
+          {puede('reprogramar') && (
+            <Button variant="light" onClick={() => setDialogo('reprogramar')}>
+              Reprogramar
+            </Button>
+          )}
+          {puede('notificar') && (
+            <Button variant="light" onClick={() => setDialogo('notificar')}>
+              Notificar
+            </Button>
+          )}
+          {puede('cancelar') && (
+            <Button variant="light" color="red" onClick={() => setDialogo('cancelar')}>
+              Cancelar visita
+            </Button>
+          )}
+          {origen === 'mis-visitas' && v.acciones.includes('iniciar') && (
+            <Button
+              loading={accion.isPending}
+              onClick={() =>
+                accion.mutate({ ruta: `/api/mis-visitas/${v.id}/iniciar` }, { onSuccess: () => setIniciada(true) })
+              }
+            >
+              {v.estado === 'ejecucion' ? 'Continuar' : 'Iniciar visita'}
+            </Button>
+          )}
+        </Group>
+      </Group>
+      {opciones.error && <Alert color="red">No se pudieron cargar las opciones: {opciones.error.message}</Alert>}
+      {iniciada && <Alert color="blue">El formulario del checklist llega en el sprint S3.</Alert>}
+      {v.equipoSinNotificar && deAgenda && (
+        <Alert color="orange">El cambio de equipo aún no se ha notificado al OPL y a las DISANES.</Alert>
+      )}
+      {(v.advertencias ?? []).map((a, i) => (
+        <Alert key={i} color="orange">
+          {a}
+        </Alert>
+      ))}
+
+      <Card withBorder>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
+          <Dato titulo="Fecha">
+            {v.fechaLarga}
+            {v.hora ? ` · ${horaCorta(v.hora)}` : ''}
+          </Dato>
+          <Dato titulo="Tipo">{v.tipoNombre}</Dato>
+          <Dato titulo="Punto">{v.punto}</Dato>
+          <Dato titulo="Unidad">
+            {[v.unidad, v.fuerza, v.modalidad].filter(Boolean).join(' · ')}
+          </Dato>
+          {v.fechaSolicitud && <Dato titulo="Fecha de la solicitud">{v.fechaSolicitud}</Dato>}
+          <Dato titulo="Versión del checklist">{v.checklistVersion ?? '—'}</Dato>
+        </SimpleGrid>
+        <Text size="xs" c="dimmed" mt="sm">
+          Alcance específico
+        </Text>
+        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+          {v.alcance || '—'}
+        </Text>
+      </Card>
+
+      {v.equipo && (
+        <Card withBorder>
+          <Title order={5} mb="xs">
+            Equipo
+          </Title>
+          <List spacing={4} size="sm">
+            {equipo.map((m) => (
+              <List.Item key={m.id}>
+                <Group gap={6}>
+                  <Text size="sm">
+                    {m.nombre} · {m.rolNombre}
+                  </Text>
+                  {m.lider && <Badge size="sm">Líder</Badge>}
+                  {!m.activo && (
+                    <Badge size="sm" color="gray">
+                      Inactivo
+                    </Badge>
+                  )}
+                </Group>
+              </List.Item>
+            ))}
+          </List>
+        </Card>
+      )}
+
+      {v.componentes && (
+        <Card withBorder>
+          <Title order={5} mb="xs">
+            Componentes
+          </Title>
+          {v.componentes.length === 0 ? (
+            <Text size="sm" c="dimmed">
+              Sin componentes.
+            </Text>
+          ) : (
+            <List spacing={2} size="sm">
+              {v.componentes.map((c) => (
+                <List.Item key={c.codigo}>
+                  {c.codigo} · {c.nombre}
+                </List.Item>
+              ))}
+            </List>
+          )}
+        </Card>
+      )}
+
+      {v.reparto && (
+        <Card withBorder data-testid={origen === 'mis-visitas' ? 'mis-partes' : 'asignacion'}>
+          <Title order={5} mb="xs">
+            {origen === 'mis-visitas' ? 'Mis partes del checklist' : 'Asignación'}
+          </Title>
+          <ScrollArea type="auto">
+            <Table miw={puede('mover') ? 640 : 420}>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Parte</Table.Th>
+                  <Table.Th>Nombre</Table.Th>
+                  <Table.Th>Auditor</Table.Th>
+                  {puede('mover') && <Table.Th>Mover a</Table.Th>}
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {v.reparto.map((p) => (
+                  <Table.Tr key={p.parte}>
+                    <Table.Td>{p.parte}</Table.Td>
+                    <Table.Td>{p.nombre}</Table.Td>
+                    <Table.Td>{p.auditor ?? '—'}</Table.Td>
+                    {puede('mover') && (
+                      <Table.Td>
+                        <Group gap={4} wrap="nowrap">
+                          <Select
+                            size="xs"
+                            aria-label={'Mover ' + p.parte + ' a'}
+                            placeholder="Integrante"
+                            data={equipo.filter((m) => m.id !== p.auditorId && m.activo).map((m) => ({ value: String(m.id), label: m.nombre }))}
+                            value={destinoParte[p.parte] ?? null}
+                            onChange={(x) => setDestinoParte({ ...destinoParte, [p.parte]: x })}
+                          />
+                          <Button
+                            size="xs"
+                            variant="light"
+                            aria-label={'Mover ' + p.parte}
+                            disabled={!destinoParte[p.parte] || accion.isPending}
+                            onClick={() =>
+                              accion.mutate(
+                                { ruta: `/api/agenda/${v.id}/mover`, cuerpo: { parte: p.parte, usuarioId: Number(destinoParte[p.parte]) } },
+                                { onSuccess: () => setDestinoParte({ ...destinoParte, [p.parte]: null }) },
+                              )
+                            }
+                          >
+                            Mover
+                          </Button>
+                        </Group>
+                      </Table.Td>
+                    )}
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </ScrollArea>
+          {v.reparto.length === 0 && (
+            <Text size="sm" c="dimmed">
+              Sin partes asignadas.
+            </Text>
+          )}
+        </Card>
+      )}
+
+      {v.historial && (
+        <Card withBorder>
+          <Title order={5} mb="xs">
+            Historial
+          </Title>
+          <ScrollArea type="auto">
+            <Table miw={620} data-testid="historial-visita">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Fecha</Table.Th>
+                  <Table.Th>Usuario</Table.Th>
+                  <Table.Th>Evento</Table.Th>
+                  <Table.Th>Detalle</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {v.historial.map((h, i) => (
+                  <Table.Tr key={i}>
+                    <Table.Td style={{ whiteSpace: 'nowrap' }}>{formatoFecha(h.fecha)}</Table.Td>
+                    <Table.Td>{h.usuario ?? '—'}</Table.Td>
+                    <Table.Td>{h.evento}</Table.Td>
+                    <Table.Td>{h.detalle ?? ''}</Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </ScrollArea>
+        </Card>
+      )}
+
+      {v.notificaciones && (
+        <Card withBorder>
+          <Title order={5} mb="xs">
+            Notificaciones
+          </Title>
+          {v.notificaciones.length === 0 ? (
+            <Text size="sm" c="dimmed">
+              Aún no se ha enviado ninguna notificación.
+            </Text>
+          ) : (
+            <ScrollArea type="auto">
+              <Table miw={720} data-testid="notificaciones-visita">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Fecha</Table.Th>
+                    <Table.Th>Origen</Table.Th>
+                    <Table.Th>Estado</Table.Th>
+                    <Table.Th>Destinatarios</Table.Th>
+                    <Table.Th>Asunto</Table.Th>
+                    <Table.Th>Usuario</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {v.notificaciones.map((n, i) => (
+                    <Table.Tr key={i}>
+                      <Table.Td style={{ whiteSpace: 'nowrap' }}>{formatoFecha(n.creado)}</Table.Td>
+                      <Table.Td>{n.origen}</Table.Td>
+                      <Table.Td>
+                        <Badge color={n.error ? 'red' : 'green'} variant="light" title={n.error ?? undefined}>
+                          {n.estado}
+                        </Badge>
+                        {n.error && (
+                          <Text size="xs" c="red">
+                            {n.error}
+                          </Text>
+                        )}
+                      </Table.Td>
+                      <Table.Td>{n.destinatarios}</Table.Td>
+                      <Table.Td>{n.asunto ?? ''}</Table.Td>
+                      <Table.Td>{n.usuario ?? '—'}</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+          )}
+        </Card>
+      )}
+
+      {deAgenda && (
+        <FormularioVisita
+          abierto={dialogo === 'editar'}
+          alCerrar={() => setDialogo(null)}
+          opciones={opciones.data}
+          visita={v}
+          alGuardar={() => {
+            setDialogo(null);
+            refrescar();
+          }}
+        />
+      )}
+      <Modal opened={dialogo === 'reprogramar'} onClose={() => setDialogo(null)} title="Reprogramar visita">
+        {dialogo === 'reprogramar' && (
+          <Reprogramar
+            fecha={v.fecha}
+            hora={horaCorta(v.hora)}
+            pendiente={accion.isPending}
+            alCerrar={() => setDialogo(null)}
+            alEnviar={(cuerpo) => accion.mutate({ ruta: `/api/agenda/${v.id}/reprogramar`, cuerpo })}
+          />
+        )}
+      </Modal>
+      <Modal opened={dialogo === 'cancelar'} onClose={() => setDialogo(null)} title="Cancelar visita">
+        {dialogo === 'cancelar' && (
+          <SoloMotivo
+            texto={`La visita ${v.numero} quedará cancelada.`}
+            boton="Cancelar visita"
+            pendiente={accion.isPending}
+            alCerrar={() => setDialogo(null)}
+            alEnviar={(motivo) =>
+              window.confirm(`¿Cancelar la visita ${v.numero}?`) && accion.mutate({ ruta: `/api/agenda/${v.id}/cancelar`, cuerpo: { motivo } })
+            }
+          />
+        )}
+      </Modal>
+      <Modal opened={dialogo === 'reasignar'} onClose={() => setDialogo(null)} title="Reasignar equipo" size="lg">
+        {dialogo === 'reasignar' && opciones.data && (
+          <Reasignar
+            opciones={opciones.data}
+            liderInicial={equipo.find((m) => m.lider)?.id}
+            otrosIniciales={equipo.filter((m) => !m.lider).map((m) => m.id)}
+            pendiente={accion.isPending}
+            alCerrar={() => setDialogo(null)}
+            alEnviar={(cuerpo) => accion.mutate({ ruta: `/api/agenda/${v.id}/reasignar`, cuerpo })}
+          />
+        )}
+      </Modal>
+      <Modal opened={dialogo === 'notificar'} onClose={() => setDialogo(null)} title="Notificar la visita" size="lg">
+        {dialogo === 'notificar' && (
+          <Notificar
+            id={v.id}
+            pendiente={accion.isPending}
+            alCerrar={() => setDialogo(null)}
+            alEnviar={(cuerpo) => accion.mutate({ ruta: `/api/agenda/${v.id}/notificar`, cuerpo })}
+          />
+        )}
+      </Modal>
+    </Stack>
+  );
+}
+
+/** Fecha del servidor (ISO con zona o "YYYY-MM-DD HH:MM") en formato corto. */
+function formatoFecha(f: string): string {
+  return f.replace('T', ' ').substring(0, 16);
+}
+
+function Dato({ titulo, children }: { titulo: string; children: ReactNode }) {
+  return (
+    <div>
+      <Text size="xs" c="dimmed">
+        {titulo}
+      </Text>
+      <Text size="sm">{children}</Text>
+    </div>
+  );
+}
+
+function Botones({ boton, pendiente, alCerrar, color }: { boton: string; pendiente: boolean; alCerrar: () => void; color?: string }) {
+  return (
+    <Group justify="flex-end">
+      <Button variant="default" onClick={alCerrar}>
+        Volver
+      </Button>
+      <Button type="submit" loading={pendiente} color={color}>
+        {boton}
+      </Button>
+    </Group>
+  );
+}
+
+function Reprogramar({
+  fecha: f0,
+  hora: h0,
+  pendiente,
+  alCerrar,
+  alEnviar,
+}: {
+  fecha: string;
+  hora: string;
+  pendiente: boolean;
+  alCerrar: () => void;
+  alEnviar: (c: { fecha: string; hora: string | null; motivo: string; notificar: boolean }) => void;
+}) {
+  const [fecha, setFecha] = useState(f0);
+  const [hora, setHora] = useState(h0);
+  const [motivo, setMotivo] = useState('');
+  const [notificar, setNotificar] = useState(true);
+  const enviar = (e: FormEvent) => {
+    e.preventDefault();
+    alEnviar({ fecha, hora: hora || null, motivo, notificar });
+  };
+  return (
+    <form onSubmit={enviar}>
+      <Stack>
+        <SimpleGrid cols={{ base: 1, xs: 2 }}>
+          <TextInput label="Fecha" type="date" required value={fecha} onChange={(e) => setFecha(e.currentTarget.value)} />
+          <TextInput label="Hora" type="time" value={hora} onChange={(e) => setHora(e.currentTarget.value)} />
+        </SimpleGrid>
+        <Textarea label="Motivo" required autosize minRows={2} maxLength={800} value={motivo} onChange={(e) => setMotivo(e.currentTarget.value)} />
+        <Checkbox label="Notificar la nueva fecha" checked={notificar} onChange={(e) => setNotificar(e.currentTarget.checked)} />
+        <Botones boton="Reprogramar" pendiente={pendiente} alCerrar={alCerrar} />
+      </Stack>
+    </form>
+  );
+}
+
+function SoloMotivo({
+  texto,
+  boton,
+  pendiente,
+  alCerrar,
+  alEnviar,
+}: {
+  texto: string;
+  boton: string;
+  pendiente: boolean;
+  alCerrar: () => void;
+  alEnviar: (motivo: string) => void;
+}) {
+  const [motivo, setMotivo] = useState('');
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        alEnviar(motivo);
+      }}
+    >
+      <Stack>
+        <Text size="sm">{texto}</Text>
+        <Textarea label="Motivo" required autosize minRows={2} maxLength={800} value={motivo} onChange={(e) => setMotivo(e.currentTarget.value)} />
+        <Botones boton={boton} pendiente={pendiente} alCerrar={alCerrar} color="red" />
+      </Stack>
+    </form>
+  );
+}
+
+function Reasignar({
+  opciones,
+  liderInicial,
+  otrosIniciales,
+  pendiente,
+  alCerrar,
+  alEnviar,
+}: {
+  opciones: OpcionesAgenda;
+  liderInicial: number | undefined;
+  otrosIniciales: number[];
+  pendiente: boolean;
+  alCerrar: () => void;
+  alEnviar: (c: { liderId: number; otros: number[]; motivo: string }) => void;
+}) {
+  const [lider, setLider] = useState<string | null>(liderInicial ? String(liderInicial) : null);
+  const [otros, setOtros] = useState<string[]>(otrosIniciales.map(String));
+  const [motivo, setMotivo] = useState('');
+  const datos = opciones.auditores.map((a) => ({ value: String(a.id), label: `${a.nombre} · ${opciones.roles[a.rol] ?? a.rol}` }));
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (lider) alEnviar({ liderId: Number(lider), otros: otros.filter((o) => o !== lider).map(Number), motivo });
+      }}
+    >
+      <Stack>
+        <Select label="Auditor líder" required searchable data={datos} value={lider} onChange={(x) => {
+          setLider(x);
+          setOtros(otros.filter((o) => o !== x));
+        }} />
+        <MultiSelect
+          label="Otros auditores"
+          searchable
+          maxValues={MAX_OTROS}
+          data={datos.filter((d) => d.value !== lider)}
+          value={otros}
+          onChange={setOtros}
+        />
+        <Textarea label="Motivo" required autosize minRows={2} maxLength={800} value={motivo} onChange={(e) => setMotivo(e.currentTarget.value)} />
+        <Text size="xs" c="dimmed">
+          La notificación del cambio de equipo se reenvía al OPL y a las DISANES (obligatorio).
+        </Text>
+        <Botones boton="Reasignar" pendiente={pendiente} alCerrar={alCerrar} />
+      </Stack>
+    </form>
+  );
+}
+
+function Notificar({
+  id,
+  pendiente,
+  alCerrar,
+  alEnviar,
+}: {
+  id: number;
+  pendiente: boolean;
+  alCerrar: () => void;
+  alEnviar: (c: { destinatarios: string[]; asunto: string; cuerpo: string }) => void;
+}) {
+  const borrador = useQuery({
+    queryKey: ['visita', 'notificacion', id],
+    queryFn: () => api<Borrador>(`/api/agenda/${id}/notificacion`),
+    gcTime: 0,
+  });
+  if (borrador.isLoading) {
+    return (
+      <Center py="md">
+        <Loader />
+      </Center>
+    );
+  }
+  if (borrador.error || !borrador.data) {
+    return <Alert color="red">{borrador.error?.message ?? 'No se pudo preparar la notificación.'}</Alert>;
+  }
+  return <FormNotificar borrador={borrador.data} pendiente={pendiente} alCerrar={alCerrar} alEnviar={alEnviar} />;
+}
+
+function FormNotificar({
+  borrador,
+  pendiente,
+  alCerrar,
+  alEnviar,
+}: {
+  borrador: Borrador;
+  pendiente: boolean;
+  alCerrar: () => void;
+  alEnviar: (c: { destinatarios: string[]; asunto: string; cuerpo: string }) => void;
+}) {
+  const [elegidos, setElegidos] = useState<string[]>(borrador.destinatarios.map((d) => d.correo));
+  const [asunto, setAsunto] = useState(borrador.asunto);
+  const [cuerpo, setCuerpo] = useState(borrador.cuerpo);
+  const obligatorios = borrador.destinatarios.filter((d) => d.obligatorio).map((d) => d.correo);
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        alEnviar({ destinatarios: Array.from(new Set([...obligatorios, ...elegidos])), asunto, cuerpo });
+      }}
+    >
+      <Stack>
+        {borrador.faltan.length > 0 && (
+          <Alert color="red" title="Faltan destinatarios">
+            <List size="sm">
+              {borrador.faltan.map((f) => (
+                <List.Item key={f}>{f}</List.Item>
+              ))}
+            </List>
+          </Alert>
+        )}
+        <Checkbox.Group label="Destinatarios" value={elegidos} onChange={setElegidos}>
+          <Stack gap={6} mt={6}>
+            {borrador.destinatarios.map((d) => (
+              <Checkbox
+                key={d.correo}
+                value={d.correo}
+                label={`${d.correo} (${d.origen})`}
+                disabled={d.obligatorio}
+                description={d.obligatorio ? 'Obligatorio' : undefined}
+              />
+            ))}
+          </Stack>
+        </Checkbox.Group>
+        <TextInput label="Asunto" required value={asunto} onChange={(e) => setAsunto(e.currentTarget.value)} />
+        <Textarea label="Cuerpo" required autosize minRows={6} maxLength={6000} value={cuerpo} onChange={(e) => setCuerpo(e.currentTarget.value)} />
+        <Botones boton="Enviar" pendiente={pendiente} alCerrar={alCerrar} />
+      </Stack>
+    </form>
+  );
+}

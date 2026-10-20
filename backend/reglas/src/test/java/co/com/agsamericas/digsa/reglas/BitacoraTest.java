@@ -208,6 +208,18 @@ class BitacoraTest {
     }
 
     @Test
+    @DisplayName("cambios: antes y después de lo que cambió; los datos personales dicen solo «modificado» (prueba 15 y Ley 1581)")
+    void cambios() {
+        Map<String, Object> antes = datos("estado", "programada", "nombre", "Ana Pérez", "perfiles", List.of(3, 2), "fecha", "2026-11-20");
+        Map<String, Object> despues = datos("estado", "cancelada", "nombre", "Ana María Pérez", "perfiles", List.of(2, 3), "fecha", "2026-11-20");
+        assertThat(Bitacora.cambios(antes, despues, java.util.Set.of("nombre")))
+                .isEqualTo("estado: «programada» → «cancelada»; nombre: modificado");
+        assertThat(Bitacora.cambios(antes, antes, java.util.Set.of())).isEmpty();
+        assertThat(Bitacora.cambios(datos("correos", "a@b.co"), datos("correos", "c@d.co"), java.util.Set.of())).doesNotContain("@");
+        assertThat(Bitacora.cambios(datos(), datos("descripcion", "Nueva"), java.util.Set.of())).isEqualTo("descripcion: «» → «Nueva»");
+    }
+
+    @Test
     @DisplayName("sinCorreos: quita las direcciones (Ley 1581); sin correos no cambia nada")
     void sinCorreos() {
         String t = Bitacora.sinCorreos("el correo falló: SMTP Error: The following recipients failed: ana.perez@agsamericas.com.co: 550 no existe; <x_y@dominio.org>");

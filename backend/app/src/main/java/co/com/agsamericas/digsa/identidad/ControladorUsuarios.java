@@ -29,12 +29,20 @@ public class ControladorUsuarios {
     record Estado(boolean activo) {
     }
 
+    record ClaveInicial(String clave) {
+    }
+
+    record NombrePerfil(String nombre, String descripcion) {
+    }
+
     private final ServicioUsuarios servicio;
     private final java.time.Clock reloj;
+    private final co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa cfg;
 
-    public ControladorUsuarios(ServicioUsuarios servicio, java.time.Clock reloj) {
+    public ControladorUsuarios(ServicioUsuarios servicio, java.time.Clock reloj, co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa cfg) {
         this.servicio = servicio;
         this.reloj = reloj;
+        this.cfg = cfg;
     }
 
     @GetMapping
@@ -52,13 +60,17 @@ public class ControladorUsuarios {
             m.put("ultimoIngreso", u.ultimoIngreso() == null ? null
                     : FECHA_HORA.format(u.ultimoIngreso().atZone(co.com.agsamericas.digsa.reglas.Fechas.BOGOTA)));
             m.put("bloqueado", u.bloqueado(reloj.instant()));
+            // Abierta = la que bloquea un ingreso nuevo (decisión 7.1); una huella con la actividad vencida ya no cuenta
+            m.put("sesionAbierta", co.com.agsamericas.digsa.reglas.Sesion.bloqueaNuevoIngreso(u.sesionHuella(), u.sesionUltimo(), reloj.instant(), cfg.minutosSesion()));
+            m.put("claveInicial", u.claveInicial());
             m.put("perfiles", u.perfiles().stream().map(Perfil::id).sorted().toList());
             m.put("alcanceFuerza", u.alcanceFuerza());
             m.put("alcancePunto", u.alcancePunto());
             m.put("alcanceRegional", u.alcanceRegional());
             return m;
         }).toList();
-        return Map.of("usuarios", filas, "perfiles", servicio.perfilesDisponibles(),
+        Map<String, Object> alcance = servicio.opcionesAlcance();
+        return Map.of("usuarios", filas, "perfiles", servicio.perfilesDisponibles(), "puntos", alcance.get("puntos"), "regionales", alcance.get("regionales"),
                 "fuerzas", List.of(Map.of("codigo", "EJC", "nombre", "DISAN EJC (Ejército)"), Map.of("codigo", "ARC", "nombre", "DISAN ARC (Armada)"),
                         Map.of("codigo", "FAC", "nombre", "JEFSA FAC (Fuerza Aeroespacial)")));
     }
@@ -67,7 +79,7 @@ public class ControladorUsuarios {
     @Accion(modulo = "usuarios", accion = "crear", operacion = Declarada.INSERCION)
     public ResponseEntity<ServicioUsuarios.Guardado> crear(@RequestBody ServicioUsuarios.Datos d) {
         ServicioUsuarios.Datos sinId = new ServicioUsuarios.Datos(null, d.nombre(), d.documento(), d.telefono(), d.usuario(), d.correo(),
-                d.perfiles(), d.alcanceFuerza(), d.alcancePunto(), d.alcanceRegional());
+                d.perfiles(), d.alcanceFuerza(), d.alcancePunto(), d.alcanceRegional(), d.claveInicial());
         return ResponseEntity.status(HttpStatus.CREATED).body(servicio.guardar(sinId, UsuarioSesion.actual().orElseThrow()));
     }
 
@@ -75,7 +87,7 @@ public class ControladorUsuarios {
     @Accion(modulo = "usuarios", accion = "editar", operacion = Declarada.ACTUALIZACION)
     public ServicioUsuarios.Guardado editar(@PathVariable long id, @RequestBody ServicioUsuarios.Datos d) {
         ServicioUsuarios.Datos conId = new ServicioUsuarios.Datos(id, d.nombre(), d.documento(), d.telefono(), d.usuario(), d.correo(),
-                d.perfiles(), d.alcanceFuerza(), d.alcancePunto(), d.alcanceRegional());
+                d.perfiles(), d.alcanceFuerza(), d.alcancePunto(), d.alcanceRegional(), null);
         return servicio.guardar(conId, UsuarioSesion.actual().orElseThrow());
     }
 
@@ -96,5 +108,26 @@ public class ControladorUsuarios {
             m.put("enlaceLocal", e.enlaceLocal());
         }
         return m;
+    }
+
+    @PostMapping("/{id}/clave-inicial")
+    @Accion(modulo = "usuarios", accion = "clave_inicial", operacion = Declarada.ACTUALIZACION)
+    public Map<String, Object> claveInicial(@PathVariable long id, @RequestBody ClaveInicial c) {
+        servicio.asignarClaveInicial(id, c.clave(), UsuarioSesion.actual().orElseThrow());
+        return Map.of("mensaje", "Contraseña inicial asignada. Entréguela al usuario por un canal seguro: deberá cambiarla al ingresar.");
+    }
+
+    @PostMapping("/{id}/cerrar-sesion")
+    @Accion(modulo = "usuarios", accion = "cerrar_sesion", operacion = Declarada.SALIDA)
+    public Map<String, Object> cerrarSesion(@PathVariable long id) {
+        boolean cerro = servicio.cerrarSesion(id, UsuarioSesion.actual().orElseThrow());
+        return Map.of("mensaje", cerro ? "Sesión cerrada." : "El usuario no tenía una sesión abierta.");
+    }
+
+    @PutMapping("/perfiles/{id}")
+    @Accion(modulo = "usuarios", accion = "perfil_editar", operacion = Declarada.ACTUALIZACION)
+    public Map<String, Object> renombrarPerfil(@PathVariable int id, @RequestBody NombrePerfil n) {
+        servicio.renombrarPerfil(id, n.nombre(), n.descripcion(), UsuarioSesion.actual().orElseThrow());
+        return Map.of("mensaje", "Perfil actualizado.");
     }
 }

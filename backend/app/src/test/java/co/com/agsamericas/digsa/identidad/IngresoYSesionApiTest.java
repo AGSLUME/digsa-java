@@ -87,27 +87,52 @@ class IngresoYSesionApiTest extends PruebaIntegracion {
     }
 
     @Test
-    @DisplayName("sesión única: el segundo ingreso cierra el primero con el motivo; «Salir» desde la reemplazada no cierra la vigente")
+    @DisplayName("sesión única (decisión 7.1): con una sesión activa el segundo ingreso se rechaza con 409; tras «Salir» ya puede entrar")
     void sesionUnica() {
         String u = crearUsuario("unica", Perfil.COORDINADOR);
         Navegador equipoA = navegador();
         Navegador equipoB = navegador();
         assertThat(equipoA.ingresar(u, CLAVE).estado()).isEqualTo(200);
-        assertThat(equipoB.ingresar(u, CLAVE).estado()).isEqualTo(200);
-        assertThat(bitacoraDe(idDe(u)).getFirst()).contains("reemplaza una sesión anterior");
-
-        Respuesta a = equipoA.get("/api/sesion");
-        assertThat(a.estado()).isEqualTo(401);
-        assertThat(a.json().path("motivo").asText()).isEqualTo("reemplazada");
-        assertThat(a.mensaje()).contains("ingresó desde otro equipo o navegador");
-        assertThat(bitacoraDe(idDe(u))).anyMatch(f -> f.startsWith("salida|sesion_reemplazada|"));
+        Respuesta b = equipoB.post("/api/auth/ingreso", Map.of("usuario", u, "clave", CLAVE));
+        assertThat(b.estado()).isEqualTo(409);
+        assertThat(b.json().path("motivo").asText()).isEqualTo("sesion_abierta");
+        assertThat(b.mensaje()).contains("ya tiene una sesión abierta");
+        assertThat(bitacoraDe(idDe(u)).getFirst()).isEqualTo("ingreso|login_fallido|Ingreso rechazado: el usuario ya tiene una sesión abierta");
+        assertThat(equipoA.get("/api/sesion").estado()).as("la sesión abierta sigue").isEqualTo(200);
 
         equipoA.post("/api/auth/salir", null);
-        assertThat(equipoB.get("/api/sesion").estado()).as("la sesión vigente sigue").isEqualTo(200);
-        equipoB.post("/api/auth/salir", null);
         assertThat(bitacoraDe(idDe(u)).getFirst()).startsWith("salida|logout|");
         assertThat(usuarios.porUsuario(u).orElseThrow().sesionHuella()).isNull();
-        assertThat(equipoB.get("/api/sesion").estado()).isEqualTo(401);
+        assertThat(equipoB.ingresar(u, CLAVE).estado()).isEqualTo(200);
+        assertThat(equipoA.get("/api/sesion").estado()).isEqualTo(401);
+    }
+
+    @Test
+    @DisplayName("sesión única: el código pedido antes de que la otra sesión abriera también se rechaza (la verificación se repite en el paso 2)")
+    void sesionUnicaEnElCodigo() {
+        String u = crearUsuario("unica2", Perfil.COORDINADOR);
+        Navegador equipoA = navegador();
+        Navegador equipoB = navegador();
+        Respuesta pB = equipoB.post("/api/auth/ingreso", Map.of("usuario", u, "clave", CLAVE));
+        assertThat(equipoA.ingresar(u, CLAVE).estado()).isEqualTo(200);
+        Respuesta r = equipoB.post("/api/auth/codigo", Map.of("codigo", Navegador.codigo(pB)));
+        assertThat(r.estado()).isEqualTo(409);
+        assertThat(equipoA.get("/api/sesion").estado()).isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("sesión única: una sesión abandonada deja de bloquear al cumplir el plazo de inactividad")
+    void sesionAbandonadaLibera() {
+        String u = crearUsuario("aband", Perfil.COORDINADOR);
+        Navegador equipoA = navegador();
+        equipoA.ingresar(u, CLAVE);
+        reloj.adelantar(Duration.ofMinutes(9));
+        assertThat(navegador().post("/api/auth/ingreso", Map.of("usuario", u, "clave", CLAVE)).estado()).isEqualTo(409);
+        reloj.adelantar(Duration.ofMinutes(2));
+        assertThat(navegador().ingresar(u, CLAVE).estado()).isEqualTo(200);
+        Respuesta a = equipoA.get("/api/sesion");
+        assertThat(a.estado()).isEqualTo(401);
+        assertThat(a.json().path("motivo").asText()).isEqualTo("inactividad");
     }
 
     @Test

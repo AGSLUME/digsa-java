@@ -12,6 +12,11 @@ final class AtributosSesion {
     /** Usuario que superó la contraseña y espera el código del segundo factor. */
     static final String MFA_USUARIO = "digsa.mfa.usuario";
     static final String MFA_DESDE = "digsa.mfa.desde";
+    /** Usuario que ingresó con la contraseña inicial y debe cambiarla antes del código. */
+    static final String CAMBIO_USUARIO = "digsa.cambio.usuario";
+    static final String CAMBIO_DESDE = "digsa.cambio.desde";
+    /** Última vez que la actividad de esta sesión se guardó en la base (epoch ms). */
+    static final String ULTIMO_EN_BASE = "digsa.ultimo.base";
 
     private AtributosSesion() {
     }

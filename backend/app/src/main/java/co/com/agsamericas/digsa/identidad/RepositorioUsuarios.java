@@ -24,7 +24,7 @@ public class RepositorioUsuarios {
     private static final String COLUMNAS = """
             u.id, u.nombre, u.documento, u.telefono, u.usuario, u.correo, u.clave_hash, u.activo, u.clave_definida, u.clave_vence,
             u.debe_cambiar_clave, u.clave_actualizada, u.token_hash, u.token_vence, u.intentos, u.bloqueado_hasta, u.ultimo_ingreso,
-            u.alcance_fuerza, u.alcance_punto, u.alcance_regional, u.sesion_huella,
+            u.alcance_fuerza, u.alcance_punto, u.alcance_regional, u.sesion_huella, u.sesion_ultimo, u.clave_inicial,
             COALESCE((SELECT string_agg(up.perfil_id::text, ',') FROM usuarios_perfiles up JOIN perfiles p ON p.id = up.perfil_id
                       WHERE up.usuario_id = u.id AND p.activo), '') AS perfiles""";
 
@@ -86,21 +86,71 @@ public class RepositorioUsuarios {
                 .param("ahora", odt(ahora)).param("id", id).update();
     }
 
-    /** Guarda la huella de la sesión nueva (la anterior queda reemplazada) y la fecha del ingreso. */
-    public void iniciarSesion(long id, String huella, Instant ahora) {
-        jdbc.sql("UPDATE usuarios SET sesion_huella = :h, ultimo_ingreso = :ahora, intentos = 0, bloqueado_hasta = NULL WHERE id = :id")
-                .param("h", huella).param("ahora", odt(ahora)).param("id", id).update();
+    /**
+     * Guarda la huella de la sesión nueva y la fecha del ingreso, solo si no hay otra sesión con actividad reciente (decisión 7.1):
+     * dos ingresos casi simultáneos no pasan los dos. @return false si otra sesión sigue abierta
+     */
+    public boolean iniciarSesion(long id, String huella, Instant ahora, int minutosInactividad) {
+        return jdbc.sql("""
+                UPDATE usuarios SET sesion_huella = :h, sesion_ultimo = :ahora, ultimo_ingreso = :ahora, intentos = 0, bloqueado_hasta = NULL
+                WHERE id = :id AND (sesion_huella IS NULL OR sesion_ultimo IS NULL OR sesion_ultimo <= :limite)""")
+                .param("h", huella).param("ahora", odt(ahora)).param("limite", odt(ahora.minusSeconds(60L * minutosInactividad))).param("id", id)
+                .update() == 1;
     }
 
     /** Borra la huella solo si es la de esta sesión (una sesión ya reemplazada no cierra la vigente). */
     public void cerrarSesion(long id, String huella) {
-        jdbc.sql("UPDATE usuarios SET sesion_huella = NULL WHERE id = :id AND sesion_huella = :h").param("id", id).param("h", huella).update();
+        jdbc.sql("UPDATE usuarios SET sesion_huella = NULL, sesion_ultimo = NULL WHERE id = :id AND sesion_huella = :h").param("id", id).param("h", huella).update();
+    }
+
+    /** Actividad de la sesión vigente (decisión 7.1: mientras haya actividad reciente se bloquea un ingreso nuevo). */
+    public void tocarSesion(long id, String huella, Instant ahora) {
+        jdbc.sql("UPDATE usuarios SET sesion_ultimo = :ahora WHERE id = :id AND sesion_huella = :h").param("ahora", odt(ahora)).param("id", id)
+                .param("h", huella).update();
+    }
+
+    /** Cierra la sesión que tenga abierta (administrador, inactivación, cambio de contraseña). @return true si había una */
+    public boolean cerrarCualquierSesion(long id) {
+        return jdbc.sql("UPDATE usuarios SET sesion_huella = NULL, sesion_ultimo = NULL WHERE id = :id AND sesion_huella IS NOT NULL")
+                .param("id", id).update() == 1;
+    }
+
+    /** Horas que vale la contraseña inicial sin usarse: la conoce el administrador y suele quedar en papel o en un chat. */
+    public static final int HORAS_CLAVE_INICIAL = 72;
+
+    /** Contraseña inicial asignada por el administrador: vale 72 horas para ingresar y obliga a cambiarla en la aplicación. */
+    public void asignarClaveInicial(long id, String claveHash, Instant ahora) {
+        jdbc.sql("""
+                UPDATE usuarios SET clave_hash = :c, clave_definida = true, clave_inicial = true, debe_cambiar_clave = true, clave_vence = :vence,
+                  clave_actualizada = :ahora, token_hash = NULL, token_vence = NULL, intentos = 0, bloqueado_hasta = NULL, actualizado = :ahora
+                WHERE id = :id""").param("c", claveHash).param("vence", odt(ahora.plusSeconds(3600L * HORAS_CLAVE_INICIAL)))
+                .param("ahora", odt(ahora)).param("id", id).update();
+    }
+
+    /** Cambio de la contraseña inicial dentro de la aplicación (sin enlace). @return false si ya se había cambiado (doble envío) */
+    public boolean cambiarClaveInicial(long id, String claveHash, Instant vence, Instant ahora) {
+        return jdbc.sql("""
+                UPDATE usuarios SET clave_hash = :c, clave_inicial = false, debe_cambiar_clave = false, clave_vence = :vence,
+                  clave_actualizada = :ahora, actualizado = :ahora WHERE id = :id AND clave_inicial""")
+                .param("c", claveHash).param("vence", odt(vence)).param("ahora", odt(ahora)).param("id", id).update() == 1;
+    }
+
+    /** Nombres configurables de los perfiles (el catálogo final de perfiles llega por adenda). */
+    public void renombrarPerfil(int id, String nombre, String descripcion) {
+        jdbc.sql("UPDATE perfiles SET nombre = :n, descripcion = :d WHERE id = :id").param("n", nombre).param("d", descripcion).param("id", id).update();
+    }
+
+    public java.util.Map<Integer, String> nombresPerfiles() {
+        java.util.Map<Integer, String> m = new java.util.HashMap<>();
+        jdbc.sql("SELECT id, nombre FROM perfiles").query((rs, n) -> m.put(rs.getInt(1), rs.getString(2))).list();
+        return m;
     }
 
     public void guardarToken(long id, String hash, Instant vence, boolean exigirCambio, Instant ahora) {
         jdbc.sql("""
                 UPDATE usuarios SET token_hash = :h, token_vence = :v, actualizado = :ahora,
                   debe_cambiar_clave = CASE WHEN :exigir THEN true ELSE debe_cambiar_clave END,
+                  clave_inicial = CASE WHEN :exigir THEN false ELSE clave_inicial END,
                   intentos = CASE WHEN :exigir THEN 0 ELSE intentos END,
                   bloqueado_hasta = CASE WHEN :exigir THEN NULL ELSE bloqueado_hasta END
                 WHERE id = :id""")
@@ -112,7 +162,7 @@ public class RepositorioUsuarios {
         return jdbc.sql("""
                 UPDATE usuarios SET clave_hash = :c, clave_definida = true, debe_cambiar_clave = false, clave_vence = :vence,
                   clave_actualizada = :ahora, token_hash = NULL, token_vence = NULL, intentos = 0, bloqueado_hasta = NULL,
-                  sesion_huella = NULL, actualizado = :ahora
+                  sesion_huella = NULL, sesion_ultimo = NULL, clave_inicial = false, actualizado = :ahora
                 WHERE id = :id AND token_hash = :t""")
                 .param("c", claveHash).param("vence", odt(vence)).param("ahora", odt(ahora)).param("id", id).param("t", tokenHash)
                 .update() == 1;
@@ -187,7 +237,7 @@ public class RepositorioUsuarios {
                 instante(rs, "clave_actualizada"), rs.getString("token_hash"), instante(rs, "token_vence"), rs.getInt("intentos"),
                 instante(rs, "bloqueado_hasta"), instante(rs, "ultimo_ingreso"), rs.getString("alcance_fuerza"),
                 (Long) rs.getObject("alcance_punto"), (Long) rs.getObject("alcance_regional"), rs.getString("sesion_huella"),
-                Set.copyOf(perfiles));
+                instante(rs, "sesion_ultimo"), rs.getBoolean("clave_inicial"), Set.copyOf(perfiles));
     }
 
     static Instant instante(ResultSet rs, String columna) throws SQLException {

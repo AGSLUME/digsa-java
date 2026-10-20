@@ -9,7 +9,8 @@ import java.util.Set;
 public record Usuario(long id, String nombre, String documento, String telefono, String usuario, String correo, String claveHash,
                       boolean activo, boolean claveDefinida, Instant claveVence, boolean debeCambiarClave, Instant claveActualizada,
                       String tokenHash, Instant tokenVence, int intentos, Instant bloqueadoHasta, Instant ultimoIngreso,
-                      String alcanceFuerza, Long alcancePunto, Long alcanceRegional, String sesionHuella, Set<Perfil> perfiles) {
+                      String alcanceFuerza, Long alcancePunto, Long alcanceRegional, String sesionHuella, Instant sesionUltimo,
+                      boolean claveInicial, Set<Perfil> perfiles) {
 
     public boolean bloqueado(Instant ahora) {
         return bloqueadoHasta != null && bloqueadoHasta.isAfter(ahora);

@@ -39,7 +39,18 @@ public final class Bitacora {
             Map.entry("captcha_fallido", Operacion.INGRESO), Map.entry("mfa_enviado", Operacion.INGRESO),
             Map.entry("mfa_fallido", Operacion.INGRESO),
             Map.entry("logout", Operacion.SALIDA), Map.entry("sesion_expirada", Operacion.SALIDA),
-            Map.entry("sesion_reemplazada", Operacion.SALIDA),
+            Map.entry("sesion_reemplazada", Operacion.SALIDA), Map.entry("sesion_cerrada", Operacion.SALIDA),
+            Map.entry("perfil_editado", Operacion.ACTUALIZACION), Map.entry("parametro_editado", Operacion.ACTUALIZACION),
+            Map.entry("regional_creada", Operacion.INSERCION), Map.entry("regional_editada", Operacion.ACTUALIZACION),
+            Map.entry("punto_creado", Operacion.INSERCION), Map.entry("punto_editado", Operacion.ACTUALIZACION),
+            Map.entry("auditor_editado", Operacion.ACTUALIZACION), Map.entry("puntos_carga", Operacion.INSERCION),
+            Map.entry("fuerza_creada", Operacion.INSERCION), Map.entry("fuerza_editada", Operacion.ACTUALIZACION),
+            Map.entry("fuerza_eliminada", Operacion.ELIMINACION),
+            Map.entry("visita_programada", Operacion.INSERCION), Map.entry("visita_editada", Operacion.ACTUALIZACION),
+            Map.entry("visita_notificada", Operacion.ACTUALIZACION), Map.entry("visita_notificacion_fallida", Operacion.ACTUALIZACION), Map.entry("visita_reprogramada", Operacion.ACTUALIZACION),
+            Map.entry("visita_cancelada", Operacion.ACTUALIZACION), Map.entry("visita_iniciada", Operacion.ACTUALIZACION),
+            Map.entry("visita_reasignada", Operacion.ACTUALIZACION), Map.entry("reparto_movido", Operacion.ACTUALIZACION),
+            Map.entry("visita_reabierta", Operacion.ACTUALIZACION), Map.entry("visita_cerrada", Operacion.ACTUALIZACION),
             Map.entry("usuario_creado", Operacion.INSERCION), Map.entry("admin_creado", Operacion.INSERCION),
             Map.entry("catalogo_creado", Operacion.INSERCION),
             Map.entry("usuario_editado", Operacion.ACTUALIZACION), Map.entry("usuario_estado", Operacion.ACTUALIZACION),
@@ -153,6 +164,39 @@ public final class Bitacora {
         Operacion op = denegado ? operacionDeTipo("acceso_denegado") : operacion.orElse(Operacion.CONSULTA);
         String tipo = denegado ? "acceso_denegado" : anotada ? p.anotaciones().getFirst().tipo() : p.modulo() + "." + p.accion();
         return Optional.of(new Fila(op, tipo, detalle + sufijo));
+    }
+
+    /**
+     * Valores de antes y después de una modificación (Anexo 5, prueba 15: la trazabilidad de las modificaciones). Los campos con datos
+     * personales (Ley 1581) dicen solo que cambiaron, sin los valores. Solo se listan los campos que cambiaron, en el orden de
+     * {@code despues}.
+     *
+     * @return p. ej. "estado: «programada» → «cancelada»; nombre: modificado" o vacío si nada cambió
+     */
+    public static String cambios(Map<String, ?> antes, Map<String, ?> despues, Set<String> sinValor) {
+        List<String> partes = new ArrayList<>();
+        for (var e : despues.entrySet()) {
+            Object a = antes.get(e.getKey());
+            Object b = e.getValue();
+            if (java.util.Objects.equals(normalizar(a), normalizar(b))) {
+                continue;
+            }
+            if (sinValor.contains(e.getKey())) {
+                partes.add(e.getKey() + ": modificado");
+            } else {
+                partes.add(e.getKey() + ": «" + cortar(sinCorreos(normalizar(a)), 40) + "» → «" + cortar(sinCorreos(normalizar(b)), 40) + "»");
+            }
+        }
+        return String.join("; ", partes);
+    }
+
+    private static String normalizar(Object v) {
+        if (v == null) {
+            return "";
+        }
+        String s = v instanceof java.util.Collection<?> c ? c.stream().map(String::valueOf).sorted().collect(Collectors.joining(","))
+                : String.valueOf(v);
+        return ESPACIOS.matcher(s).replaceAll(" ").strip();
     }
 
     /** Sin correos en la bitácora (Ley 1581): p. ej. un error de SMTP que lista los destinatarios. */

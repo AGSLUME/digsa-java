@@ -36,6 +36,9 @@ public class ControladorIngreso {
                       String confirmacion) {
     }
 
+    record CambioInicial(@NotBlank(message = "Escriba la contraseña.") @Size(max = 200) String clave, String confirmacion) {
+    }
+
     private final ServicioIngreso ingreso;
     private final ServicioClaves claves;
     private final Captcha captcha;
@@ -68,6 +71,13 @@ public class ControladorIngreso {
     public Map<String, Object> verificar(@RequestBody @jakarta.validation.Valid Codigo c, HttpServletRequest req, HttpServletResponse res) {
         UsuarioSesion u = ingreso.verificar(c.codigo().strip(), req, res);
         return Map.of("usuario", u.usuario(), "nombre", u.nombre());
+    }
+
+    /** Contraseña inicial asignada por el administrador: se cambia antes del código, sin salir al correo. */
+    @PostMapping("/cambiar-clave")
+    @Accion(modulo = "sesion", accion = "clave_inicial", operacion = Declarada.SIN_REGISTRO)
+    public ServicioIngreso.Paso cambiarClave(@RequestBody @jakarta.validation.Valid CambioInicial c, HttpServletRequest req) {
+        return conCodigoLocal(ingreso.cambiarClaveInicial(c.clave(), c.confirmacion(), req), req);
     }
 
     @PostMapping("/codigo/reenviar")

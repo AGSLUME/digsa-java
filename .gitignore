@@ -1,0 +1,18 @@
+# Configuración local de Claude Code (agentes, validaciones): no se versiona
+.claude/
+
+# Secretos y entornos locales
+.env
+.env.*
+!.env.example
+
+# Datos locales de desarrollo (PostgreSQL embebido, correos y archivos de prueba)
+.local/
+
+# Compilados
+backend/**/target/
+frontend/node_modules/
+frontend/dist/
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/

@@ -1,0 +1,99 @@
+# Suite DIGSA · configuración. Ningún secreto aquí: llegan por variables de entorno (en Azure, desde Key Vault).
+spring:
+  application:
+    name: digsa
+  autoconfigure:
+    # Sin el usuario en memoria que Spring Boot crea por defecto (imprime su contraseña en el log)
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  datasource:
+    url: ${DIGSA_DB_URL:jdbc:postgresql://localhost:5432/digsa}
+    username: ${DIGSA_DB_USUARIO:digsa_app}
+    password: ${DIGSA_DB_CLAVE:}
+    hikari:
+      maximum-pool-size: ${DIGSA_DB_POOL:20}
+      connection-timeout: 10000
+      leak-detection-threshold: 60000   # una conexión retenida más de 60 s queda en el registro (fugas)
+  flyway:
+    locations: classpath:db/migration
+    # Rol dueño de las tablas para migrar; la aplicación usa digsa_app con permisos mínimos (V2). Vacío = el mismo de la aplicación (local)
+    user: ${DIGSA_DB_MIGRACION_USUARIO:${spring.datasource.username}}
+    password: ${DIGSA_DB_MIGRACION_CLAVE:${spring.datasource.password}}
+    placeholders:
+      rol_app: ${DIGSA_DB_ROL_APP:}
+  session:
+    jdbc:
+      initialize-schema: never
+      table-name: SPRING_SESSION
+    timeout: 30m
+  jackson:
+    time-zone: America/Bogota
+    default-property-inclusion: always
+  servlet:
+    multipart:
+      max-file-size: 110MB
+      max-request-size: 120MB
+      file-size-threshold: 2MB
+  mail:
+    host: ${DIGSA_SMTP_HOST:}
+    port: ${DIGSA_SMTP_PUERTO:587}
+    username: ${DIGSA_SMTP_USUARIO:}
+    password: ${DIGSA_SMTP_CLAVE:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 30000
+      mail.smtp.writetimeout: 60000
+      mail.smtp.sendpartial: true   # entrega a los destinatarios válidos aunque otro sea rechazado; el adaptador informa quién no lo recibió
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: ${PORT:8080}
+  # IP real desde X-Forwarded-For solo a través de proxies de confianza: por defecto Tomcat confía en los rangos privados
+  # (ingress o balanceador interno); otro rango se fija con server.tomcat.remoteip.internal-proxies
+  forward-headers-strategy: native
+  error:
+    include-message: never
+    include-stacktrace: never
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: strict
+
+management:
+  health:
+    mail:
+      enabled: false   # una caída del correo no debe marcar la aplicación como caída (se reiniciaría); cada envío reporta su resultado
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+digsa:
+  url: ${DIGSA_URL:http://localhost:8080/}
+  entorno: ${DIGSA_ENTORNO:produccion}
+  sesion-minutos: ${DIGSA_SESION_MINUTOS:10}
+  clave-vigencia-dias: ${DIGSA_CLAVE_VIGENCIA_DIAS:30}
+  correo:
+    modo: ${DIGSA_CORREO_MODO:smtp}
+    remitente: ${DIGSA_CORREO_REMITENTE:}
+    nombre-remitente: Suite DIGSA
+    carpeta: ${DIGSA_CORREO_CARPETA:almacen/correos}
+  captcha:
+    clave-sitio: ${DIGSA_TURNSTILE_SITIO:}
+    clave-secreta: ${DIGSA_TURNSTILE_SECRETA:}
+  reportes:
+    correo-defecto: ${DIGSA_CORREO_REPORTES:}
+    dominios-permitidos: ${DIGSA_DOMINIOS_REPORTES:}
+  archivos:
+    carpeta: ${DIGSA_ARCHIVOS_CARPETA:almacen/archivos}
+
+logging:
+  level:
+    root: INFO

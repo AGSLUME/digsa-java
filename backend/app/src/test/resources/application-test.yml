@@ -1,0 +1,26 @@
+# Pruebas de integración: PostgreSQL 16 real (embebido sin Docker por defecto; con Docker: -Dzonky.test.database.provider=docker)
+zonky:
+  test:
+    database:
+      provider: zonky
+      type: postgres
+      postgres:
+        docker:
+          image: postgres:16-alpine
+
+digsa:
+  url: http://localhost/
+  entorno: local
+  correo:
+    modo: archivo
+    carpeta: target/correos-prueba
+  captcha:
+    clave-sitio: ""
+    clave-secreta: ""
+  reportes:
+    correo-defecto: reportes@example.com
+    dominios-permitidos: example.com
+
+logging:
+  level:
+    co.com.agsamericas.digsa: INFO

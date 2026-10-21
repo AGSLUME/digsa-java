@@ -90,6 +90,97 @@ public class Exportador {
         return sb.toString().getBytes(StandardCharsets.UTF_8);
     }
 
+    public static final String TIPO_TXT = "text/plain; charset=UTF-8";
+    public static final String TIPO_PDF = "application/pdf";
+
+    /** Texto plano con columnas alineadas (Anexo 5, 2.12: exportación TXT). */
+    public byte[] txt(Reporte r) {
+        String fin = "\r\n";
+        StringBuilder sb = new StringBuilder();
+        for (String[] linea : encabezado(r)) {
+            sb.append(linea[0]).append(": ").append(linea[1]).append(fin);
+        }
+        sb.append(fin);
+        int n = r.columnas().size();
+        int[] ancho = new int[n];
+        for (int i = 0; i < n; i++) {
+            ancho[i] = r.columnas().get(i).length();
+        }
+        List<String[]> filas = new java.util.ArrayList<>();
+        for (List<Object> datos : r.filas()) {
+            String[] f = new String[n];
+            for (int i = 0; i < n; i++) {
+                f[i] = i < datos.size() ? texto(datos.get(i)).replaceAll("[\\r\\n\\t]+", " ") : "";
+                ancho[i] = Math.max(ancho[i], f[i].length()); // sin recortar: los reportes salen completos
+            }
+            filas.add(f);
+        }
+        sb.append(linea(r.columnas().toArray(String[]::new), ancho)).append(fin);
+        StringBuilder sep = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            sep.append(i == 0 ? "" : "-+-").append("-".repeat(ancho[i]));
+        }
+        sb.append(sep).append(fin);
+        for (String[] f : filas) {
+            sb.append(linea(f, ancho)).append(fin);
+        }
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String linea(String[] celdas, int[] ancho) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < ancho.length; i++) {
+            String c = i < celdas.length && celdas[i] != null ? celdas[i] : "";
+            sb.append(i == 0 ? "" : " | ").append(c).append(" ".repeat(ancho[i] - c.length()));
+        }
+        return sb.toString().stripTrailing();
+    }
+
+    /** PDF horizontal con el encabezado del reporte y las columnas repetidas en cada página; sin tope de filas. */
+    public byte[] pdf(Reporte r) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        com.lowagie.text.Document doc = new com.lowagie.text.Document(com.lowagie.text.PageSize.LETTER.rotate(), 30, 30, 36, 36);
+        com.lowagie.text.Font titulo = new com.lowagie.text.Font(com.lowagie.text.Font.HELVETICA, 13, com.lowagie.text.Font.BOLD, new java.awt.Color(11, 61, 92));
+        com.lowagie.text.Font normal = new com.lowagie.text.Font(com.lowagie.text.Font.HELVETICA, 8);
+        com.lowagie.text.Font negrita = new com.lowagie.text.Font(com.lowagie.text.Font.HELVETICA, 8, com.lowagie.text.Font.BOLD);
+        try {
+            com.lowagie.text.pdf.PdfWriter.getInstance(doc, out);
+            doc.addTitle(r.titulo());
+            doc.open();
+            doc.add(new com.lowagie.text.Paragraph(r.titulo(), titulo));
+            for (String[] linea : encabezado(r)) {
+                if (!"Reporte".equals(linea[0])) {
+                    doc.add(new com.lowagie.text.Paragraph(linea[0] + ": " + linea[1], normal));
+                }
+            }
+            doc.add(new com.lowagie.text.Paragraph(" ", normal));
+            int n = Math.max(1, r.columnas().size());
+            com.lowagie.text.pdf.PdfPTable t = new com.lowagie.text.pdf.PdfPTable(n);
+            t.setWidthPercentage(100);
+            t.setHeaderRows(1);
+            for (String c : r.columnas()) {
+                com.lowagie.text.pdf.PdfPCell celda = new com.lowagie.text.pdf.PdfPCell(new com.lowagie.text.Phrase(c, negrita));
+                celda.setBackgroundColor(new java.awt.Color(235, 239, 243));
+                t.addCell(celda);
+            }
+            for (List<Object> datos : r.filas()) {
+                for (int i = 0; i < n; i++) {
+                    t.addCell(new com.lowagie.text.Phrase(i < datos.size() ? texto(datos.get(i)) : "", normal));
+                }
+            }
+            if (r.filas().isEmpty()) {
+                com.lowagie.text.pdf.PdfPCell vacia = new com.lowagie.text.pdf.PdfPCell(new com.lowagie.text.Phrase("Sin registros con estos filtros.", normal));
+                vacia.setColspan(n);
+                t.addCell(vacia);
+            }
+            doc.add(t);
+            doc.close();
+        } catch (com.lowagie.text.DocumentException e) {
+            throw new IllegalStateException("No se pudo generar el PDF del reporte", e);
+        }
+        return out.toByteArray();
+    }
+
     private static List<String[]> encabezado(Reporte r) {
         List<String[]> l = new java.util.ArrayList<>();
         l.add(new String[] {"Reporte", r.titulo()});

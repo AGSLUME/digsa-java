@@ -32,6 +32,8 @@
         <archunit.version>1.5.1</archunit.version>
         <greenmail.version>2.1.14</greenmail.version>
         <tika.version>3.2.3</tika.version>
+        <openpdf.version>2.0.3</openpdf.version>
+        <metadata-extractor.version>2.19.0</metadata-extractor.version>
     </properties>
 
     <dependencyManagement>

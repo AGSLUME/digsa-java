@@ -51,10 +51,10 @@ public class ServicioConsultaAgenda {
     }
 
     /** Condición SQL del alcance sobre «v» (visitas) y «p» (puntos), con sus parámetros. */
-    record Condicion(String sql, Map<String, Object> params) {
+    public record Condicion(String sql, Map<String, Object> params) {
     }
 
-    static Condicion condicion(Alcance a) {
+    public static Condicion condicion(Alcance a) {
         return switch (a) {
             case Alcance.Todo t -> new Condicion("true", Map.of());
             // OPL nacional: no ve las visitas a necesidad que aún no se hacen (son sin previo aviso, Anexo 3 p.14)

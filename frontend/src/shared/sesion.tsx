@@ -12,6 +12,8 @@ export interface DatosSesion {
   nombre: string;
   perfiles: string[];
   menu: ItemMenu[];
+  /** Todas las pantallas permitidas, también las que no salen en el menú. */
+  pantallas?: string[];
   minutosInactividad: number;
 }
 
@@ -28,5 +30,5 @@ export function useSesion(): DatosSesion {
 }
 
 export function puedeEntrar(s: DatosSesion, ruta: string): boolean {
-  return ruta === 'inicio' || s.menu.some((m) => m.ruta === ruta);
+  return ruta === 'inicio' || (s.pantallas ?? []).includes(ruta) || s.menu.some((m) => m.ruta === ruta);
 }

@@ -48,6 +48,8 @@ public class ControladorSesion {
         Map<Integer, String> nombres = usuarios.nombresPerfiles(); // configurables por el administrador
         m.put("perfiles", perfiles.stream().map(p -> nombres.getOrDefault(p.id(), p.nombre())).sorted().toList());
         m.put("menu", menu);
+        // Todas las pantallas permitidas, incluidas las que no van en el menú (p. ej. el formulario de la visita)
+        m.put("pantallas", Arrays.stream(Pantallas.values()).filter(p -> p.puedeEntrar(perfiles, true)).map(Pantallas::ruta).toList());
         m.put("minutosInactividad", cfg.minutosSesion());
         return m;
     }

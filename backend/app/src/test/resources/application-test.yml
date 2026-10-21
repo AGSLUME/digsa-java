@@ -14,6 +14,8 @@ digsa:
   correo:
     modo: archivo
     carpeta: target/correos-prueba
+  archivos:
+    carpeta: target/archivos-prueba     # las evidencias y actas de las pruebas no quedan en el árbol fuente
   captcha:
     clave-sitio: ""
     clave-secreta: ""

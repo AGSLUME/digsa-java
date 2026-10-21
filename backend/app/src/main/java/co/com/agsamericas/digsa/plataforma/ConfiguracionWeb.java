@@ -18,5 +18,6 @@ public class ConfiguracionWeb implements WebMvcConfigurer {
     public void addViewControllers(ViewControllerRegistry registry) {
         registry.addViewController("/{ruta:^(?!api$)[^.]*}").setViewName("forward:/index.html");
         registry.addViewController("/{ruta:^(?!api$)[^.]*}/{sub:[^.]*}").setViewName("forward:/index.html");
+        registry.addViewController("/{ruta:^(?!api$)[^.]*}/{sub:[^.]*}/{id:[^.]*}").setViewName("forward:/index.html"); // /agenda/visita/12
     }
 }

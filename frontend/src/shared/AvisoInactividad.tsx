@@ -13,6 +13,30 @@ export function AvisoInactividad({ minutos, alSalir }: { minutos: number; alSali
   const local = useRef(Date.now());
   const verificando = useRef(false);
 
+  // Quien está escribiendo o haciendo clic (p. ej. diligenciando el formulario de la visita sin guardar) no está inactivo: se
+  // renueva la sesión en el servidor como máximo cada 20 s. Sin interacción, el aviso y el cierre siguen igual.
+  const renovado = useRef(0);
+  useEffect(() => {
+    const alInteractuar = (ev: Event) => {
+      // Un clic en un botón o enlace ya hace su propia petición (y «Salir» no debe competir con una renovación)
+      if (ev.type === 'pointerdown' && ev.target instanceof Element && ev.target.closest('button, a, [role="button"]')) return;
+      const ahora = Date.now();
+      if (ahora - renovado.current < 20_000 || verificando.current) return;
+      renovado.current = ahora;
+      api('/api/sesion/mantener')
+        .then(() => {
+          local.current = Date.now();
+          setRestantes(null);
+        })
+        .catch(() => {
+          // si la sesión ya se cerró, el manejo del 401 en api.ts lleva al ingreso
+        });
+    };
+    const eventos = ['keydown', 'pointerdown', 'input'] as const;
+    eventos.forEach((e) => document.addEventListener(e, alInteractuar, { passive: true, capture: true }));
+    return () => eventos.forEach((e) => document.removeEventListener(e, alInteractuar, { capture: true }));
+  }, []);
+
   useEffect(() => {
     marcarActividad();
     const t = setInterval(() => {

@@ -2,7 +2,7 @@ import { Alert, Anchor, Badge, Button, Card, Center, Checkbox, Group, List, Load
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { colorEstado, horaCorta, type DetalleVisita, type OpcionesAgenda } from '../shared/agenda';
 import { api, ErrorApi } from '../shared/api';
 import { FormularioVisita, MAX_OTROS } from '../shared/FormularioVisita';
@@ -29,7 +29,7 @@ interface Borrador {
   cuerpo: string;
 }
 
-type Dialogo = 'editar' | 'reprogramar' | 'cancelar' | 'reasignar' | 'notificar' | null;
+type Dialogo = 'editar' | 'reprogramar' | 'cancelar' | 'reasignar' | 'notificar' | 'reabrir' | null;
 
 const TITULOS: Record<OrigenVisita, string> = { agenda: 'Agenda', 'mis-visitas': 'Mis visitas', calendario: 'Calendario' };
 
@@ -46,12 +46,13 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
     enabled: origen === 'agenda',
   });
   const [dialogo, setDialogo] = useState<Dialogo>(null);
-  const [iniciada, setIniciada] = useState(false);
+  const navegar = useNavigate();
   const [destinoParte, setDestinoParte] = useState<Record<string, string | null>>({});
 
   const refrescar = () => {
     qc.invalidateQueries({ queryKey: clave });
     qc.invalidateQueries({ queryKey: ['agenda'] });
+    qc.invalidateQueries({ queryKey: ['formulario', id] });
   };
 
   const accion = useMutation({
@@ -127,11 +128,21 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
               Cancelar visita
             </Button>
           )}
+          {puede('reabrir') && (
+            <Button variant="light" color="grape" data-testid="reabrir" onClick={() => setDialogo('reabrir')} disabled={!opciones.data}>
+              Reabrir
+            </Button>
+          )}
+          {origen !== 'calendario' && (v.estado === 'ejecucion' || v.estado === 'cerrada') && !(origen === 'mis-visitas' && v.acciones.includes('iniciar')) && (
+            <Button variant={v.estado === 'cerrada' ? 'light' : 'filled'} onClick={() => navegar(`/visita/${v.id}`)}>
+              Abrir formulario
+            </Button>
+          )}
           {origen === 'mis-visitas' && v.acciones.includes('iniciar') && (
             <Button
               loading={accion.isPending}
               onClick={() =>
-                accion.mutate({ ruta: `/api/mis-visitas/${v.id}/iniciar` }, { onSuccess: () => setIniciada(true) })
+                accion.mutate({ ruta: `/api/mis-visitas/${v.id}/iniciar` }, { onSuccess: () => navegar(`/visita/${v.id}`) })
               }
             >
               {v.estado === 'ejecucion' ? 'Continuar' : 'Iniciar visita'}
@@ -140,7 +151,6 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
         </Group>
       </Group>
       {opciones.error && <Alert color="red">No se pudieron cargar las opciones: {opciones.error.message}</Alert>}
-      {iniciada && <Alert color="blue">El formulario del checklist llega en el sprint S3.</Alert>}
       {v.equipoSinNotificar && deAgenda && (
         <Alert color="orange">El cambio de equipo aún no se ha notificado al OPL y a las DISANES.</Alert>
       )}
@@ -395,6 +405,17 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
           />
         )}
       </Modal>
+      <Modal opened={dialogo === 'reabrir'} onClose={() => setDialogo(null)} title="Reabrir visita">
+        {dialogo === 'reabrir' && opciones.data && (
+          <Reabrir
+            numero={v.numero}
+            motivos={opciones.data.motivosReapertura}
+            pendiente={accion.isPending}
+            alCerrar={() => setDialogo(null)}
+            alEnviar={(cuerpo) => accion.mutate({ ruta: `/api/visitas/${v.id}/reabrir`, cuerpo })}
+          />
+        )}
+      </Modal>
       <Modal opened={dialogo === 'reasignar'} onClose={() => setDialogo(null)} title="Reasignar equipo" size="lg">
         {dialogo === 'reasignar' && opciones.data && (
           <Reasignar
@@ -511,6 +532,63 @@ function SoloMotivo({
         <Text size="sm">{texto}</Text>
         <Textarea label="Motivo" required autosize minRows={2} maxLength={800} value={motivo} onChange={(e) => setMotivo(e.currentTarget.value)} />
         <Botones boton={boton} pendiente={pendiente} alCerrar={alCerrar} color="red" />
+      </Stack>
+    </form>
+  );
+}
+
+function Reabrir({
+  numero,
+  motivos,
+  pendiente,
+  alCerrar,
+  alEnviar,
+}: {
+  numero: string;
+  motivos: Record<string, string>;
+  pendiente: boolean;
+  alCerrar: () => void;
+  alEnviar: (c: { motivo: string; descripcion: string }) => void;
+}) {
+  const [motivo, setMotivo] = useState<string | null>(null);
+  const [descripcion, setDescripcion] = useState('');
+  const corta = descripcion.trim().length < 10;
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (motivo && !corta) alEnviar({ motivo, descripcion: descripcion.trim() });
+      }}
+    >
+      <Stack>
+        <Text size="sm">La visita {numero} vuelve a ejecución en una nueva ronda; al enviar el acta otra vez se genera una nueva versión.</Text>
+        <Select
+          label="Motivo"
+          required
+          allowDeselect={false}
+          data={Object.entries(motivos).map(([value, label]) => ({ value, label }))}
+          value={motivo}
+          onChange={setMotivo}
+        />
+        <Textarea
+          label="Descripción"
+          required
+          autosize
+          minRows={3}
+          minLength={10}
+          maxLength={800}
+          description="Entre 10 y 800 caracteres."
+          value={descripcion}
+          onChange={(e) => setDescripcion(e.currentTarget.value)}
+        />
+        <Group justify="flex-end">
+          <Button variant="default" onClick={alCerrar}>
+            Volver
+          </Button>
+          <Button type="submit" loading={pendiente} disabled={!motivo || corta}>
+            Reabrir visita
+          </Button>
+        </Group>
       </Stack>
     </form>
   );

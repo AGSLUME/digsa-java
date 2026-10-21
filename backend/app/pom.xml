@@ -74,6 +74,18 @@
             <artifactId>tika-core</artifactId>
             <version>${tika.version}</version>
         </dependency>
+        <!-- Acta en PDF (LGPL/MPL) -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>${openpdf.version}</version>
+        </dependency>
+        <!-- Orientación EXIF de las fotos (decisión 10.7) -->
+        <dependency>
+            <groupId>com.drewnoakes</groupId>
+            <artifactId>metadata-extractor</artifactId>
+            <version>${metadata-extractor.version}</version>
+        </dependency>
 
         <!-- Pruebas: PostgreSQL 16 real (embebido sin Docker, o Testcontainers cuando haya Docker), correo en memoria -->
         <dependency>

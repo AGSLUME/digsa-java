@@ -1,4 +1,4 @@
-import { Alert, Badge, Card, Center, Group, Loader, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core';
+import { Alert, Badge, Button, Card, Center, Group, Loader, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { colorEstado, horaCorta } from '../shared/agenda';
@@ -36,8 +36,8 @@ export function MisVisitas() {
       {lista.data && lista.data.length === 0 && <Text c="dimmed">No tiene visitas asignadas.</Text>}
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
         {(lista.data ?? []).map((v) => (
-          <UnstyledButton key={v.id} onClick={() => navegar(`/mis-visitas/visita/${v.id}`)} aria-label={'Abrir la visita ' + v.numero}>
-            <Card withBorder data-testid={'fila-visita-' + v.numero}>
+          <Card key={v.id} withBorder data-testid={'fila-visita-' + v.numero}>
+            <UnstyledButton w="100%" onClick={() => navegar(`/mis-visitas/visita/${v.id}`)} aria-label={'Abrir la visita ' + v.numero}>
               <Group justify="space-between" wrap="nowrap" gap="xs">
                 <Text fw={600}>{v.numero}</Text>
                 <Group gap={4}>
@@ -57,8 +57,15 @@ export function MisVisitas() {
               <Text size="sm" mt={4} data-testid="mis-partes">
                 Mis partes: {v.partes.length > 0 ? v.partes.join(', ') : 'ninguna'}
               </Text>
-            </Card>
-          </UnstyledButton>
+            </UnstyledButton>
+            {v.estado === 'ejecucion' && (
+              <Group justify="flex-end" mt="xs">
+                <Button size="xs" variant="light" onClick={() => navegar(`/visita/${v.id}`)} aria-label={'Formulario de la visita ' + v.numero}>
+                  Formulario
+                </Button>
+              </Group>
+            )}
+          </Card>
         ))}
       </SimpleGrid>
     </Stack>

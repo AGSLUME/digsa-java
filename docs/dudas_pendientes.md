@@ -128,3 +128,51 @@ Quedan pendientes, sin bloquear:
 | 18.16 | Lecturas SQL de agenda e identidad a tablas de catálogos y maestros: exponerlas como métodos de esos módulos | S3 |
 | 18.17 | El cierre de sesión hecho por el administrador queda dos veces en la bitácora (al cerrar y en la siguiente petición de la sesión cerrada) | S3 |
 | 18.18 | Avisar al correo anterior del usuario cuando el administrador le cambia el correo o le asigna una contraseña inicial | Después de la prueba |
+
+## S3 · Formulario y acta, y S4 · Reportes (2026-10-21)
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 19.1 | **Diseño del formulario:** el PHP guarda el checklist como un JSON con revisión | Aquí cada calificación es una fila (`visitas_respuestas`). Así cada auditor escribe solo sus ítems sin pisar a los demás, y los reportes leen tablas. El comportamiento funcional es el mismo |
+| 19.2 | **Obligaciones de la minuta (parte OBL):** se extraen por OCR de la minuta del contrato. Las minutas reales siguen pendientes (duda 5.1 del PHP) | En S3 la parte OBL no tiene ítems: el formulario evalúa los componentes elegidos. La lectura de la minuta y las obligaciones llegan con el flujo del OPL (fase 6) |
+| 19.3 | **Plan 5W2H:** el PHP exige el plan y sus dos firmas para enviar el acta | Para la prueba (ítems 10 y 12) se exige:<br>- todo calificado, y cada «No cumple» con su hallazgo;<br>- inicio y fin reales, objeto y personal auditado;<br>- la firma del líder y la de quien atiende (ESM u OPL).<br>El 5W2H llega con el flujo del OPL (fase 6) |
+| 19.4 | **Firmas después de reabrir:** el acta de la ronda 2 reutiliza las firmas de la ronda 1. ¿Se exigen firmas nuevas en cada ronda? | Se reutilizan. El acta indica la ronda y que la visita fue reabierta. El coordinador que corrige no puede cambiar las firmas |
+| 19.5 | **Inactividad y formularios largos:** el aviso y el cierre a los 10 minutos contaban solo las peticiones al servidor, así que quien diligenciaba el formulario sin guardar perdía la sesión | Escribir o hacer clic (fuera de botones y enlaces) renueva la sesión, como máximo cada 20 s. Sin interacción, el aviso y el cierre siguen igual (Anexo 5) |
+| 19.6 | **Hora militar en el formulario:** «Inicio real» y «Fin real» usan el control nativo de fecha y hora. En un equipo configurado en 12 horas se ve a. m./p. m. (igual que en la 18.11) | Se guarda en 24 h. Si la prueba exige verla en 24 h en cualquier equipo, se cambia por un control propio |
+| 19.7 | **Destinatarios del acta:** el acta también va a los correos del personal auditado que registra el líder | Se deja así, porque el líder ya ve todo. El número de destinatarios queda en el historial. ¿Se muestran los destinatarios antes de enviar? |
+| 19.8 | **Lugar en lista (ítem 12):** el lugar es el punto de la visita y lo fija la agenda | En el formulario se muestra como lista de solo lectura con el punto. Se elige en la agenda, también de una lista |
+| 19.9 | **Reportes:**<br>- el detalle y el consolidado por lugar leen el resumen calculado al enviar el acta;<br>- el consolidado por proceso cuenta solo visitas cerradas | Las visitas sin acta salen en el detalle con los resultados vacíos |
+
+### Revisión de los agentes de S3 y S4 (2026-10-21)
+
+Se corrigieron las prioridades 1:
+- **Repositorio:** las actas y fotos de las pruebas quedaban en el árbol fuente sin ignorar. Ahora `**/almacen/` está en `.gitignore` y las pruebas usan `target/archivos-prueba`.
+- **Firma:** una firma corrupta salía en el acta legal como «(firma no legible)». Ahora la firma se decodifica, se le aplica un tope de dimensiones y se recodifica al registrarla, y el acta falla si no puede leerla.
+- **Bitácora:** registraba «visita cerrada» aunque la visita no se cerrara.
+- **TXT:** recortaba las celdas a 60 caracteres.
+- **Frontend:** se podía enviar el acta con cambios sin guardar.
+- **Pruebas:** faltaban las de autorización de archivos, acta fallida con reintento, coordinador que no firma y reapertura por el administrador.
+
+También se corrigieron, entre otras prioridades 2:
+- bombas de descompresión en fotos y firmas;
+- tope de tamaño antes de leer el archivo, y tipo solo por el contenido: el nombre ya no hace pasar por PDF unos bytes cualquiera;
+- el formulario queda en solo lectura mientras el acta se envía;
+- orden de bloqueo al cerrar;
+- el consolidado por proceso usa solo visitas cerradas, y la DIGSA no ve el equipo;
+- un estado inválido en los reportes responde 422;
+- las firmas no se borran (V10);
+- la descarga usa la extensión del tipo detectado y `no-store`;
+- reenvío de la SPA en rutas de tres niveles: recargar `/agenda/visita/12` daba «No existe»;
+- aviso al salir con cambios sin guardar;
+- mensaje claro cuando el proxy rechaza un archivo por tamaño (413).
+
+Quedan pendientes, sin bloquear:
+
+| # | Pendiente | Cuándo |
+|---|---|---|
+| 19.10 | Generar el PDF del acta y escribirlo en el almacén fuera de la transacción que bloquea la visita, y descartar el archivo si la transacción se revierte | Fase 5 |
+| 19.11 | Subida por streaming: hoy cada archivo se lee completo en memoria (máximo 100 MB por archivo y 120 MB por petición) | Antes de Azure Blob |
+| 19.12 | Rendimiento del formulario con unos 350 ítems: memoizar los ítems y abrir solo el componente en uso | Fase 5 |
+| 19.13 | Conflicto por ítem si dos pestañas del mismo auditor editan el mismo ítem (hoy gana la última), y revisión en los datos de la visita | Fase 5 |
+| 19.14 | Pruebas de concurrencia (dos envíos del acta, dos auditores guardando a la vez), de EXIF con una foto real girada y del contenido del PDF del acta extraído como texto | Fase 5 |
+| 19.15 | Con la lista de dominios vacía, los reportes se envían a cualquier correo: exigirla en producción | Antes del despliegue |

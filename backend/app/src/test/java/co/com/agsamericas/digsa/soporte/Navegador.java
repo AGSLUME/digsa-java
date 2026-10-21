@@ -112,6 +112,37 @@ public class Navegador {
         }
     }
 
+    /** Varios archivos en una sola petición multipart (campo «archivos»), más campos de texto. */
+    public Respuesta multipart(String ruta, java.util.Map<String, String> campos, java.util.Map<String, byte[]> archivos) {
+        if (xsrf() == null) {
+            get("/api/auth/inicio");
+        }
+        String limite = "----digsa" + System.nanoTime();
+        java.io.ByteArrayOutputStream cuerpo = new java.io.ByteArrayOutputStream();
+        String crlf = new String(new char[] {13, 10}); // CR LF del protocolo multipart
+        try {
+            for (var c : campos.entrySet()) {
+                cuerpo.write(("--" + limite + crlf + "Content-Disposition: form-data; name=\"" + c.getKey() + "\"" + crlf + crlf + c.getValue() + crlf)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            for (var a : archivos.entrySet()) {
+                cuerpo.write(("--" + limite + crlf + "Content-Disposition: form-data; name=\"archivos\"; filename=\"" + a.getKey() + "\"" + crlf
+                        + "Content-Type: application/octet-stream" + crlf + crlf).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                cuerpo.write(a.getValue());
+                cuerpo.write(crlf.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            cuerpo.write(("--" + limite + "--" + crlf).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(base + ruta)).header("Content-Type", "multipart/form-data; boundary=" + limite)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(cuerpo.toByteArray()));
+        if (xsrf() != null) {
+            b.header("X-XSRF-TOKEN", xsrf());
+        }
+        return enviar(b);
+    }
+
     private String xsrf() {
         return cookies.getCookieStore().getCookies().stream().filter(c -> c.getName().equals("XSRF-TOKEN")).map(HttpCookie::getValue)
                 .findFirst().orElse(null);

@@ -80,19 +80,40 @@ function inicial(visita: DetalleVisita | undefined): Formulario {
   };
 }
 
+/** Solicitud de visita a necesidad que se agenda: el tipo, el punto y la fecha del escrito los pone la solicitud. */
+export interface SolicitudParaAgendar {
+  id: number;
+  puntoId: number;
+  fechaSolicitud: string;
+}
+
 function Cuerpo({
   opciones,
   visita,
+  solicitud,
   alCerrar,
   alGuardar,
 }: {
   opciones: OpcionesAgenda;
   visita?: DetalleVisita;
+  solicitud?: SolicitudParaAgendar;
   alCerrar: () => void;
   alGuardar: (r: ResultadoVisita) => void;
 }) {
   const qc = useQueryClient();
-  const [f, setF] = useState<Formulario>(() => inicial(visita));
+  const [f, setF] = useState<Formulario>(() => {
+    const base = inicial(visita);
+    if (!solicitud) return base;
+    const p = opciones.puntos.find((x) => x.id === solicitud.puntoId);
+    return {
+      ...base,
+      tipo: 'necesidad',
+      puntoId: String(solicitud.puntoId),
+      fechaSolicitud: solicitud.fechaSolicitud,
+      componentes: preseleccion(opciones.componentes, p?.unidad, 'necesidad'),
+      notificar: false,
+    };
+  });
   const [error, setError] = useState<string | null>(null);
 
   const tipo = opciones.tipos.find((t) => t.codigo === f.tipo);
@@ -116,7 +137,10 @@ function Cuerpo({
       qc.invalidateQueries({ queryKey: ['agenda'] });
       alGuardar(r);
     },
-    onError: (e) => setError(e instanceof ErrorApi ? e.message : 'No se pudo guardar la visita.'),
+    onError: (e) => {
+      setError(e instanceof ErrorApi ? e.message : 'No se pudo guardar la visita.');
+      if (solicitud) qc.invalidateQueries({ queryKey: ['solicitudes'] }); // otro coordinador pudo agendarla o anularla
+    },
   });
 
   const elegirTipo = (codigo: string | null) => {
@@ -161,6 +185,7 @@ function Cuerpo({
       reparto,
       fechaSolicitud: f.tipo === 'necesidad' ? f.fechaSolicitud || null : null,
       notificar: tipo?.aviso === 'no-opl' ? false : f.notificar,
+      solicitudId: solicitud?.id ?? null,
     });
   };
 
@@ -176,6 +201,7 @@ function Cuerpo({
         )}
         <Select
           label="Tipo de visita"
+          disabled={!!solicitud}
           required
           data={opciones.tipos.map((t) => ({ value: t.codigo, label: t.nombre }))}
           value={f.tipo}
@@ -183,6 +209,7 @@ function Cuerpo({
         />
         <Select
           label="Punto"
+          disabled={!!solicitud}
           required
           searchable
           nothingFoundMessage="Sin puntos"
@@ -197,6 +224,7 @@ function Cuerpo({
         {f.tipo === 'necesidad' && (
           <TextInput
             label="Fecha de la solicitud"
+            disabled={!!solicitud}
             type="date"
             value={f.fechaSolicitud}
             onChange={(e) => setF({ ...f, fechaSolicitud: e.currentTarget.value })}
@@ -303,18 +331,22 @@ export function FormularioVisita({
   alCerrar,
   opciones,
   visita,
+  solicitud,
+  errorOpciones,
   alGuardar,
 }: {
   abierto: boolean;
+  errorOpciones?: string;
   alCerrar: () => void;
   opciones: OpcionesAgenda | undefined;
   visita?: DetalleVisita;
+  solicitud?: SolicitudParaAgendar;
   alGuardar: (r: ResultadoVisita) => void;
 }) {
   return (
-    <Modal opened={abierto} onClose={alCerrar} title={visita ? `Editar visita ${visita.numero}` : 'Programar visita'} size="xl">
-      {abierto && opciones && <Cuerpo opciones={opciones} visita={visita} alCerrar={alCerrar} alGuardar={alGuardar} />}
-      {abierto && !opciones && <Text c="dimmed">Cargando las opciones...</Text>}
+    <Modal opened={abierto} onClose={alCerrar} title={visita ? `Editar visita ${visita.numero}` : solicitud ? `Agendar la solicitud N.º ${solicitud.id}` : 'Programar visita'} size="xl">
+      {abierto && opciones && <Cuerpo opciones={opciones} visita={visita} solicitud={solicitud} alCerrar={alCerrar} alGuardar={alGuardar} />}
+      {abierto && !opciones && (errorOpciones ? <Text c="red">No se pudieron cargar las opciones: {errorOpciones}</Text> : <Text c="dimmed">Cargando las opciones...</Text>)}
     </Modal>
   );
 }

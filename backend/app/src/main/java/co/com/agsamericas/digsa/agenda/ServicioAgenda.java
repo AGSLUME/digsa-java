@@ -37,7 +37,11 @@ public class ServicioAgenda {
     static final int DIAS_AVISO_OPL = 15;
 
     public record Datos(String tipo, Long puntoId, String fecha, String hora, Long liderId, List<Long> otros, String alcance,
-                        List<String> componentes, Map<String, Long> reparto, String fechaSolicitud, Boolean notificar) {
+                        List<String> componentes, Map<String, Long> reparto, String fechaSolicitud, Boolean notificar, Long solicitudId) {
+        /** La solicitud manda: visita a necesidad, a su punto y con la fecha de su escrito (decisión 31). */
+        Datos desdeSolicitud(long puntoDeLaSolicitud, String fechaDeLaSolicitud) {
+            return new Datos("necesidad", puntoDeLaSolicitud, fecha, hora, liderId, otros, alcance, componentes, reparto, fechaDeLaSolicitud, false, solicitudId);
+        }
     }
 
     public record Resultado(long id, String numero, String mensaje, Boolean notificacionOk, List<String> advertencias) {
@@ -51,15 +55,17 @@ public class ServicioAgenda {
 
     private final RepositorioVisitas visitas;
     private final ServicioNotificacion notificacion;
+    private final ServicioSolicitudes solicitudes;
     private final RegistroBitacora bitacora;
     private final JdbcClient jdbc;
     private final TransactionTemplate tx;
     private final Clock reloj;
 
-    public ServicioAgenda(RepositorioVisitas visitas, ServicioNotificacion notificacion, RegistroBitacora bitacora, JdbcClient jdbc,
-                          TransactionTemplate tx, Clock reloj) {
+    public ServicioAgenda(RepositorioVisitas visitas, ServicioNotificacion notificacion, ServicioSolicitudes solicitudes, RegistroBitacora bitacora,
+                          JdbcClient jdbc, TransactionTemplate tx, Clock reloj) {
         this.visitas = visitas;
         this.notificacion = notificacion;
+        this.solicitudes = solicitudes;
         this.bitacora = bitacora;
         this.jdbc = jdbc;
         this.tx = tx;
@@ -72,14 +78,26 @@ public class ServicioAgenda {
 
     // ---------- Programar y editar ----------
 
-    public Resultado programar(Datos d, UsuarioSesion quien) {
-        Valido v = validar(d, true, quien);
+    public Resultado programar(Datos entrada, UsuarioSesion quien) {
+        Datos d = entrada;
+        if (entrada.solicitudId() != null) {
+            Map<String, Object> s = solicitudes.pendiente(entrada.solicitudId())
+                    .orElseThrow(() -> ErrorNegocio.validacion("La solicitud no existe o ya no está pendiente."));
+            d = entrada.desdeSolicitud(((Number) s.get("punto_id")).longValue(), s.get("fecha_solicitud").toString());
+        }
+        Datos datos = d;
+        Valido v = validar(datos, true, quien);
         long id = tx.execute(t -> {
             long nuevo = visitas.crear(v.tipo().codigo(), v.punto().id(), v.fecha(), v.hora(), v.lider(), v.alcance(), v.fechaSolicitud(), quien.id());
             visitas.reemplazarComponentes(nuevo, v.componentes());
             visitas.reemplazarEquipo(nuevo, v.lider(), v.otros());
             visitas.reemplazarReparto(nuevo, v.reparto(), v.asignadoPor());
             visitas.historial(nuevo, quien.id(), quien.usuario(), "Programada", resumen(v));
+            if (datos.solicitudId() != null) {
+                // Si otro coordinador la agendó o la anuló entre tanto, se deshace toda la programación
+                solicitudes.marcarProgramada(datos.solicitudId(), nuevo, quien.id());
+                visitas.historial(nuevo, quien.id(), quien.usuario(), "Solicitud agendada", "Solicitud " + datos.solicitudId());
+            }
             return nuevo;
         });
         RepositorioVisitas.Visita creada = visitas.porId(id).orElseThrow();
@@ -88,7 +106,10 @@ public class ServicioAgenda {
         List<String> advertencias = advertencias(v.punto(), v.equipo());
         Boolean ok = null;
         String mensaje = "Visita " + creada.numero() + " programada.";
-        if (Boolean.TRUE.equals(d.notificar()) && !"no-opl".equals(v.tipo().aviso())) {
+        if (datos.solicitudId() != null) {
+            mensaje += " " + solicitudes.avisarSolicitanteSeguro(datos.solicitudId(), creada, false, null, quien);
+        }
+        if (Boolean.TRUE.equals(datos.notificar()) && !"no-opl".equals(v.tipo().aviso())) {
             ServicioNotificacion.Resultado r = notificacion.notificarAutomatico(id, ServicioNotificacion.AL_PROGRAMAR, null, quien);
             ok = r.ok();
             mensaje += " " + r.mensaje();
@@ -96,7 +117,10 @@ public class ServicioAgenda {
         return new Resultado(id, creada.numero(), mensaje, ok, advertencias);
     }
 
-    public Resultado editar(long id, Datos d, UsuarioSesion quien) {
+    public Resultado editar(long id, Datos entrada, UsuarioSesion quien) {
+        // Si la visita atiende una solicitud, la solicitud manda también al editar: visita a necesidad, a su punto y con su fecha
+        Datos d = solicitudes.deVisita(id).map(s -> entrada.desdeSolicitud(((Number) s.get("punto_id")).longValue(), s.get("fecha_solicitud").toString()))
+                .orElse(entrada);
         Valido v = validar(d, true, quien);
         String cambios = tx.execute(t -> {
             RepositorioVisitas.Visita antes = visitas.bloquear(id).orElseThrow(() -> ErrorNegocio.noEncontrado("La visita no existe."));
@@ -327,16 +351,30 @@ public class ServicioAgenda {
 
     public Resultado cancelar(long id, String motivo, UsuarioSesion quien) {
         String m = motivo(motivo);
-        String numero = tx.execute(t -> {
+        record Cancelacion(RepositorioVisitas.Visita visita, Long solicitud) {
+        }
+        Cancelacion c = tx.execute(t -> {
             RepositorioVisitas.Visita v = visitas.bloquear(id).orElseThrow(() -> ErrorNegocio.noEncontrado("La visita no existe."));
             if (!EstadosVisita.permite("cancelar", v.estado()) || !visitas.cambiarEstado(id, EstadosVisita.ORIGEN.get("cancelar"), "cancelada")) {
                 throw ErrorNegocio.validacion("La visita no existe o ya está cerrada o cancelada.");
             }
             visitas.historial(id, quien.id(), quien.usuario(), "Cancelada", "Motivo: " + m);
-            return v.numero();
+            // La solicitud que atendía vuelve a pendiente para reprogramarla (su plazo sigue corriendo desde la fecha del escrito)
+            Long solicitud = solicitudes.liberar(id, quien.id()).orElse(null);
+            if (solicitud != null) {
+                visitas.historial(id, quien.id(), quien.usuario(), "Solicitud liberada", "Solicitud " + solicitud + " vuelve a pendiente");
+            }
+            return new Cancelacion(v, solicitud);
         });
+        String numero = c.visita().numero();
         bitacora.registrar("visita_cancelada", "Visita " + numero + " cancelada", quien.id(), quien.usuario());
-        return new Resultado(id, numero, "Visita " + numero + " cancelada.", null, List.of());
+        String mensaje = "Visita " + numero + " cancelada.";
+        if (c.solicitud() != null) {
+            // Decisión 9.3: se avisa al solicitante y la solicitud queda pendiente
+            mensaje += " La solicitud " + c.solicitud() + " volvió a pendiente. "
+                    + solicitudes.avisarSolicitanteSeguro(c.solicitud(), c.visita(), true, m, quien);
+        }
+        return new Resultado(id, numero, mensaje, null, List.of());
     }
 
     private static String motivo(String motivo) {

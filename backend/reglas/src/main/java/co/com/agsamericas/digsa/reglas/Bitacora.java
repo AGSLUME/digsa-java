@@ -46,7 +46,7 @@ public final class Bitacora {
             Map.entry("auditor_editado", Operacion.ACTUALIZACION), Map.entry("puntos_carga", Operacion.INSERCION),
             Map.entry("fuerza_creada", Operacion.INSERCION), Map.entry("fuerza_editada", Operacion.ACTUALIZACION),
             Map.entry("fuerza_eliminada", Operacion.ELIMINACION),
-            Map.entry("visita_programada", Operacion.INSERCION), Map.entry("visita_editada", Operacion.ACTUALIZACION),
+            Map.entry("visita_programada", Operacion.INSERCION), Map.entry("solicitud_registrada", Operacion.INSERCION), Map.entry("solicitud_aviso_fallido", Operacion.INSERCION), Map.entry("solicitud_anulada", Operacion.ACTUALIZACION), Map.entry("visita_editada", Operacion.ACTUALIZACION),
             Map.entry("visita_notificada", Operacion.ACTUALIZACION), Map.entry("visita_notificacion_fallida", Operacion.ACTUALIZACION), Map.entry("visita_reprogramada", Operacion.ACTUALIZACION),
             Map.entry("visita_cancelada", Operacion.ACTUALIZACION), Map.entry("visita_iniciada", Operacion.ACTUALIZACION),
             Map.entry("visita_reasignada", Operacion.ACTUALIZACION), Map.entry("reparto_movido", Operacion.ACTUALIZACION),

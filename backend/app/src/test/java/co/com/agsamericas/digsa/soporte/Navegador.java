@@ -114,6 +114,10 @@ public class Navegador {
 
     /** Varios archivos en una sola petición multipart (campo «archivos»), más campos de texto. */
     public Respuesta multipart(String ruta, java.util.Map<String, String> campos, java.util.Map<String, byte[]> archivos) {
+        return multipart(ruta, campos, archivos, "archivos");
+    }
+
+    public Respuesta multipart(String ruta, java.util.Map<String, String> campos, java.util.Map<String, byte[]> archivos, String campoArchivos) {
         if (xsrf() == null) {
             get("/api/auth/inicio");
         }
@@ -126,7 +130,7 @@ public class Navegador {
                         .getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
             for (var a : archivos.entrySet()) {
-                cuerpo.write(("--" + limite + crlf + "Content-Disposition: form-data; name=\"archivos\"; filename=\"" + a.getKey() + "\"" + crlf
+                cuerpo.write(("--" + limite + crlf + "Content-Disposition: form-data; name=\"" + campoArchivos + "\"; filename=\"" + a.getKey() + "\"" + crlf
                         + "Content-Type: application/octet-stream" + crlf + crlf).getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 cuerpo.write(a.getValue());
                 cuerpo.write(crlf.getBytes(java.nio.charset.StandardCharsets.UTF_8));

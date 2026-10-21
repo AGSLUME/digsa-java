@@ -176,3 +176,26 @@ Quedan pendientes, sin bloquear:
 | 19.13 | Conflicto por ítem si dos pestañas del mismo auditor editan el mismo ítem (hoy gana la última), y revisión en los datos de la visita | Fase 5 |
 | 19.14 | Pruebas de concurrencia (dos envíos del acta, dos auditores guardando a la vez), de EXIF con una foto real girada y del contenido del PDF del acta extraído como texto | Fase 5 |
 | 19.15 | Con la lista de dominios vacía, los reportes se envían a cualquier correo: exigirla en producción | Antes del despliegue |
+
+## Fase 5 · Solicitudes de visita a necesidad (2026-10-21)
+
+Implementado con las decisiones 9.3, 9.4 y 9.6:
+- **9.3:** al cancelar la visita se avisa al solicitante y la solicitud vuelve a pendiente.
+- **9.4:** cada solicitante ve solo las suyas; el coordinador ve todas.
+- **9.6:** correo a los coordinadores por cada solicitud nueva.
+
+La solicitud fija el tipo, el punto y la fecha del escrito al agendar y también al editar la visita.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 20.1 | **Datos de pacientes en el motivo:** el correo a los coordinadores trae hasta 600 caracteres del motivo, que puede incluir datos de pacientes | Se envía el motivo recortado. ¿Se envía solo el aviso con el enlace (Ley 1581)? |
+| 20.2 | **Escrito más antiguo:** el PHP no deja registrar un escrito de más de 60 días | Se mantiene esa regla |
+| 20.3 | **Plazo al agendar:** el formulario no avisa si la fecha elegida pasa los 5 días hábiles | El plazo se ve en la bandeja (con la marca «Vencida») y en las alertas de la agenda |
+
+Quedan pendientes, sin bloquear:
+
+| # | Pendiente | Cuándo |
+|---|---|---|
+| 20.4 | Vista en tarjetas de la bandeja en el celular (hoy, tabla con desplazamiento lateral) | Fase 8 |
+| 20.5 | Historial propio de la solicitud: hoy, al cancelar, la visita que la atendió solo queda en el historial de la visita | Fase 7 |
+| 20.6 | Bandeja de salida de correos con reintentos para todos los avisos (hoy SMTP síncrono, con el fallo en la bitácora) | Fase 10 |

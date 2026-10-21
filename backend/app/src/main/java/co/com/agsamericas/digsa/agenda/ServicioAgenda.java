@@ -127,6 +127,10 @@ public class ServicioAgenda {
             if (!EstadosVisita.permite("editar", antes.estado())) {
                 throw ErrorNegocio.validacion("Solo se edita una visita programada sin notificar. Use Reprogramar o Cancelar.");
             }
+            if (antes.esSeguimiento()) {
+                // El seguimiento mantiene el punto, el tipo y los componentes de su visita de origen (invariante de la spec)
+                throw ErrorNegocio.validacion("Un seguimiento al plan no se edita: use Reprogramar, Reasignar o Cancelar.");
+            }
             List<RepositorioVisitas.Miembro> equipoAntes = visitas.equipo(id);
             List<String> componentesAntes = visitas.componentesDe(id);
             visitas.actualizar(id, v.tipo().codigo(), v.punto().id(), v.fecha(), v.hora(), v.lider(), v.alcance(), v.fechaSolicitud());
@@ -308,6 +312,61 @@ public class ServicioAgenda {
             a.add("En " + p.nombre() + " el equipo debe incluir un químico farmacéutico (Anexo 3 p.9).");
         }
         return a;
+    }
+
+    // ---------- Seguimiento al plan de mejoramiento ----------
+
+    /**
+     * Visita de seguimiento creada al cerrar la de origen (decisión 30), dentro de la transacción del cierre: tipo «plan», mismo punto,
+     * hora, líder y otros auditores activos, los mismos componentes y la misma versión del checklist; el reparto se hace de nuevo.
+     * Valida todo antes de escribir: si algo no sirve (p. ej. el líder ya no está activo) lanza el error sin haber escrito nada.
+     * @return el id de la visita creada
+     */
+    public long programarSeguimiento(RepositorioVisitas.Visita origen, LocalDate fecha, int n, String alcance, UsuarioSesion quien) {
+        Map<Long, String> rolLider = visitas.auditoresActivos(List.of(origen.auditorId()));
+        if (!rolLider.containsKey(origen.auditorId())) {
+            throw ErrorNegocio.validacion("El auditor líder de la visita ya no está activo con el perfil Auditor: el coordinador debe programar el seguimiento.");
+        }
+        List<Long> otros = visitas.equipo(origen.id()).stream().map(RepositorioVisitas.Miembro::id).filter(id -> id != origen.auditorId()).toList();
+        Map<Long, String> rolesOtros = visitas.auditoresActivos(otros);
+        List<Long> otrosActivos = otros.stream().filter(rolesOtros::containsKey).toList();
+        List<Reparto.Integrante> equipo = new ArrayList<>();
+        equipo.add(new Reparto.Integrante(origen.auditorId(), rolLider.get(origen.auditorId()), true));
+        otrosActivos.forEach(o -> equipo.add(new Reparto.Integrante(o, rolesOtros.get(o), false)));
+        String version = origen.checklistVersion() != null ? origen.checklistVersion()
+                : visitas.versionVigente().orElseThrow(() -> ErrorNegocio.validacion("No hay una versión vigente del checklist."));
+        List<String> elegidos = visitas.componentesDe(origen.id());
+        List<RepositorioVisitas.ComponenteChecklist> catalogo = visitas.componentes(version).stream()
+                .filter(c -> c.unidades().contains(origen.unidad())).toList();
+        Map<String, Long> reparto = repartir(catalogo, elegidos, origen.unidad(), equipo, null);
+        String textoAlcance = alcance.length() > MAX_ALCANCE ? alcance.substring(0, MAX_ALCANCE) : alcance;
+
+        long nuevo = visitas.crear("plan", origen.puntoId(), fecha, origen.hora(), origen.auditorId(), textoAlcance, null, quien.id());
+        visitas.marcarSeguimiento(nuevo, origen.id(), n, version);
+        visitas.reemplazarComponentes(nuevo, elegidos);
+        visitas.reemplazarEquipo(nuevo, origen.auditorId(), otrosActivos);
+        visitas.reemplazarReparto(nuevo, reparto, Map.of());
+        visitas.historial(nuevo, null, "sistema", "Programada", "Seguimiento N° " + n + " de la visita " + origen.numero() + " al " + fecha);
+        visitas.historial(origen.id(), null, "sistema", "Seguimiento programado", "Visita " + visitas.porId(nuevo).map(RepositorioVisitas.Visita::numero)
+                .orElse("") + " para el " + fecha);
+        return nuevo;
+    }
+
+    /** Notificación inmediata del seguimiento recién creado (camino A, como la notificación previa); fuera de la transacción del cierre. */
+    public ServicioNotificacion.Resultado notificarSeguimiento(long id, UsuarioSesion quien) {
+        return notificacion.notificarAutomatico(id, ServicioNotificacion.AL_PROGRAMAR, null, quien);
+    }
+
+    /** Al levantar el último hallazgo, el seguimiento pendiente de la visita ya no tiene qué verificar (decisión 11.7). @return si se canceló */
+    public boolean cancelarSeguimientoPendiente(long origenId, String motivo) {
+        return visitas.seguimientoDe(origenId).filter(s -> EstadosVisita.POR_EJECUTAR.contains(s.estado())).map(s -> {
+            boolean ok = visitas.cambiarEstado(s.id(), EstadosVisita.POR_EJECUTAR, "cancelada");
+            if (ok) {
+                visitas.historial(s.id(), null, "sistema", "Cancelada", motivo);
+                visitas.historial(origenId, null, "sistema", "Seguimiento cancelado", motivo);
+            }
+            return ok;
+        }).orElse(false);
     }
 
     // ---------- Reprogramar, cancelar ----------
@@ -497,8 +556,9 @@ public class ServicioAgenda {
             if (!EstadosVisita.permite("iniciar", v.estado())) {
                 throw ErrorNegocio.validacion("La visita no está por ejecutar.");
             }
-            String version = visitas.versionVigente().orElseThrow(() -> ErrorNegocio.validacion(
-                    "No hay una versión vigente del checklist: avise al coordinador."));
+            // El seguimiento conserva la versión del checklist de su visita de origen (los componentes no cambian)
+            String version = v.checklistVersion() != null && v.esSeguimiento() ? v.checklistVersion()
+                    : visitas.versionVigente().orElseThrow(() -> ErrorNegocio.validacion("No hay una versión vigente del checklist: avise al coordinador."));
             if (!visitas.iniciar(id, EstadosVisita.POR_EJECUTAR, version)) {
                 throw ErrorNegocio.conflicto("Otro usuario cambió la visita al mismo tiempo. Recargue y vuelva a intentarlo.");
             }

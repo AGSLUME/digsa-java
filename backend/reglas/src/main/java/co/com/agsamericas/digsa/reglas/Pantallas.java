@@ -17,6 +17,8 @@ public enum Pantallas {
             union(Set.of(Perfil.AUDITOR, Perfil.COORDINADOR), Alcance.PERFILES_CONSULTA)),
     CALENDARIO("calendario", "Calendario de visitas", "Visitas", Alcance.PERFILES_CONSULTA),
     SOLICITUDES("solicitudes", "Solicitudes de visita", "Visitas", Set.of(Perfil.COORDINADOR, Perfil.DIGSA, Perfil.SANIDAD)),
+    /** Prórrogas del plan: las aprueban el coordinador y la DIGSA (decisión 12.1). */
+    PRORROGAS("prorrogas", "Prórrogas del plan", "Visitas", Set.of(Perfil.COORDINADOR, Perfil.DIGSA)),
     OPL("opl", "Respuesta a hallazgos", "Visitas", Set.of(Perfil.OPL_NACIONAL, Perfil.OPL_REGIONAL)),
     RIESGO("riesgo", "Dashboard de riesgo", "Visitas", union(Set.of(Perfil.COORDINADOR), Alcance.PERFILES_CONSULTA)),
     DASHBOARD("dashboard", "Dashboard", "Visitas", union(Set.of(Perfil.COORDINADOR), Alcance.PERFILES_CONSULTA)),

@@ -30,6 +30,37 @@ export interface ItemChecklist {
   /** Obligación de la minuta del prestador visitado (parte OBL), no un ítem del checklist. */
   obligacion?: boolean;
   archivos: Archivo[];
+  /** Solo en un seguimiento: el hallazgo y la acción del plan de la visita de origen (solo lectura). */
+  anterior?: HallazgoAnterior | null;
+  /** Solo en un seguimiento: soportes vigentes de la visita de origen, que se descargan sin poder cambiarlos. */
+  archivosAnteriores?: ArchivoAnterior[];
+}
+
+/** Hallazgo de la visita de origen que se verifica en el seguimiento, con su acción del plan. */
+export interface HallazgoAnterior {
+  codigo: string;
+  texto: string | null;
+  hallazgo: string | null;
+  fin: string | null;
+  estado: string;
+  que: string | null;
+}
+
+export interface ArchivoAnterior {
+  id: number;
+  nombre: string;
+  tipo: string;
+  tamano: number;
+}
+
+/** Datos del seguimiento al plan de mejoramiento (null si la visita no es un seguimiento). */
+export interface DatosSeguimiento {
+  n: number;
+  ordinal: string;
+  origenId: number;
+  origenNumero: string;
+  origenFecha: string;
+  aviso: string;
 }
 
 export interface ComponenteChecklist {
@@ -121,6 +152,7 @@ export interface DatosFormulario {
   faltantes: string[];
   actas: Acta[];
   plan: DatosPlan;
+  seguimiento?: DatosSeguimiento | null;
 }
 
 /** Fila del plan de mejoramiento 5W2H como la guarda el servidor (parte del auditor; quién y cómo los pone el OPL). */
@@ -134,6 +166,11 @@ export interface FilaPlan {
   indicador?: string | null;
   estado?: string | null;
   avance?: number | null;
+  /** Del OPL (remitidos con el plan firmado): en el seguimiento se ven en solo lectura. */
+  quien?: string | null;
+  como?: string | null;
+  /** Justificación de la prórroga de esta visita (no pasa al siguiente seguimiento). */
+  prorroga_justificacion?: string | null;
 }
 
 export interface HallazgoPlan {
@@ -143,6 +180,10 @@ export interface HallazgoPlan {
   texto: string;
   hallazgo: string | null;
   fila: FilaPlan;
+  /** Solo en un seguimiento: fecha fin de la acción en la visita anterior (para saber si hay prórroga). */
+  finAnterior?: string | null;
+  /** Solo en un seguimiento: hallazgo por verificar que aún no se recalifica (su fila igual se diligencia). */
+  sinCalificar?: boolean;
 }
 
 export interface DatosPlan {
@@ -162,12 +203,20 @@ export interface EdicionPlan {
   fin: string;
   indicador: string;
   estado: string;
+  /** Justificación de la prórroga (solo se pide y se envía cuando hay prórroga). */
+  prorroga: string;
 }
 
-export const CAMPOS_PLAN = ['causas', 'que', 'porque', 'donde', 'inicio', 'fin', 'indicador', 'estado'] as const;
+export const CAMPOS_PLAN = ['causas', 'que', 'porque', 'donde', 'inicio', 'fin', 'indicador', 'estado', 'prorroga'] as const;
 
 /** Acciones abiertas: las que exigen la fecha fin para enviar el acta (como en el servidor). */
 export const ESTADOS_ABIERTOS = ['Pendiente', 'En curso', 'Retrasado'];
+
+/** Una acción del plan está cerrada solo en Completado o Cancelado (Seguimiento.ESTADOS_CERRADOS del servidor). */
+export const ESTADOS_CERRADOS = ['Completado', 'Cancelado'];
+
+/** Mínimo de la justificación de una prórroga, sin contar los espacios alrededor (Seguimiento.MIN_JUSTIFICACION). */
+export const MIN_JUSTIFICACION = 10;
 
 /** Edición local de un ítem (lo que aún no se ha guardado). */
 export interface Edicion {
@@ -293,8 +342,41 @@ export function valorFila(h: HallazgoPlan, ediciones: Record<string, EdicionPlan
       fin: f.fin ?? '',
       indicador: f.indicador ?? '',
       estado: f.estado || 'Pendiente',
+      prorroga: f.prorroga_justificacion ?? '',
     }
   );
+}
+
+/** Fecha AAAA-MM-DD que existe en el calendario (2026-13-40 no lo es). */
+export function fechaValida(v: string | null | undefined): boolean {
+  if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = new Date(v + 'T00:00:00Z');
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
+/**
+ * Prórroga en el seguimiento (Seguimiento.esProrroga del servidor): la acción sigue abierta (ni Completado ni Cancelado) y su fecha fin
+ * válida pasa a ser posterior a la de la visita anterior. Adelantarla, fijarla donde no había o una fecha inválida no es prórroga.
+ */
+export function esProrroga(estado: string | null | undefined, fin: string | null | undefined, finAnterior: string | null | undefined): boolean {
+  if (ESTADOS_CERRADOS.includes(estado || 'Pendiente')) return false;
+  if (!fechaValida(fin) || !fechaValida(finAnterior)) return false;
+  return fin! > finAnterior!; // AAAA-MM-DD se compara como texto
+}
+
+/** Justificación suficiente: al menos 10 caracteres sin los espacios alrededor; una letra con tilde cuenta como una. */
+export function justificacionValida(texto: string | null | undefined): boolean {
+  return Array.from((texto ?? '').trim()).length >= MIN_JUSTIFICACION;
+}
+
+/**
+ * La fila pide la justificación de la prórroga, con las ediciones locales aplicadas: solo si el ítem sigue en «No cumple» (lo guardado;
+ * una fila del seguimiento aún sin recalificar no la pide) y la fecha fin es una prórroga.
+ */
+export function pideProrroga(h: HallazgoPlan, ediciones: Record<string, EdicionPlan>): boolean {
+  if (h.sinCalificar) return false;
+  const v = valorFila(h, ediciones);
+  return esProrroga(v.estado, v.fin, h.finAnterior);
 }
 
 /** Hay cambios del 5W2H sin guardar: la fecha o alguna fila distinta de lo guardado (comparando sin espacios sobrantes). */
@@ -326,6 +408,8 @@ export function cuerpoPlan(plan: DatosPlan, fecha: string | null, ediciones: Rec
         indicador: textoONulo(e.indicador),
         estado: e.estado || 'Pendiente',
         avance: h.fila.avance ?? 0,
+        // La justificación solo va cuando hay prórroga: si la fecha vuelve atrás, no queda una justificación suelta
+        prorroga: pideProrroga(h, ediciones) ? textoONulo(e.prorroga) : null,
       };
     }),
   };
@@ -343,7 +427,11 @@ export function faltantesPlan(plan: DatosPlan, fecha: string | null, ediciones: 
       return ESTADOS_ABIERTOS.includes(e.estado) && !e.fin;
     })
     .map((h) => h.codigo);
+  const sinJustificar = plan.hallazgos
+    .filter((h) => pideProrroga(h, ediciones) && !justificacionValida(valorFila(h, ediciones).prorroga))
+    .map((h) => h.codigo);
   if (sinQue.length > 0) r.push('el qué de ' + sinQue.join(', '));
   if (sinFin.length > 0) r.push('la fecha fin de ' + sinFin.join(', '));
+  if (sinJustificar.length > 0) r.push(`la justificación de la prórroga (mínimo ${MIN_JUSTIFICACION} caracteres) de ` + sinJustificar.join(', '));
   return r;
 }

@@ -26,6 +26,7 @@ import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -45,6 +46,8 @@ public class TareaDiariaOpl {
     private static final Logger LOG = LoggerFactory.getLogger(TareaDiariaOpl.class);
     /** Llave del candado de la tarea (pg_try_advisory_lock). */
     static final long CANDADO = 0x4f504c5441524541L;
+    /** Llave del candado del consecutivo de los reportes a la DIGSA (pg_advisory_xact_lock). */
+    static final long CANDADO_CONSECUTIVO = 0x4f504c52445f4e4fL;
 
     public record Resumen(boolean corrio, int aceptadosAutomaticamente, int planesVencidos, int reportados, int fallidos) {
     }
@@ -144,7 +147,75 @@ public class TareaDiariaOpl {
                 LOG.error("[opl] Tarea diaria: visita {}", visitaId, e);
             }
         }
+        // Plan incumplido: el máximo de seguimientos quedó en el historial y el reporte no existe o no salió (el evento es en memoria)
+        for (Map<String, Object> f : jdbc.sql("""
+                SELECT a.visita_id, a.acta_id FROM opl_accesos a JOIN visitas v ON v.id = a.visita_id
+                WHERE v.estado = 'cerrada'
+                  AND EXISTS (SELECT 1 FROM visitas_historial h WHERE h.visita_id = v.id AND h.evento = 'Máximo de seguimientos' AND h.fecha >= a.enviado)
+                  AND NOT EXISTS (SELECT 1 FROM reportes_digsa r WHERE r.acta_id = a.acta_id AND r.motivo = 'plan_incumplido' AND r.estado = 'enviado')
+                ORDER BY a.visita_id""").query().listOfRows()) {
+            try {
+                String r = reportarIncumplido(((Number) f.get("visita_id")).longValue(), ((Number) f.get("acta_id")).longValue());
+                if ("enviado".equals(r)) {
+                    reportados++;
+                } else if (r != null) {
+                    fallidos++;
+                }
+            } catch (RuntimeException e) {
+                fallidos++;
+                LOG.error("[opl] Tarea diaria: plan incumplido de la visita {}", f.get("visita_id"), e);
+            }
+        }
+        // Avisos de cierre del plan al OPL que no salieron
+        for (Map<String, Object> f : jdbc.sql("SELECT visita_id, acta_id FROM opl_avisos WHERE tipo = 'plan_cerrado' AND coalesce(resultado, '') <> 'enviado' ORDER BY visita_id")
+                .query().listOfRows()) {
+            try {
+                ServicioOpl.Acceso a = opl.accesoDeVisita(((Number) f.get("visita_id")).longValue()).orElse(null);
+                if (a == null) {
+                    continue;
+                }
+                String r = opl.avisarOpl(a, "Plan de mejoramiento cerrado · visita " + a.numero(), "El plan de mejoramiento de la visita " + a.numero() + " quedó cerrado.");
+                jdbc.sql("UPDATE opl_avisos SET resultado = :r, fecha = :ahora WHERE visita_id = :v AND acta_id = :a AND tipo = 'plan_cerrado'")
+                        .param("r", r == null ? "enviado" : Bitacora.cortar(r, 500)).param("ahora", opl.ahora()).param("v", f.get("visita_id"))
+                        .param("a", f.get("acta_id")).update();
+                if (r != null) {
+                    fallidos++;
+                }
+            } catch (RuntimeException e) {
+                fallidos++;
+                LOG.error("[opl] Tarea diaria: aviso de cierre de la visita {}", f.get("visita_id"), e);
+            }
+        }
         return new Resumen(true, aceptados, vencidos, reportados, fallidos);
+    }
+
+    /**
+     * Plan incumplido (Reunión 5 del 2026-10-20): al llegar al máximo de seguimientos con acciones abiertas, reporte formal a la DIGSA y
+     * al auditor con consecutivo; si salió, el plan del acta queda «reportado a DIGSA». Una sola vez por acta.
+     */
+    @EventListener
+    public void planIncumplido(co.com.agsamericas.digsa.ejecucion.ServicioSeguimiento.PlanIncumplido e) {
+        try {
+            reportarIncumplido(e.visitaId(), e.actaId());
+        } catch (RuntimeException ex) {
+            // La tarea diaria lo retoma (máximo en el historial sin reporte enviado)
+            LOG.error("[opl] Reporte de plan incumplido de la visita {}: se reintenta en la tarea diaria", e.visitaId(), ex);
+        }
+    }
+
+    /** @return «enviado», «fallido» o null si no aplica (acta reemplazada o todo levantado) */
+    String reportarIncumplido(long visitaId, long actaId) {
+        ServicioOpl.Acceso a = opl.accesoDeVisita(visitaId).orElse(null);
+        if (a == null || a.actaId() != actaId) {
+            return null;
+        }
+        List<Map<String, Object>> vigentes = opl.hallazgos(a).stream().filter(h -> !"levantado".equals(h.get("estado"))).toList();
+        if (vigentes.isEmpty()) {
+            return null;
+        }
+        Long id = tx.execute(t -> jdbc.sql("SELECT id FROM reportes_digsa WHERE acta_id = :a AND motivo = 'plan_incumplido'").param("a", a.actaId())
+                .query(Long.class).optional().orElseGet(() -> crearReporte(a, vigentes, "plan_incumplido")));
+        return enviarReporte(a, id);
     }
 
     /**
@@ -217,7 +288,7 @@ public class TareaDiariaOpl {
                 bitacora.registrar("plan_vencido", "Visita " + a.numero() + ": plan de mejoramiento vencido", null, "sistema");
             }
             return jdbc.sql("SELECT id FROM reportes_digsa WHERE acta_id = :a AND motivo = 'plan_no_presentado'").param("a", a.actaId()).query(Long.class)
-                    .optional().orElseGet(() -> crearReporte(a, vigentes));
+                    .optional().orElseGet(() -> crearReporte(a, vigentes, "plan_no_presentado"));
         });
         if (reporteId == null) {
             return null;
@@ -225,9 +296,15 @@ public class TareaDiariaOpl {
         return enviarReporte(a, reporteId);
     }
 
-    private long crearReporte(ServicioOpl.Acceso a, List<Map<String, Object>> vigentes) {
+    /** Motivos del reporte formal y su texto (asunto del correo e historial). */
+    static String textoMotivo(String motivo) {
+        return "plan_incumplido".equals(motivo) ? "plan de mejoramiento incumplido" : "plan de mejoramiento no presentado";
+    }
+
+    /** Dentro de una transacción. El consecutivo se toma con candado propio (la tarea diaria y el plan incumplido no se cruzan) y UNIQUE. */
+    private long crearReporte(ServicioOpl.Acceso a, List<Map<String, Object>> vigentes, String motivo) {
+        jdbc.sql("SELECT pg_advisory_xact_lock(:k)").param("k", CANDADO_CONSECUTIVO).query().listOfRows();
         int anio = opl.ahora().atZoneSameInstant(Fechas.BOGOTA).getYear();
-        // La tarea corre con candado: el consecutivo no se repite (y la base lo impide con UNIQUE)
         int numero = jdbc.sql("SELECT coalesce(max(numero), 0) + 1 FROM reportes_digsa WHERE anio = :y").param("y", anio).query(Integer.class).single();
         String consecutivo = String.format("RD-%04d-%04d", anio, numero);
         ServicioArchivos.Archivo acta = opl.acta(a);
@@ -251,7 +328,10 @@ public class TareaDiariaOpl {
             hs.add(x);
         }
         contenido.put("hallazgos", hs);
-        contenido.put("falto", "El plan de mejoramiento no se firmó dentro de los " + EnlaceOpl.DIAS_PLAN + " días hábiles.");
+        contenido.put("motivo", motivo);
+        contenido.put("falto", "plan_incumplido".equals(motivo)
+                ? "Se alcanzó el máximo de visitas de seguimiento con acciones del plan de mejoramiento abiertas."
+                : "El plan de mejoramiento no se firmó dentro de los " + EnlaceOpl.DIAS_PLAN + " días hábiles.");
         String texto;
         try {
             texto = json.writeValueAsString(contenido);
@@ -260,17 +340,18 @@ public class TareaDiariaOpl {
         }
         long id = jdbc.sql("""
                 INSERT INTO reportes_digsa (consecutivo, anio, numero, visita_id, acta_id, motivo, contenido, creado)
-                VALUES (:c, :y, :n, :v, :a, 'plan_no_presentado', CAST(:j AS jsonb), :ahora) RETURNING id""")
-                .param("c", consecutivo).param("y", anio).param("n", numero).param("v", a.visitaId()).param("a", a.actaId()).param("j", texto)
+                VALUES (:c, :y, :n, :v, :a, :m, CAST(:j AS jsonb), :ahora) RETURNING id""")
+                .param("m", motivo).param("c", consecutivo).param("y", anio).param("n", numero).param("v", a.visitaId()).param("a", a.actaId()).param("j", texto)
                 .param("ahora", opl.ahora()).query(Long.class).single();
         jdbc.sql("UPDATE opl_planes SET reporte_id = :r WHERE acta_id = :a").param("r", id).param("a", a.actaId()).update();
         return id;
     }
 
     private String enviarReporte(ServicioOpl.Acceso a, long reporteId) {
-        Map<String, Object> r = jdbc.sql("SELECT consecutivo, contenido::text AS contenido, estado FROM reportes_digsa WHERE id = :id").param("id", reporteId)
-                .query().singleRow();
+        Map<String, Object> r = jdbc.sql("SELECT consecutivo, contenido::text AS contenido, estado, motivo FROM reportes_digsa WHERE id = :id")
+                .param("id", reporteId).query().singleRow();
         String consecutivo = (String) r.get("consecutivo");
+        String motivo = (String) r.get("motivo");
         // Ya salió (falló lo que vino después): solo se completa el estado del plan, sin reenviarlo
         boolean yaEnviado = "enviado".equals(r.get("estado"));
         List<String> digsa = new ArrayList<>();
@@ -290,7 +371,7 @@ public class TareaDiariaOpl {
             // El reporte es a la DIGSA: sin su correo no se da por reportado aunque el líder sí tenga correo
             error = "No hay correo de la DIGSA configurado (parámetro correo_digsa)";
         } else {
-            error = enviar(a, consecutivo, (String) r.get("contenido"), List.copyOf(para), digsa);
+            error = enviar(a, consecutivo, motivo, (String) r.get("contenido"), List.copyOf(para), digsa);
         }
         if (error == null) {
             tx.executeWithoutResult(t -> {
@@ -298,11 +379,12 @@ public class TareaDiariaOpl {
                     jdbc.sql("UPDATE reportes_digsa SET estado = 'enviado', enviado = :ahora, destinatarios = :d, error = NULL WHERE id = :id")
                             .param("ahora", opl.ahora()).param("d", para.toArray(String[]::new)).param("id", reporteId).update();
                 }
-                jdbc.sql("UPDATE opl_planes SET estado = 'reportado_digsa', reportado_en = :ahora WHERE acta_id = :a AND estado = 'vencido'")
-                        .param("ahora", opl.ahora()).param("a", a.actaId()).update();
+                jdbc.sql("UPDATE opl_planes SET estado = 'reportado_digsa', reportado_en = :ahora, reporte_id = :r WHERE acta_id = :a AND estado IN (:e)")
+                        .param("ahora", opl.ahora()).param("r", reporteId).param("a", a.actaId())
+                        .param("e", "plan_incumplido".equals(motivo) ? List.of("firmado", "vencido") : List.of("vencido")).update();
                 jdbc.sql("INSERT INTO opl_avisos (visita_id, acta_id, tipo, resultado) VALUES (:v, :a, 'reporte_digsa', :c) ON CONFLICT DO NOTHING")
                         .param("v", a.visitaId()).param("a", a.actaId()).param("c", consecutivo).update();
-                visitas.historial(a.visitaId(), null, "sistema", "Reporte a la DIGSA", "Reporte N° " + consecutivo + ": plan de mejoramiento no presentado");
+                visitas.historial(a.visitaId(), null, "sistema", "Reporte a la DIGSA", "Reporte N° " + consecutivo + ": " + textoMotivo(motivo));
             });
             bitacora.registrar("reporte_digsa", "Visita " + a.numero() + ": reporte " + consecutivo + " enviado", null, "sistema");
             return "enviado";
@@ -315,7 +397,7 @@ public class TareaDiariaOpl {
     }
 
     /** @return el error, o null si salió y lo recibió al menos un correo de la DIGSA (ninguno de ellos rechazado) */
-    private String enviar(ServicioOpl.Acceso a, String consecutivo, String contenidoJson, List<String> para, List<String> digsa) {
+    private String enviar(ServicioOpl.Acceso a, String consecutivo, String motivo, String contenidoJson, List<String> para, List<String> digsa) {
         try {
             Map<?, ?> c = json.readValue(contenidoJson, Map.class);
             StringBuilder filas = new StringBuilder();
@@ -325,9 +407,9 @@ public class TareaDiariaOpl {
                         .append(PlantillaCorreo.e(String.valueOf(h.get("texto")))).append("</td><td>").append(PlantillaCorreo.e(String.valueOf(h.get("estado"))))
                         .append("</td><td>").append(h.get("soportes")).append("</td></tr>");
             }
-            String html = PlantillaCorreo.marco("Reporte N° " + consecutivo + " · plan de mejoramiento no presentado",
-                    "<p>El operador logístico no remitió firmado el plan de mejoramiento de la visita <strong>" + PlantillaCorreo.e(a.numero()) + "</strong> ("
-                            + PlantillaCorreo.e(a.punto()) + ") dentro de los " + EnlaceOpl.DIAS_PLAN + " días hábiles.</p>"
+            String html = PlantillaCorreo.marco("Reporte N° " + consecutivo + " · " + textoMotivo(motivo),
+                    "<p>" + PlantillaCorreo.e(String.valueOf(c.get("falto"))) + " Visita <strong>" + PlantillaCorreo.e(a.numero()) + "</strong> ("
+                            + PlantillaCorreo.e(a.punto()) + ").</p>"
                             + "<p>Acta enviada: " + PlantillaCorreo.e(String.valueOf(c.get("actaEnviada"))) + " · plazo para objetar: "
                             + PlantillaCorreo.e(String.valueOf(c.get("venceObjeciones"))) + " · plazo del plan: " + PlantillaCorreo.e(String.valueOf(c.get("vencePlan")))
                             + "</p><table border=\"1\" cellpadding=\"4\" style=\"border-collapse:collapse\"><tr><th>Hallazgo</th><th>Descripción</th><th>Estado</th>"
@@ -339,7 +421,7 @@ public class TareaDiariaOpl {
             try (InputStream in = opl.abrir(acta)) {
                 pdf = in.readAllBytes();
             }
-            Correo.Resultado r = correo.enviar(new Correo.Mensaje(para, List.of(), "Reporte N° " + consecutivo + " · plan de mejoramiento no presentado · visita "
+            Correo.Resultado r = correo.enviar(new Correo.Mensaje(para, List.of(), "Reporte N° " + consecutivo + " · " + textoMotivo(motivo) + " · visita "
                     + a.numero(), html, List.of(new Correo.Adjunto(acta.nombre(), "application/pdf", pdf))));
             if (!r.ok()) {
                 return String.valueOf(r.error());

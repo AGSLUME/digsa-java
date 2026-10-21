@@ -7,6 +7,7 @@ import { Calendario } from './paginas/Calendario';
 import { Catalogos } from './paginas/Catalogos';
 import { Checklist } from './paginas/Checklist';
 import { DefinirClave, OlvideClave } from './paginas/Claves';
+import { Hallazgos } from './paginas/Hallazgos';
 import { Ingreso } from './paginas/Ingreso';
 import { Logs } from './paginas/Logs';
 import { Reportes } from './paginas/Reportes';
@@ -15,6 +16,7 @@ import { Maestros } from './paginas/Maestros';
 import { MisVisitas } from './paginas/MisVisitas';
 import { Opl, OplVisita } from './paginas/Opl';
 import { OplResponder } from './paginas/OplResponder';
+import { Prorrogas } from './paginas/Prorrogas';
 import { Seguimiento } from './paginas/Seguimiento';
 import { Usuarios } from './paginas/Usuarios';
 import { VisitaDetalle } from './paginas/VisitaDetalle';
@@ -104,6 +106,8 @@ export function App() {
           <Route path="/logs" element={<Protegida ruta="logs"><Logs /></Protegida>} />
           <Route path="/reportes" element={<Protegida ruta="reportes"><Reportes /></Protegida>} />
           <Route path="/solicitudes" element={<Protegida ruta="solicitudes"><Solicitudes /></Protegida>} />
+          <Route path="/prorrogas" element={<Protegida ruta="prorrogas"><Prorrogas /></Protegida>} />
+          <Route path="/hallazgos" element={<Protegida ruta="hallazgos"><Hallazgos /></Protegida>} />
           <Route path="/catalogos" element={<Protegida ruta="catalogos"><Catalogos /></Protegida>} />
           <Route path="/maestros" element={<Protegida ruta="maestros"><Maestros /></Protegida>} />
           <Route path="/agenda" element={<Protegida ruta="agenda"><Agenda /></Protegida>} />

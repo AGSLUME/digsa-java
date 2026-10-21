@@ -65,7 +65,7 @@ public class ServicioFormulario {
 
     /** Fila del plan de mejoramiento 5W2H, parte del auditor (Anexo 3 p.11); quién y cómo los diligencia el OPL. */
     public record FilaPlan(String clave, String causas, String que, String porque, String donde, String inicio, String fin, String indicador,
-                           String estado, Integer avance) {
+                           String estado, Integer avance, String prorroga) {
     }
 
     public record Plan(String fecha, List<FilaPlan> filas) {
@@ -78,11 +78,13 @@ public class ServicioFormulario {
     private final RepositorioVisitas visitas;
     private final JdbcClient jdbc;
     private final Clock reloj;
+    private final ServicioSeguimiento seguimiento;
 
-    public ServicioFormulario(RepositorioVisitas visitas, JdbcClient jdbc, Clock reloj) {
+    public ServicioFormulario(RepositorioVisitas visitas, JdbcClient jdbc, Clock reloj, ServicioSeguimiento seguimiento) {
         this.visitas = visitas;
         this.jdbc = jdbc;
         this.reloj = reloj;
+        this.seguimiento = seguimiento;
     }
 
     // ---------- Acceso ----------
@@ -152,6 +154,12 @@ public class ServicioFormulario {
         List<ItemVisita> todos = new ArrayList<>(lista);
         if (visitas.reparto(v.id()).containsKey(Reparto.OBLIGACIONES) || "ejecucion".equals(v.estado()) || "cerrada".equals(v.estado())) {
             todos.addAll(obligaciones(v));
+        }
+        // En el seguimiento solo se recalifican los hallazgos por verificar (decisiones 17, 6.5 y 6.11): el resumen, los faltantes, los
+        // hallazgos y el acta cuentan solo eso; lo demás se ve como quedó en la visita de origen
+        if (v.esSeguimiento()) {
+            Set<String> verificar = seguimiento.porVerificar(v);
+            return todos.stream().filter(i -> verificar.contains(i.clave())).toList();
         }
         return todos;
     }
@@ -223,6 +231,7 @@ public class ServicioFormulario {
         datos.put("equipo", equipo.stream().map(x -> Map.of("id", x.id(), "nombre", x.nombre(), "rol", Reparto.ROLES.getOrDefault(x.rol(), "Otro"),
                 "lider", x.id() == v.auditorId())).toList());
         m.put("visita", datos);
+        m.put("seguimiento", seguimiento.datos(v));
 
         Map<String, Object> permisos = new LinkedHashMap<>();
         permisos.put("escribible", a.escribible());
@@ -245,6 +254,9 @@ public class ServicioFormulario {
         List<ItemVisita> items = items(v);
         Map<String, Checklist.Respuesta> resp = respuestas(visitaId);
         Map<String, List<Map<String, Object>>> archivos = archivosPorClave(visitaId);
+        Map<String, Map<String, Object>> anteriores = seguimiento.anteriores(v);
+        Map<String, List<Map<String, Object>>> archivosAnteriores = seguimiento.archivosAnteriores(v,
+                items.stream().map(ItemVisita::clave).collect(Collectors.toSet()));
         Map<String, Map<String, Object>> comps = new LinkedHashMap<>();
         for (ItemVisita i : items) {
             Map<String, Object> c = comps.computeIfAbsent(i.componente(), k -> {
@@ -273,6 +285,10 @@ public class ServicioFormulario {
             it.put("clave", i.clave());
             it.put("obligacion", i.obligacion());
             it.put("archivos", archivos.getOrDefault(i.clave(), List.of()));
+            if (v.esSeguimiento()) {
+                it.put("anterior", anteriores.get(i.clave()));
+                it.put("archivosAnteriores", archivosAnteriores.getOrDefault(i.clave(), List.of()));
+            }
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> lista = (List<Map<String, Object>>) c.get("items");
             lista.add(it);
@@ -383,6 +399,14 @@ public class ServicioFormulario {
             }
             if (!firmas.contains("w5_auditado")) {
                 f.add("Falta la firma de «recibí los hallazgos» del auditado en el plan de mejoramiento.");
+            }
+            // Prórroga en el seguimiento: la fecha fin de una acción abierta pasa a ser posterior a la anterior (decisión 6.4)
+            Set<String> clavesHallazgo = hallazgos.stream().map(h -> (String) h.get("clave")).collect(Collectors.toSet());
+            List<String> sinJustificar = seguimiento.prorrogas(v, filas, clavesHallazgo).stream()
+                    .filter(x -> !co.com.agsamericas.digsa.reglas.Seguimiento.justificacionValida(x.justificacion())).map(ServicioSeguimiento.Prorroga::codigo).toList();
+            if (!sinJustificar.isEmpty()) {
+                f.add("Justifique la prórroga (mínimo " + co.com.agsamericas.digsa.reglas.Seguimiento.MIN_JUSTIFICACION + " caracteres) de: "
+                        + String.join(", ", sinJustificar) + ".");
             }
         }
         return f;
@@ -614,7 +638,8 @@ public class ServicioFormulario {
     Map<String, Map<String, Object>> filasPlan(long visitaId) {
         Map<String, Map<String, Object>> r = new LinkedHashMap<>();
         jdbc.sql("""
-                SELECT clave, causas, que, porque, donde, inicio, fin, indicador, estado, avance FROM visitas_plan WHERE visita_id = :v ORDER BY clave""")
+                SELECT clave, causas, que, porque, donde, inicio, fin, indicador, estado, avance, quien, como, prorroga_justificacion
+                FROM visitas_plan WHERE visita_id = :v ORDER BY clave""")
                 .param("v", visitaId).query().listOfRows().forEach(f -> {
                     Map<String, Object> m = new LinkedHashMap<>(f);
                     m.put("inicio", f.get("inicio") == null ? null : f.get("inicio").toString());
@@ -627,10 +652,45 @@ public class ServicioFormulario {
     /** El plan para la pantalla: cada hallazgo con su fila (vacía si aún no se diligencia), la fecha y el texto de ayuda del indicador. */
     Map<String, Object> plan(RepositorioVisitas.Visita v, List<ItemVisita> items, Map<String, Checklist.Respuesta> resp) {
         Map<String, Map<String, Object>> filas = filasPlan(v.id());
+        Map<String, Map<String, Object>> anteriores = seguimiento.anteriores(v);
+        Map<String, Map<String, Object>> deOpl = seguimiento.quienComoOpl(v);
         List<Map<String, Object>> lista = new ArrayList<>();
-        for (Map<String, Object> h : hallazgos(v, items, resp)) {
+        // En el seguimiento el plan parte del anterior: se ven también los hallazgos por verificar que aún no se recalifican
+        List<Map<String, Object>> base = hallazgos(v, items, resp);
+        if (v.esSeguimiento()) {
+            base = new ArrayList<>(base);
+            for (ItemVisita i : items) {
+                Checklist.Respuesta r = resp.get(i.codigo());
+                if (r == null || r.calificacion() == null) {
+                    Map<String, Object> h = new LinkedHashMap<>();
+                    h.put("clave", i.clave());
+                    h.put("codigo", i.codigo());
+                    h.put("origen", i.obligacion() ? "obligacion" : "item");
+                    h.put("texto", i.punto());
+                    h.put("hallazgo", null);
+                    h.put("sinCalificar", true);
+                    base.add(h);
+                }
+            }
+        }
+        for (Map<String, Object> h : base) {
             Map<String, Object> x = new LinkedHashMap<>(h);
-            x.put("fila", filas.getOrDefault((String) h.get("clave"), Map.of("estado", "Pendiente", "avance", 0)));
+            Map<String, Object> fila = new LinkedHashMap<>(filas.getOrDefault((String) h.get("clave"), Map.of("estado", "Pendiente", "avance", 0)));
+            Map<String, Object> opl = deOpl.get((String) h.get("clave"));
+            if (opl != null) {
+                // Quién y cómo del OPL en vivo (responde después del cierre de la visita de origen)
+                fila.putIfAbsent("quien", null);
+                fila.putIfAbsent("como", null);
+                if (fila.get("quien") == null) {
+                    fila.put("quien", opl.get("quien"));
+                }
+                if (fila.get("como") == null) {
+                    fila.put("como", opl.get("como"));
+                }
+            }
+            x.put("fila", fila);
+            Map<String, Object> a = anteriores.get((String) h.get("clave"));
+            x.put("finAnterior", a == null ? null : a.get("fin"));
             lista.add(x);
         }
         Map<String, Object> m = new LinkedHashMap<>();
@@ -649,6 +709,9 @@ public class ServicioFormulario {
         exigir(a.escribeVisita(), a.escribible() ? "El plan de mejoramiento lo diligencia el auditor líder." : a.motivoSoloLectura());
         Set<String> claves = new java.util.HashSet<>();
         hallazgos(a.visita(), items(a.visita()), respuestas(visitaId)).forEach(h -> claves.add((String) h.get("clave")));
+        if (a.visita().esSeguimiento()) {
+            items(a.visita()).forEach(i -> claves.add(i.clave())); // el plan del seguimiento se diligencia también antes de recalificar
+        }
         java.time.LocalDate fecha = p.fecha() == null || p.fecha().isBlank() ? null
                 : Fechas.valida(p.fecha()).orElseThrow(() -> ErrorNegocio.validacion("La fecha del plan no es válida."));
         List<FilaPlan> filas = p.filas() == null ? List.of() : p.filas().stream().filter(java.util.Objects::nonNull).toList();
@@ -675,6 +738,7 @@ public class ServicioFormulario {
             largo(errores, f.porque(), 2000, f.clave() + ": por qué");
             largo(errores, f.donde(), 500, f.clave() + ": dónde");
             largo(errores, f.indicador(), 1000, f.clave() + ": indicador");
+            largo(errores, f.prorroga(), 2000, f.clave() + ": justificación de la prórroga");
         }
         if (!errores.isEmpty()) {
             throw ErrorNegocio.validacion("No se guardó el plan: " + String.join("; ", errores.subList(0, Math.min(10, errores.size()))) + ".");
@@ -686,17 +750,20 @@ public class ServicioFormulario {
                   actualizado_por = EXCLUDED.actualizado_por""").param("v", visitaId).param("f", fecha).param("ahora", ahora).param("u", quien.id()).update();
         for (FilaPlan f : filas) {
             jdbc.sql("""
-                    INSERT INTO visitas_plan (visita_id, clave, causas, que, porque, donde, inicio, fin, indicador, estado, avance, usuario_id, actualizado)
-                    VALUES (:v, :c, :causas, :que, :porque, :donde, :ini, :fin, :ind, :estado, :avance, :u, :ahora)
+                    INSERT INTO visitas_plan (visita_id, clave, causas, que, porque, donde, inicio, fin, indicador, estado, avance, prorroga_justificacion,
+                      usuario_id, actualizado)
+                    VALUES (:v, :c, :causas, :que, :porque, :donde, :ini, :fin, :ind, :estado, :avance, :prorroga, :u, :ahora)
                     ON CONFLICT (visita_id, clave) DO UPDATE SET causas = EXCLUDED.causas, que = EXCLUDED.que, porque = EXCLUDED.porque,
                       donde = EXCLUDED.donde, inicio = EXCLUDED.inicio, fin = EXCLUDED.fin, indicador = EXCLUDED.indicador, estado = EXCLUDED.estado,
-                      avance = EXCLUDED.avance, usuario_id = EXCLUDED.usuario_id, actualizado = EXCLUDED.actualizado""")
+                      avance = EXCLUDED.avance, prorroga_justificacion = EXCLUDED.prorroga_justificacion, usuario_id = EXCLUDED.usuario_id,
+                      actualizado = EXCLUDED.actualizado""")
                     .param("v", visitaId).param("c", f.clave()).param("causas", texto(f.causas(), 2000, "Causas")).param("que", texto(f.que(), 2000, "Qué"))
                     .param("porque", texto(f.porque(), 2000, "Por qué")).param("donde", texto(f.donde(), 500, "Dónde"))
                     .param("ini", f.inicio() == null || f.inicio().isBlank() ? null : Fechas.valida(f.inicio()).orElse(null))
                     .param("fin", f.fin() == null || f.fin().isBlank() ? null : Fechas.valida(f.fin()).orElse(null))
                     .param("ind", texto(f.indicador(), 1000, "Indicador")).param("estado", f.estado() == null || f.estado().isBlank() ? "Pendiente" : f.estado())
-                    .param("avance", f.avance() == null ? 0 : f.avance()).param("u", quien.id()).param("ahora", ahora).update();
+                    .param("avance", f.avance() == null ? 0 : f.avance()).param("prorroga", texto(f.prorroga(), 2000, "La justificación de la prórroga"))
+                    .param("u", quien.id()).param("ahora", ahora).update();
         }
         if (a.correccion()) {
             visitas.historial(visitaId, quien.id(), quien.usuario(), "Corrección", "Plan de mejoramiento (" + filas.size() + " filas)");

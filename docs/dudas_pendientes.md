@@ -308,3 +308,112 @@ Quedan pendientes, sin bloquear:
 | 21.23 | Enlace del acta con fragmento (`#t=`) y apertura por POST, para que el token no llegue a los registros del ingreso. Se suma a 21.15 | Fase 11 |
 | 21.24 | E2E de reverificar por inactividad, conservando lo escrito, y e2e de `/opl` con usuarios OPL nacional y regional | Fase 7 |
 | 21.25 | Detalles de pantalla: aviso al cerrar que también cuente la firma, carga por botón, parpadeo tras guardar, 5W2H con revisión ante dos editores, tarjetas en el celular, errores 500 visibles en «Respuesta del OPL» y ESLint con react-hooks y jsx-a11y | Fase 8 |
+
+## Fase 7 · Seguimiento al plan de mejoramiento (2026-10-21)
+
+Implementado con las decisiones 6.x, 17, 24, 30 y la 12.1 (con la resolución recomendada):
+- **Programación automática:** al cerrar una visita con acciones abiertas, en la misma transacción del cierre, se crea la visita de seguimiento.
+  - Tipo «plan», con el mismo punto, hora, equipo activo, componentes y versión del checklist; el reparto se hace de nuevo.
+  - Su fecha es la fin más próxima de las acciones abiertas; si ya pasó, el siguiente día hábil.
+  - Se notifica de inmediato y se avisa al líder con las acciones por verificar.
+  - Reabrir y volver a cerrar no la duplica (índice único parcial).
+- **Qué se verifica:** el seguimiento recalifica solo los hallazgos no levantados de la visita de origen. El resumen, los faltantes y el acta cuentan solo eso.
+- **Estado inicial:** el plan parte del anterior, con el quién y el cómo del OPL en solo lectura. Los soportes anteriores se descargan en solo lectura.
+- **Prórroga:**
+  - Correr la fecha fin de una acción abierta exige una justificación (10 caracteres o más).
+  - Al enviar el acta queda «solicitada», y pasa a «aprobada» con el coordinador y la DIGSA.
+  - Cualquiera de los dos la rechaza con motivo, y cada decisión queda en la bitácora.
+- **Máximo de seguimientos (`max_seguimientos`):**
+  - no se programa otro;
+  - el plan se escala a los coordinadores con copia a la DIGSA;
+  - sale el reporte formal «plan incumplido» con consecutivo, y el plan queda «reportado a DIGSA».
+- **Cierres:**
+  - Un seguimiento sin acciones abiertas cierra el plan del OPL de la visita de origen y avisa solo al OPL.
+  - Levantar el último hallazgo cancela el seguimiento pendiente.
+- **Recordatorio diario** al líder, una sola vez, dentro de los `recordatorio_seguimiento_habiles` días.
+- **«Prestadores con hallazgos»**, con el alcance de cada perfil. El ESM no ve la objeción, el motivo ni los soportes.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 22.1 | **Fecha que manda con la prórroga «solicitada»** | El siguiente seguimiento se programa con la fecha solicitada. Si se rechaza, el coordinador lo reprograma (se le dice en el mensaje) |
+| 22.2 | **Cuándo se reporta el «plan incumplido»** | Solo al llegar al máximo de seguimientos con acciones abiertas, no en cada seguimiento con la acción vencida |
+| 22.3 | **La DIGSA decide prórrogas:** es su única escritura; la decisión 20 dice «solo ven» | Se habilitó solo para las prórrogas (pantalla «Prórrogas del plan») |
+| 22.4 | **Cierre del plan sin acciones abiertas:** el seguimiento termina sin abiertas | Mismo cierre y mismo aviso solo al OPL que al levantar el último hallazgo |
+| 22.5 | **Lo que ve el ESM de un hallazgo objetado** | Lo ve como «vigente», sin la objeción |
+| 22.6 | **Reparto del seguimiento:** se hace de nuevo, como dice la spec | El hallazgo lo puede recalificar otro auditor del equipo. ¿Debe ir al mismo auditor que lo encontró? |
+| 22.7 | **Seguimiento con el líder inactivo:** si el líder ya no está activo al cerrar, el seguimiento no se programa | La visita igual se cierra. El historial y el mensaje lo dicen, y el coordinador lo programa a mano |
+| 22.8 | **Hora del recordatorio** | 06:30 en Bogotá (`digsa.seguimiento.cron`). El administrador también lo corre a mano |
+
+### Revisión de los agentes de la fase 7 (2026-10-21)
+
+Se corrigieron antes del commit:
+
+**Prioridad alta (P1):**
+- **Doble aprobación de la prórroga:**
+  - Dos aprobaciones al mismo tiempo dejaban la prórroga «solicitada» para siempre. Ahora la fila se bloquea y el estado se calcula en el SQL.
+  - Una prórroga cambiada conservaba la aprobación anterior. Ahora se registra solo cuando el acta salió y la visita se cerró. Si cambia, vuelve a «solicitada» sin decisiones; la que ya no está en el acta queda retirada.
+- **Quién y cómo del OPL:** nunca llegaban al seguimiento, porque el OPL responde después del cierre. Ahora se leen en vivo y quedan en el plan al enviar el acta del seguimiento.
+- **Prórroga de un ítem que ya Cumple:** daba un error 500. Ahora la prórroga se detecta solo en lo que sigue en NC.
+
+**Prioridad media (P2):**
+- **Prórrogas:**
+  - El administrador no decide a nombre de la coordinación, y quien tiene Coordinador y DIGSA a la vez no decide.
+  - Cada lado lo decide una persona distinta (CHECK en la base).
+  - El líder no aprueba su propia prórroga.
+  - El motivo del rechazo no se copia al historial.
+- **Cierre de la visita:**
+  - La programación del seguimiento corre en un punto de guardado: si falla, el cierre sigue en pie y queda la advertencia.
+  - Al reabrir y cerrar de nuevo, el seguimiento existente ajusta su fecha y su plan, o se cancela si ya no hay acciones abiertas.
+- **Tarea diaria:**
+  - Retoma el plan incumplido que no se reportó (el aviso era solo en memoria).
+  - Reintenta los avisos de cierre del plan.
+  - Cada fila va con su propio manejo de errores.
+- **Recordatorio:** usa candado.
+- **«Prestadores con hallazgos»:**
+  - una sola consulta de hallazgos y la siguiente visita en la consulta principal;
+  - solo el auditor y la coordinación ven el enlace al checklist.
+- **Datos fijos del seguimiento:**
+  - no se edita: se reprograma, se reasigna o se cancela;
+  - CHECK en la base: tipo «plan».
+- **Nueva acción del coordinador:** «Programar seguimiento», para la situación «sin programar».
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 22.9 | **Plan del acta del último seguimiento:** con el plan incumplido, ¿el plan de esa acta queda «reportado a DIGSA» o el OPL todavía puede responderla? | Sigue «pendiente», con el reporte ligado: el OPL responde y firma esa acta |
+| 22.10 | **Creador del seguimiento:** la spec dice que lo crea «sistema» | Queda creado por quien envió el acta (la base exige un usuario); el historial dice «sistema» |
+
+Quedan pendientes, sin bloquear:
+
+| # | Pendiente | Cuándo |
+|---|---|---|
+| 22.11 | Prueba de concurrencia de dos decisiones de prórroga a la vez, y de la reapertura con hallazgos distintos | Fase 8 |
+| 22.12 | Descarga de los soportes del OPL para la DIGSA y Sanidad desde «Prestadores con hallazgos» | Fase 10 |
+| 22.13 | Métrica o alerta cuando una tarea diaria termina con fallos (hoy queda en el registro de errores) | Fase 11 |
+
+### Frontend de la fase 7 (2026-10-21)
+
+Construido:
+- **Checklist del seguimiento:** el aviso de la pantalla, el hallazgo y los soportes anteriores en solo lectura, el quién y el cómo del OPL, la fecha fin anterior y la justificación de la prórroga.
+- **Pantalla «Prórrogas del plan»:** filtro por estado y la aprobación o el rechazo de cada lado. El administrador solo la consulta.
+- **Pantalla «Prestadores con hallazgos»:** tarjetas en el celular y el botón «Programar seguimiento» del coordinador.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 22.14 | **Perfil por nombre:** la pantalla decide los botones por el nombre visible del perfil, y si el administrador lo renombra, desaparecen | Se dejó así. En la fase 8 /api/sesion mandará los códigos de los perfiles |
+| 22.15 | **Estado de la siguiente visita:** en «Prestadores con hallazgos» se muestra el código (`notificada`) | Pendiente de mostrar el nombre legible (fase 8) |
+
+Revisión del frontend de la fase 7 (React y seguridad). Se corrigió antes del commit:
+- **P1, botones de las prórrogas:** dependían del nombre visible del perfil, que el administrador puede renombrar. Ahora el servidor dice por fila si el usuario puede decidir (`puedeDecidir`), lo que también evita mostrar los botones al líder que pidió la prórroga.
+- **P2, celular:** «Prórrogas del plan» usa tarjetas en el celular, con los botones a la vista.
+- **P3:**
+  - La fecha propuesta para programar el seguimiento sale solo de las acciones abiertas y se calcula con el «hoy» de Bogotá.
+  - El motivo del rechazo no se pierde con un clic fuera de la ventana.
+
+Quedan pendientes, sin bloquear (fase 8):
+
+| # | Pendiente |
+|---|---|
+| 22.16 | El aviso de que se pedirá la justificación de la prórroga, en una fila aún sin calificar |
+| 22.17 | Mostrar el vencimiento del plazo para objetar en «Prestadores con hallazgos» |
+| 22.18 | Botones táctiles de 44 px en las tablas |
+| 22.19 | ESLint con react-hooks y jsx-a11y |

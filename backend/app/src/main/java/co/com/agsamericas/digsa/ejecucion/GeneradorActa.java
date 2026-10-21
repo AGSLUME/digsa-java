@@ -38,7 +38,8 @@ final class GeneradorActa {
     record Contenido(String numero, int ronda, Map<String, String> datos, List<String[]> equipo, List<String[]> personal,
                      List<Componente> componentes, Map<String, String> resumen, String recomendaciones, String observacionesAuditor,
                      String observacionesEsm, String observacionesOpl, List<String[]> soportes, List<FirmaActa> firmas, String generado,
-                     List<String[]> plan, String planFecha, String plazos, String enlace, byte[] qr) {
+                     List<String[]> plan, String planFecha, String plazos, String enlace, byte[] qr, String textoSeguimiento,
+                     String seguimientoDe, List<String[]> prorrogas) {
     }
 
     record Componente(String codigo, String nombre, List<String[]> items) {
@@ -66,8 +67,11 @@ final class GeneradorActa {
             doc.addTitle("Acta de visita " + c.numero());
             doc.addAuthor("Suite DIGSA · Interventoría AGS Colombia");
             doc.open();
-            doc.add(new Paragraph("Acta de visita de seguimiento farmacéutico", TITULO));
+            doc.add(new Paragraph(c.seguimientoDe() != null ? "Acta de seguimiento a plan de mejoramiento" : "Acta de visita de seguimiento farmacéutico", TITULO));
             doc.add(new Paragraph("Interventoría DIGSA · " + c.numero() + (c.ronda() > 1 ? " · ronda " + c.ronda() + " (visita reabierta)" : ""), NORMAL));
+            if (c.seguimientoDe() != null) {
+                doc.add(new Paragraph(c.seguimientoDe(), PEQUENA));
+            }
 
             seccion(doc, "Datos de la visita");
             PdfPTable datos = new PdfPTable(new float[] {1.3f, 3f});
@@ -111,6 +115,17 @@ final class GeneradorActa {
                 doc.add(tabla(new String[] {"Hallazgo", "Qué", "Por qué", "Dónde", "Inicio", "Fin", "Indicador", "Estado"}, c.plan(),
                         new float[] {1, 2.5f, 2, 1.3f, 1.1f, 1.1f, 1.8f, 1.1f}));
                 doc.add(new Paragraph("Quién y cómo los diligencia el operador logístico al responder el acta.", PEQUENA));
+            }
+            if (!c.prorrogas().isEmpty()) {
+                seccion(doc, "Prórrogas solicitadas");
+                doc.add(tabla(new String[] {"Hallazgo", "Fin anterior", "Fin nuevo", "Justificación", "Estado"}, c.prorrogas(), new float[] {1.2f, 1.2f, 1.2f, 4, 1.2f}));
+                doc.add(new Paragraph("La prórroga queda solicitada: se aprueba cuando la aprueban el coordinador y la DIGSA.", PEQUENA));
+            }
+            if (c.textoSeguimiento() != null) {
+                Paragraph sg = new Paragraph(c.textoSeguimiento(), new Font(Font.HELVETICA, 10, Font.BOLD));
+                sg.setSpacingBefore(6);
+                sg.setSpacingAfter(6);
+                doc.add(sg);
             }
             if (c.plazos() != null) {
                 seccion(doc, "Respuesta del operador logístico");

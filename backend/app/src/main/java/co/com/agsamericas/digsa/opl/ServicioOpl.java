@@ -80,9 +80,11 @@ public class ServicioOpl {
     private final RegistroBitacora bitacora;
     private final TransactionTemplate tx;
     private final Clock reloj;
+    private final co.com.agsamericas.digsa.agenda.ServicioAgenda agenda;
 
     public ServicioOpl(JdbcClient jdbc, RepositorioVisitas visitas, ValidadorArchivos validador, Almacen almacen, Correo correo, RegistroBitacora bitacora,
-                       TransactionTemplate tx, Clock reloj) {
+                       TransactionTemplate tx, Clock reloj, co.com.agsamericas.digsa.agenda.ServicioAgenda agenda) {
+        this.agenda = agenda;
         this.jdbc = jdbc;
         this.visitas = visitas;
         this.validador = validador;
@@ -636,6 +638,8 @@ public class ServicioOpl {
                         UPDATE opl_planes SET estado = 'cerrado', cerrado_en = :ahora, cerrado_por = :u, motivo_cierre = 'Se levantaron todos los hallazgos'
                         WHERE acta_id = :a AND estado <> 'cerrado'""").param("ahora", ahora()).param("u", quien.id()).param("a", a.actaId()).update();
                 visitas.historial(visitaId, quien.id(), quien.usuario(), "Plan cerrado", "Se levantaron todos los hallazgos");
+                // El seguimiento pendiente ya no tiene qué verificar (spec seguimiento, «Cierre del plan al levantar el último hallazgo»)
+                agenda.cancelarSeguimientoPendiente(visitaId, "Todos los hallazgos de la visita anterior fueron levantados por el auditor líder");
                 jdbc.sql("INSERT INTO opl_avisos (visita_id, acta_id, tipo, resultado) VALUES (:v, :a, 'plan_cerrado', 'pendiente') ON CONFLICT DO NOTHING")
                         .param("v", visitaId).param("a", a.actaId()).update();
                 return true;
@@ -680,6 +684,46 @@ public class ServicioOpl {
         m.put("tieneEnlace", true);
         m.put("esLider", a.get().liderId() == quien.id());
         return m;
+    }
+
+    /**
+     * El seguimiento terminó sin acciones abiertas: el plan de la visita de origen queda cerrado con su registro y se avisa solo al OPL
+     * (recomendación de la spec: el mismo cierre que al levantar el último hallazgo, duda 22.4).
+     */
+    @org.springframework.context.event.EventListener
+    public void planCerradoSinAbiertas(co.com.agsamericas.digsa.ejecucion.ServicioSeguimiento.PlanCerradoSinAbiertas e) {
+        try {
+            Optional<Acceso> a = accesoDeVisita(e.visitaId());
+            if (a.isEmpty()) {
+                return;
+            }
+            int n = tx.execute(t -> {
+                visitas.bloquear(e.visitaId());
+                int c = jdbc.sql("""
+                        UPDATE opl_planes SET estado = 'cerrado', cerrado_en = :ahora, motivo_cierre = :m
+                        WHERE acta_id = :a AND estado IN ('pendiente', 'firmado', 'vencido')""")
+                        .param("ahora", ahora()).param("m", "Seguimiento " + e.numero() + " sin acciones abiertas").param("a", a.get().actaId()).update();
+                if (c > 0) {
+                    visitas.historial(e.visitaId(), null, "sistema", "Plan cerrado", "El seguimiento " + e.numero() + " terminó sin acciones abiertas");
+                    jdbc.sql("INSERT INTO opl_avisos (visita_id, acta_id, tipo, resultado) VALUES (:v, :a, 'plan_cerrado', 'pendiente') ON CONFLICT DO NOTHING")
+                            .param("v", e.visitaId()).param("a", a.get().actaId()).update();
+                }
+                return c;
+            });
+            if (n > 0) {
+                String r = avisarOpl(a.get(), "Plan de mejoramiento cerrado · visita " + a.get().numero(), "El seguimiento " + e.numero()
+                        + " verificó que todas las acciones del plan de mejoramiento de la visita " + a.get().numero() + " quedaron cerradas: el plan queda cerrado.");
+                jdbc.sql("UPDATE opl_avisos SET resultado = :r WHERE acta_id = :a AND tipo = 'plan_cerrado'").param("r", r == null ? "enviado" : Bitacora.cortar(r, 500))
+                        .param("a", a.get().actaId()).update();
+            }
+        } catch (RuntimeException ex) {
+            org.slf4j.LoggerFactory.getLogger(ServicioOpl.class).error("[opl] Cierre del plan de la visita {}", e.visitaId(), ex);
+            try {
+                visitas.historial(e.visitaId(), null, "sistema", "Cierre del plan fallido", "El seguimiento " + e.numero() + " terminó sin acciones abiertas; cierre el plan a mano");
+            } catch (RuntimeException ignorada) {
+                // ya quedó en el registro de errores
+            }
+        }
     }
 
     // ---------- Avisos ----------

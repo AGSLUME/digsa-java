@@ -39,6 +39,9 @@ import {
   ESTADOS_ABIERTOS,
   ETIQUETA_CALIFICACION,
   faltantesPlan,
+  justificacionValida,
+  MIN_JUSTIFICACION,
+  pideProrroga,
   planCambiado,
   respuestasCambiadas,
   ROLES_FIRMA,
@@ -49,11 +52,13 @@ import {
   valorFila,
   valorItem,
   type Archivo,
+  type ArchivoAnterior,
   type Calificacion,
   type DatosFormulario,
   type Edicion,
   type EdicionPlan,
   type Ejecucion,
+  type HallazgoAnterior,
   type ItemChecklist,
   type PersonaAuditada,
   type RolFirma,
@@ -231,6 +236,14 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
           </Badge>
         )}
       </Group>
+      {d.seguimiento && (
+        <Alert color="blue" title={`${d.seguimiento.ordinal} visita de seguimiento al plan de mejoramiento`} data-testid="aviso-seguimiento">
+          <Text size="sm">{d.seguimiento.aviso}</Text>
+          <Text size="xs" c="dimmed" mt={4}>
+            Visita de origen: {d.seguimiento.origenNumero} del {d.seguimiento.origenFecha}.
+          </Text>
+        </Alert>
+      )}
       {!p.escribible && <Alert color="yellow">{p.motivo ?? 'El formulario está en solo lectura.'}</Alert>}
       {p.correccion && <Alert color="blue">Corrección del coordinador: los cambios quedan en el historial de la visita.</Alert>}
 
@@ -607,6 +620,7 @@ function Item({ id, it, valor, alEditar }: { id: string; it: ItemChecklist; valo
       <Text size="xs" c="dimmed" mt={4}>
         Responsable: {it.responsable ?? '—'}
       </Text>
+      {it.anterior && <HallazgoDeAntes id={id} codigo={it.codigo} anterior={it.anterior} archivos={it.archivosAnteriores ?? []} />}
       <Radio.Group
         mt="xs"
         label={<VisuallyHidden>{'Calificación de ' + it.codigo}</VisuallyHidden>}
@@ -662,6 +676,49 @@ function Item({ id, it, valor, alEditar }: { id: string; it: ItemChecklist; valo
           testid={it.codigo}
         />
       </Box>
+    </Paper>
+  );
+}
+
+/**
+ * En el seguimiento: el hallazgo de la visita de origen y su acción del plan, en solo lectura, con los soportes de entonces para
+ * descargar (decisiones 6.5 y 6.6). Se califica de nuevo desde cero.
+ */
+function HallazgoDeAntes({ id, codigo, anterior, archivos }: { id: string; codigo: string; anterior: HallazgoAnterior; archivos: ArchivoAnterior[] }) {
+  return (
+    <Paper withBorder p="xs" mt="xs" bg="var(--mantine-color-gray-0)" data-testid={'anterior-' + codigo}>
+      <Text size="sm" fw={600}>
+        Hallazgo de la visita anterior
+      </Text>
+      <Text size="sm" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+        {anterior.hallazgo ?? '—'}
+      </Text>
+      <Text size="xs" c="dimmed" mt={4} style={{ overflowWrap: 'anywhere' }}>
+        Acción del plan: {anterior.que ?? '—'} · Fin: {anterior.fin ?? '—'} · Estado: {anterior.estado}
+      </Text>
+      <Text size="xs" fw={500} mt={6}>
+        Soportes de la visita anterior
+      </Text>
+      {archivos.length === 0 ? (
+        <Text size="xs" c="dimmed">
+          Sin soportes.
+        </Text>
+      ) : (
+        <List size="sm" spacing={2} data-testid={'anteriores-' + codigo}>
+          {archivos.map((a) => (
+            <List.Item key={a.id}>
+              <Group gap={6} wrap="wrap">
+                <Anchor href={`/api/visitas/${id}/anteriores/${a.id}`} target="_blank" rel="noopener" size="sm" style={{ wordBreak: 'break-all' }}>
+                  {a.nombre}
+                </Anchor>
+                <Text size="xs" c="dimmed">
+                  {tamanoLegible(a.tamano)}
+                </Text>
+              </Group>
+            </List.Item>
+          ))}
+        </List>
+      )}
     </Paper>
   );
 }
@@ -874,6 +931,8 @@ function PlanMejoramiento({
       <Text size="sm" c="dimmed" mb="xs">
         Una fila por hallazgo. Quién y cómo los diligencia el operador logístico con el enlace del acta. Para enviar el acta se necesitan la
         fecha del plan, el qué de cada fila, la fecha fin de las acciones abiertas y las dos firmas.
+        {d.seguimiento &&
+          ' En el seguimiento el plan parte del anterior: si una acción sigue abierta y su fecha fin pasa a ser posterior a la anterior, es una prórroga y hay que justificarla (la aprueban la coordinación y la DIGSA).'}
       </Text>
       <TextInput
         label="Fecha del plan"
@@ -888,6 +947,7 @@ function PlanMejoramiento({
         {plan.hallazgos.map((h) => {
           const v = valorFila(h, ediciones);
           const cambiar = (c: Partial<EdicionPlan>) => alEditar(h.clave, { ...v, ...c });
+          const prorroga = pideProrroga(h, ediciones);
           return (
             <Paper key={h.clave} withBorder p="sm" data-testid={'plan-' + h.codigo}>
               <Group gap="xs" wrap="wrap">
@@ -899,13 +959,26 @@ function PlanMejoramiento({
                     Obligación del contrato
                   </Badge>
                 )}
+                {h.sinCalificar && (
+                  <Badge size="sm" variant="light" color="gray">
+                    Por recalificar
+                  </Badge>
+                )}
               </Group>
               <Text size="sm" lineClamp={3}>
                 {h.texto}
               </Text>
               <Text size="xs" c="dimmed" mb="xs" style={{ whiteSpace: 'pre-wrap' }}>
-                Hallazgo: {h.hallazgo ?? '—'}
+                Hallazgo: {h.hallazgo ?? (h.sinCalificar ? 'aún sin recalificar en este seguimiento' : '—')}
               </Text>
+              {d.seguimiento && (
+                // Quién y cómo los remitió el OPL: el auditor no los cambia (solo lectura)
+                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs" mb="xs" data-testid={'del-opl-' + h.codigo}>
+                  <TextInput label="Quién (del OPL)" readOnly value={h.fila.quien ?? '—'} />
+                  <TextInput label="Cómo (del OPL)" readOnly value={h.fila.como ?? '—'} />
+                  <TextInput label="Fin anterior" readOnly value={h.finAnterior ?? '—'} />
+                </SimpleGrid>
+              )}
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
                 <Textarea
                   label="Causas"
@@ -966,6 +1039,22 @@ function PlanMejoramiento({
                   onChange={(x) => cambiar({ estado: x ?? 'Pendiente' })}
                 />
               </SimpleGrid>
+              {prorroga && (
+                <Textarea
+                  label="Justificación de la prórroga"
+                  description={`La fecha fin pasa del ${h.finAnterior ?? '—'} al ${v.fin}. Mínimo ${MIN_JUSTIFICACION} caracteres; queda solicitada hasta que la aprueben la coordinación y la DIGSA.`}
+                  data-testid={'prorroga-' + h.codigo}
+                  required
+                  mt="xs"
+                  autosize
+                  minRows={2}
+                  maxLength={2000}
+                  readOnly={!editable}
+                  error={editable && !justificacionValida(v.prorroga) ? `Justifique la prórroga (mínimo ${MIN_JUSTIFICACION} caracteres).` : undefined}
+                  value={v.prorroga}
+                  onChange={(e) => cambiar({ prorroga: e.currentTarget.value })}
+                />
+              )}
             </Paper>
           );
         })}

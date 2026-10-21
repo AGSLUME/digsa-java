@@ -57,10 +57,13 @@ public class ServicioActa {
     private final Clock reloj;
     private final co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta;
     private final co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa cfg;
+    private final ServicioSeguimiento seguimiento;
 
     public ServicioActa(ServicioFormulario formulario, ServicioArchivos archivos, ServicioNotificacion notificacion, ServicioCatalogos catalogos,
                         RepositorioVisitas visitas, Correo correo, RegistroBitacora bitacora, JdbcClient jdbc, TransactionTemplate tx, Clock reloj,
-                        co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta, co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa cfg) {
+                        co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta, co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa cfg,
+                        ServicioSeguimiento seguimiento) {
+        this.seguimiento = seguimiento;
         this.consulta = consulta;
         this.cfg = cfg;
         this.formulario = formulario;
@@ -78,7 +81,7 @@ public class ServicioActa {
     /** Genera el acta, la envía y cierra la visita. Si el correo no sale, la visita sigue en ejecución y se puede reintentar. */
     public Envio enviar(long visitaId, UsuarioSesion quien, Set<Perfil> perfiles) {
         record Preparada(long actaId, int ronda, String numero, List<String> para, Set<String> obligatorios, String asunto, byte[] pdf, String nombre,
-                         EnlaceOpl enlace) {
+                         EnlaceOpl enlace, ServicioSeguimiento.Programacion programacion, List<ServicioSeguimiento.Prorroga> prorrogas) {
         }
         Preparada p = tx.execute(t -> {
             Acceso a = formulario.acceso(visitaId, quien, perfiles, true);
@@ -131,7 +134,13 @@ public class ServicioActa {
             // Con hallazgos: enlace de respuesta del OPL con sus plazos (decisiones 25 y 8; 11.5 sin firma tardía)
             List<Map<String, Object>> hallazgos = formulario.hallazgos(v, items, resp);
             EnlaceOpl enlace = hallazgos.isEmpty() ? null : EnlaceOpl.nuevo(consulta.plazos(), OffsetDateTime.now(reloj), cfg::enlace);
-            byte[] pdf = GeneradorActa.generar(contenido(v, ronda, items, resp, s, enlace));
+            // Seguimiento (decisión 30): se decide antes del acta, que lo dice; se crea al cerrar. Prórrogas del seguimiento (12.1)
+            Map<String, Map<String, Object>> filasPlan = formulario.filasPlan(v.id());
+            ServicioSeguimiento.Programacion programacion = seguimiento.programacion(v, filasPlan, hallazgos);
+            seguimiento.fijarQuienComo(v);
+            List<ServicioSeguimiento.Prorroga> prorrogas = seguimiento.prorrogas(v, filasPlan,
+                    hallazgos.stream().map(h -> (String) h.get("clave")).collect(java.util.stream.Collectors.toSet()));
+            byte[] pdf = GeneradorActa.generar(contenido(v, ronda, items, resp, s, enlace, programacion, prorrogas));
             String nombre = "Acta_" + v.numero() + "_ronda" + ronda + ".pdf";
             ServicioArchivos.Archivo archivo = archivos.guardarGenerado(visitaId, "acta", nombre, pdf, quien);
             Long existente = jdbc.sql("SELECT id FROM visitas_actas WHERE visita_id = :v AND ronda = :r").param("v", visitaId).param("r", ronda)
@@ -154,13 +163,16 @@ public class ServicioActa {
                         .update();
             }
             guardarHallazgosYEnlace(v, actaId, hallazgos, enlace);
-            String asunto = (v.tipo().equals("plan") ? "Acta de seguimiento a plan de mejoramiento " : "Acta de visita ") + v.numero() + " · "
-                    + v.puntoNombre() + (ronda > 1 ? " · ronda " + ronda : "");
-            return new Preparada(actaId, ronda, v.numero(), lista, obligatorios, asunto, pdf, nombre, enlace);
+            Map<String, Object> segDatos = seguimiento.datos(v);
+            String asunto = (v.esSeguimiento() ? "Acta de seguimiento a plan de mejoramiento " : "Acta de visita ") + v.numero() + " · " + v.puntoNombre()
+                    + (segDatos == null ? "" : " · " + segDatos.get("ordinal") + " de la visita " + segDatos.get("origenNumero"))
+                    + (ronda > 1 ? " · ronda " + ronda : "");
+            return new Preparada(actaId, ronda, v.numero(), lista, obligatorios, asunto, pdf, nombre, enlace, programacion, prorrogas);
         });
 
         Correo.Resultado r = correo.enviar(new Correo.Mensaje(p.para(), List.of(), p.asunto(),
-                PlantillaCorreo.marco("Acta de visita de seguimiento", "<p>Adjuntamos el acta de la visita <strong>" + PlantillaCorreo.e(p.numero())
+                PlantillaCorreo.marco(p.asunto().startsWith("Acta de seguimiento") ? "Acta de seguimiento a plan de mejoramiento" : "Acta de visita",
+                        "<p>Adjuntamos el acta de la visita <strong>" + PlantillaCorreo.e(p.numero())
                         + "</strong>" + (p.ronda() > 1 ? " (ronda " + p.ronda() + ", visita reabierta)" : "") + ".</p>"
                         + (p.enlace() == null ? "<p>La visita no tiene hallazgos.</p>"
                                 : "<p style=\"border:2px solid #961414;padding:10px;color:#961414\"><strong>" + PlantillaCorreo.e(p.enlace().textoPlazos())
@@ -175,6 +187,7 @@ public class ServicioActa {
         String estado = !r.ok() ? "fallida" : rechazados.isEmpty() ? "enviada" : completa ? "parcial" : "fallida";
         String error = !r.ok() ? ServicioNotificacionTexto.corto(Bitacora.sinCorreos(r.error() == null ? "error desconocido" : r.error()), 500)
                 : rechazados.isEmpty() ? null : "Rechazados " + rechazados.size() + " de " + p.para().size() + " destinatarios";
+        ServicioSeguimiento.Resultado[] seg = new ServicioSeguimiento.Resultado[1];
         boolean cerrada = Boolean.TRUE.equals(tx.execute(t -> {
             visitas.bloquear(visitaId); // mismo orden de bloqueo que el resto: primero la visita
             jdbc.sql("UPDATE visitas_actas SET estado = :e, error = :err, resultado = :ahora WHERE id = :id").param("e", estado).param("err", error)
@@ -186,13 +199,21 @@ public class ServicioActa {
             boolean ok = visitas.cambiarEstado(visitaId, Set.of("ejecucion"), "cerrada");
             visitas.historial(visitaId, quien.id(), quien.usuario(), ok ? "Cerrada" : "Acta enviada",
                     "Acta de la ronda " + p.ronda() + " enviada a " + p.para().size() + " destinatarios" + (rechazados.isEmpty() ? "" : "; rechazados: " + rechazados.size()));
+            if (ok) {
+                // En la misma transacción del cierre: la visita de seguimiento o el historial del máximo
+                RepositorioVisitas.Visita cerradaV = visitas.porId(visitaId).orElseThrow();
+                seguimiento.registrarProrrogas(cerradaV, p.actaId(), p.prorrogas()); // solo cuando el acta salió (decisión 12.1)
+                seg[0] = seguimiento.alCerrar(cerradaV, p.programacion(), quien);
+            }
             return ok;
         }));
         if (completa && cerrada) {
             bitacora.registrar("visita_cerrada", "Visita " + p.numero() + ": acta de la ronda " + p.ronda() + " enviada y visita cerrada", quien.id(),
                     quien.usuario());
+            List<String> avisos = seg[0] == null ? List.of() : seguimiento.despuesDelCierre(visitas.porId(visitaId).orElseThrow(), p.actaId(), seg[0], quien);
             return new Envio(true, "Acta enviada a " + p.para().size() + " destinatarios y visita cerrada."
-                    + (rechazados.isEmpty() ? "" : " " + rechazados.size() + " destinatarios no obligatorios la rechazaron."), p.ronda());
+                    + (rechazados.isEmpty() ? "" : " " + rechazados.size() + " destinatarios no obligatorios la rechazaron.")
+                    + (avisos.isEmpty() ? "" : " " + String.join(" ", avisos)), p.ronda());
         }
         if (completa) {
             // El acta salió, pero la visita cambió de estado mientras se enviaba (p. ej. la cancelaron): no se marca como cerrada
@@ -252,7 +273,8 @@ public class ServicioActa {
     }
 
     private GeneradorActa.Contenido contenido(RepositorioVisitas.Visita v, int ronda, List<ServicioFormulario.ItemVisita> items,
-                                              Map<String, Checklist.Respuesta> resp, Checklist.Resumen s, EnlaceOpl enlace) {
+                                              Map<String, Checklist.Respuesta> resp, Checklist.Resumen s, EnlaceOpl enlace,
+                                              ServicioSeguimiento.Programacion programacion, List<ServicioSeguimiento.Prorroga> prorrogas) {
         Map<String, Object> e = formulario.ejecucion(v.id());
         Map<String, Object> lugar = jdbc.sql("""
                 SELECT p.nombre, p.sigla, p.direccion, mu.nombre AS municipio, d.nombre AS departamento FROM puntos p
@@ -305,7 +327,11 @@ public class ServicioActa {
                 (String) e.get("recomendaciones"), (String) e.get("observacionesAuditor"), (String) e.get("observacionesEsm"),
                 (String) e.get("observacionesOpl"), soportes, firmas, HORA.format(OffsetDateTime.now(reloj).atZoneSameInstant(Fechas.BOGOTA)),
                 planActa(v, items, resp), formulario.plan(v, items, resp).get("fecha") == null ? null : String.valueOf(formulario.plan(v, items, resp).get("fecha")),
-                enlace == null ? null : enlace.textoPlazos(), enlace == null ? null : enlace.url(), enlace == null ? null : enlace.qr());
+                enlace == null ? null : enlace.textoPlazos(), enlace == null ? null : enlace.url(), enlace == null ? null : enlace.qr(),
+                ServicioSeguimiento.textoActa(programacion, seguimiento.maximo()), seguimiento.datos(v) == null ? null : seguimiento.datos(v).get("ordinal") + " visita de seguimiento al plan de mejoramiento de la visita "
+                        + seguimiento.datos(v).get("origenNumero") + ".",
+                prorrogas.stream().map(x -> new String[] {x.codigo(), x.finAnterior().toString(), x.finNuevo().toString(),
+                        x.justificacion() == null ? "" : x.justificacion().strip(), "Solicitada"}).toList());
     }
 
     private List<String[]> planActa(RepositorioVisitas.Visita v, List<ServicioFormulario.ItemVisita> items, Map<String, Checklist.Respuesta> resp) {

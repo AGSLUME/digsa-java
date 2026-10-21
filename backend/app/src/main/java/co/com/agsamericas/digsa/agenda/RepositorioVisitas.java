@@ -26,7 +26,11 @@ public class RepositorioVisitas {
     public record Visita(long id, String numero, String tipo, String aviso, String tipoUnidad, long puntoId, String puntoNombre, String unidad,
                          String fuerza, String modalidad, boolean exigeQf, LocalDate fecha, LocalTime hora, long auditorId, String alcance,
                          String estado, LocalDate fechaSolicitud, String checklistVersion, boolean equipoSinNotificar, int reaperturas,
-                         OffsetDateTime iniciada) {
+                         OffsetDateTime iniciada, Long origenId, Integer seguimientoN) {
+        /** Visita de seguimiento a un plan de mejoramiento (tiene visita de origen). */
+        public boolean esSeguimiento() {
+            return origenId != null;
+        }
     }
 
     public record Miembro(long id, String nombre, String usuario, String correo, String documento, String rol, String funcion, int orden,
@@ -44,7 +48,7 @@ public class RepositorioVisitas {
     private static final String COLUMNAS = """
             v.id, v.numero, v.tipo, t.aviso, t.unidad AS tipo_unidad, v.punto_id, p.nombre AS punto_nombre, p.unidad, p.fuerza, p.modalidad,
             p.exige_qf, v.fecha, v.hora, v.auditor_id, v.alcance, v.estado, v.fecha_solicitud, v.checklist_version, v.equipo_sin_notificar,
-            v.reaperturas, v.iniciada""";
+            v.reaperturas, v.iniciada, v.origen_id, v.seguimiento_n""";
     private static final String DESDE = " FROM visitas v JOIN par_tipos_visita t ON t.codigo = v.tipo JOIN puntos p ON p.id = v.punto_id";
 
     private final JdbcClient jdbc;
@@ -71,7 +75,8 @@ public class RepositorioVisitas {
                 rs.getLong("punto_id"), rs.getString("punto_nombre"), rs.getString("unidad"), rs.getString("fuerza"), rs.getString("modalidad"),
                 rs.getBoolean("exige_qf"), rs.getDate("fecha").toLocalDate(), h == null ? null : h.toLocalTime(), rs.getLong("auditor_id"),
                 rs.getString("alcance"), rs.getString("estado"), fs == null ? null : fs.toLocalDate(), rs.getString("checklist_version"),
-                rs.getBoolean("equipo_sin_notificar"), rs.getInt("reaperturas"), rs.getObject("iniciada", OffsetDateTime.class));
+                rs.getBoolean("equipo_sin_notificar"), rs.getInt("reaperturas"), rs.getObject("iniciada", OffsetDateTime.class),
+                (Long) rs.getObject("origen_id"), rs.getObject("seguimiento_n") == null ? null : rs.getInt("seguimiento_n"));
     }
 
     public Optional<Tipo> tipo(String codigo) {
@@ -135,6 +140,18 @@ public class RepositorioVisitas {
         // VS-AAAAMMDD-NNNN con la fecha programada al crearla (no cambia al reprogramar) y el id con al menos 4 dígitos
         jdbc.sql("UPDATE visitas SET numero = :n WHERE id = :id").param("n", numero(fecha, id)).param("id", id).update();
         return id;
+    }
+
+    /** Marca la visita como seguimiento de otra, con la versión del checklist de la visita de origen (los componentes no cambian). */
+    public void marcarSeguimiento(long id, long origenId, int n, String version) {
+        jdbc.sql("UPDATE visitas SET origen_id = :o, seguimiento_n = :n, checklist_version = :ver WHERE id = :id").param("o", origenId).param("n", n)
+                .param("ver", version).param("id", id).update();
+    }
+
+    /** El seguimiento vigente (no cancelado) de una visita, si lo tiene. */
+    public Optional<Visita> seguimientoDe(long origenId) {
+        return jdbc.sql("SELECT " + COLUMNAS + DESDE + " WHERE v.origen_id = :o AND v.estado <> 'cancelada'").param("o", origenId)
+                .query(RepositorioVisitas::fila).optional();
     }
 
     static String numero(LocalDate fecha, long id) {

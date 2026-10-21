@@ -153,7 +153,7 @@ public class ServicioConsultaAgenda {
     }
 
     /** Reglas de plazos con los parámetros y los festivos de ajuste de la base. */
-    Plazos plazos() {
+    public Plazos plazos() {
         Map<String, Integer> reglas = new LinkedHashMap<>(Plazos.REGLAS);
         jdbc.sql("SELECT clave, valor FROM par_parametros WHERE clave = ANY(:c)").param("c", Plazos.REGLAS.keySet().toArray(String[]::new))
                 .query((rs, n) -> {

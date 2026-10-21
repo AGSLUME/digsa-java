@@ -28,103 +28,7 @@ import org.junit.jupiter.api.Test;
  * Ejecución de la visita (Anexo 5, pruebas 10 y 12): formulario por partes, datos de la visita, personal, evidencias múltiples en una
  * sola petición, firmas, acta en PDF con cierre, reapertura con motivo y corrección del coordinador.
  */
-class EjecucionApiTest extends PruebaIntegracion {
-
-    private static final String OPL = "opl.actas@example.com";
-    private static final DateTimeFormatter FH = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm");
-
-    @BeforeEach
-    void destinatarios() {
-        if (jdbc.sql("SELECT count(*) FROM opl WHERE activo").query(Long.class).single() == 0) {
-            jdbc.sql("INSERT INTO opl (nombre, correos) VALUES ('Operador de prueba', ARRAY[:c])").param("c", OPL).update();
-        } else {
-            jdbc.sql("UPDATE opl SET correos = ARRAY[:c] WHERE activo").param("c", OPL).update();
-        }
-        jdbc.sql("UPDATE par_fuerzas SET correos = ARRAY['disan.ejc@example.com'] WHERE codigo = 'EJC'").update();
-    }
-
-    private String auditor(String prefijo, String rol) {
-        String u = crearUsuario(prefijo, Perfil.AUDITOR);
-        jdbc.sql("INSERT INTO auditores (usuario_id, rol) VALUES (:id, :r)").param("id", idDe(u)).param("r", rol).update();
-        return u;
-    }
-
-    private Navegador entrar(String usuario) {
-        Navegador n = navegador();
-        assertThat(n.ingresar(usuario, CLAVE).estado()).isEqualTo(200);
-        return n;
-    }
-
-    /** Visita en ejecución con C00 (habilitación) y C08, el líder QF y el regente con C08. */
-    private record Escenario(long id, String numero, Navegador coord, Navegador lider, Navegador regente, String liderUsuario) {
-    }
-
-    private Escenario escenario() {
-        String qf = auditor("qf", "quimico_farmaceutico");
-        String reg = auditor("reg", "regente");
-        long punto = jdbc.sql("""
-                INSERT INTO puntos (nombre, unidad, fuerza, modalidad, municipio, correos, creado_por)
-                VALUES (:n, 'ESM', 'EJC', 'Dispensación', '05001', ARRAY['contacto.punto@example.com'], 'prueba') RETURNING id""")
-                .param("n", unico("Punto ejecucion ")).query(Long.class).single();
-        Navegador coord = entrar(crearUsuario("coord", Perfil.COORDINADOR));
-        Map<String, Object> d = new HashMap<>();
-        d.put("tipo", "anual");
-        d.put("puntoId", punto);
-        d.put("fecha", LocalDate.now(reloj.withZone(Fechas.BOGOTA)).toString());
-        d.put("liderId", idDe(qf));
-        d.put("otros", List.of(idDe(reg)));
-        d.put("alcance", "Habilitación y almacenamiento.");
-        d.put("componentes", List.of("C00", "C08"));
-        d.put("reparto", Map.of("C00", idDe(qf), "C08", idDe(reg), "OBL", idDe(qf)));
-        Respuesta r = coord.post("/api/agenda", d);
-        assertThat(r.estado()).as(r.texto()).isEqualTo(201);
-        long id = r.json().path("id").asLong();
-        Navegador lider = entrar(qf);
-        assertThat(lider.post("/api/mis-visitas/" + id + "/iniciar", null).estado()).isEqualTo(200);
-        return new Escenario(id, r.json().path("numero").asText(), coord, lider, entrar(reg), qf);
-    }
-
-    private static List<JsonNode> items(JsonNode formulario, String componente) {
-        List<JsonNode> r = new ArrayList<>();
-        formulario.path("componentes").forEach(c -> {
-            if (c.path("codigo").asText().equals(componente)) {
-                c.path("items").forEach(r::add);
-            }
-        });
-        return r;
-    }
-
-    private static List<Map<String, Object>> calificar(List<JsonNode> items, String calificacion) {
-        List<Map<String, Object>> r = new ArrayList<>();
-        for (JsonNode i : items) {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("item", i.path("codigo").asText());
-            m.put("calificacion", calificacion);
-            m.put("hallazgo", "NC".equals(calificacion) ? "No se encontró el soporte de " + i.path("codigo").asText() : null);
-            r.add(m);
-        }
-        return r;
-    }
-
-    static byte[] firmaPng() throws Exception {
-        BufferedImage img = new BufferedImage(240, 80, BufferedImage.TYPE_INT_ARGB);
-        var g = img.createGraphics();
-        g.setColor(java.awt.Color.BLACK);
-        g.drawLine(10, 60, 200, 20);
-        g.drawLine(20, 20, 220, 70);
-        g.dispose();
-        ByteArrayOutputStream b = new ByteArrayOutputStream();
-        ImageIO.write(img, "png", b);
-        return b.toByteArray();
-    }
-
-    private static String base64(byte[] b) {
-        return "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(b);
-    }
-
-    private String hace(int minutos) {
-        return FH.format(LocalDateTime.now(reloj.withZone(Fechas.BOGOTA)).minusMinutes(minutos));
-    }
+class EjecucionApiTest extends EscenariosVisita {
 
     @Test
     @DisplayName("prueba 12: número, lugar y auditor automáticos; cada auditor califica solo su parte; «No aplica» de habilitación solo con condición")
@@ -184,24 +88,6 @@ class EjecucionApiTest extends PruebaIntegracion {
         String ajeno = items(e.regente().get("/api/visitas/" + e.id() + "/formulario").json(), "C00").get(0).path("codigo").asText();
         assertThat(e.regente().multipart("/api/visitas/" + e.id() + "/archivos", Map.of("clave", "it:" + ajeno), Map.of("x.png", firmaPng())).estado())
                 .isEqualTo(403);
-    }
-
-    /** Deja la visita lista para enviar el acta: todo calificado (C), datos, personal y las dos firmas. */
-    private void completar(Escenario e) throws Exception {
-        String base = "/api/visitas/" + e.id();
-        JsonNode f = e.lider().get(base + "/formulario").json();
-        assertThat(e.lider().put(base + "/respuestas", Map.of("respuestas", calificar(items(f, "C00"), "C"))).estado()).isEqualTo(200);
-        assertThat(e.regente().put(base + "/respuestas", Map.of("respuestas", calificar(items(f, "C08"), "C"))).estado()).isEqualTo(200);
-        Map<String, Object> ej = new HashMap<>();
-        ej.put("inicioReal", hace(60));
-        ej.put("finReal", hace(5));
-        ej.put("objeto", "Seguimiento");
-        assertThat(e.lider().put(base + "/ejecucion", ej).estado()).isEqualTo(200);
-        assertThat(e.lider().put(base + "/personal", Map.of("personas", List.of(Map.of("entidad", "ESM", "nombre", "Regente del punto")))).estado())
-                .isEqualTo(200);
-        String png = base64(firmaPng());
-        assertThat(e.lider().post(base + "/firmas", Map.of("rol", "auditor", "nombre", "Auditor líder", "imagen", png)).estado()).isEqualTo(200);
-        assertThat(e.lider().post(base + "/firmas", Map.of("rol", "esm", "nombre", "Regente del punto", "imagen", png)).estado()).isEqualTo(200);
     }
 
     @Test
@@ -313,6 +199,9 @@ class EjecucionApiTest extends PruebaIntegracion {
                 .mensaje()).contains("PNG");
         assertThat(e.lider().post(base + "/firmas", Map.of("rol", "esm", "nombre", "Regente del punto", "imagen", png)).estado()).isEqualTo(200);
         assertThat(e.regente().post(base + "/acta", null).estado()).as("el acta es del líder").isEqualTo(403);
+        Respuesta sinPlan = e.lider().post(base + "/acta", null);
+        assertThat(sinPlan.mensaje()).contains("fecha del plan de mejoramiento", "qué del plan", "firma del auditor en el plan");
+        planYFirmas(e, List.of("it:" + c00.get(0).path("codigo").asText()));
 
         Respuesta envio = e.lider().post(base + "/acta", null);
         assertThat(envio.estado()).as(envio.texto()).isEqualTo(200);
@@ -322,6 +211,9 @@ class EjecucionApiTest extends PruebaIntegracion {
         assertThat(m.para()).contains(OPL, "disan.ejc@example.com", "coord.opl@example.com");
         assertThat(m.adjuntos()).hasSize(1);
         assertThat(new String(m.adjuntos().get(0).contenido(), 0, 5)).isEqualTo("%PDF-");
+        assertThat(m.html()).contains("PLAZO MÁXIMO PARA REMITIR EL PLAN DE MEJORAMIENTO FIRMADO", "Huella SHA-256");
+        assertThat(token(e)).hasSize(64);
+        assertThat(jdbc.sql("SELECT count(*) FROM visitas_hallazgos WHERE visita_id = :v").param("v", e.id()).query(Long.class).single()).isEqualTo(1);
         Map<String, Object> resumen = jdbc.sql("SELECT nc, hallazgos FROM visitas_resumen WHERE visita_id = :v").param("v", e.id()).query().singleRow();
         assertThat(((Number) resumen.get("nc")).intValue()).isEqualTo(1);
         assertThat(e.lider().put(base + "/respuestas", Map.of("respuestas", calificar(c00.subList(0, 1), "C"))).mensaje()).contains("Visita cerrada");

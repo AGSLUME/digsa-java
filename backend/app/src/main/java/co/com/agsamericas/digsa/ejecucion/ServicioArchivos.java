@@ -180,11 +180,11 @@ public class ServicioArchivos {
             }
             return;
         }
-        if (clave == null || !clave.matches("^it:[A-Z0-9][A-Z0-9-]{1,15}$")) {
-            throw ErrorNegocio.validacion("El soporte debe ser de la visita o de un ítem del checklist.");
+        if (clave == null || !clave.matches("^(it:[A-Z0-9][A-Z0-9-]{1,15}|ob:OB-[A-Z0-9-]{1,20})$")) {
+            throw ErrorNegocio.validacion("El soporte debe ser de la visita, de un ítem del checklist o de una obligación.");
         }
         String codigo = clave.substring(3);
-        ServicioFormulario.ItemVisita item = formulario.items(a.visita()).stream().filter(i -> i.codigo().equals(codigo)).findFirst()
+        ServicioFormulario.ItemVisita item = formulario.items(a.visita()).stream().filter(i -> i.clave().equals(clave)).findFirst()
                 .orElseThrow(() -> ErrorNegocio.validacion("El ítem " + codigo + " no es de esta visita."));
         if (!a.escribeParte(item.parte())) {
             throw new ErrorNegocio(HttpStatus.FORBIDDEN, "La parte " + item.parte() + " es de otro auditor.");
@@ -200,7 +200,7 @@ public class ServicioArchivos {
         return n.length() > 200 ? n.substring(n.length() - 200) : n;
     }
 
-    static Map<String, String> encabezados(Archivo a) {
+    public static Map<String, String> encabezados(Archivo a) {
         boolean enLinea = a.tipo().startsWith("image/") || a.tipo().startsWith("video/") || "application/pdf".equals(a.tipo());
         // El nombre se descarga con la extensión del tipo detectado, no con la que trajo el archivo (p. ej. un .lnk que es texto)
         String extension = a.ruta().substring(a.ruta().lastIndexOf('.') + 1);

@@ -1,4 +1,23 @@
-import { Alert, Badge, Button, Center, Checkbox, Group, Loader, Modal, ScrollArea, Select, SimpleGrid, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Button,
+  Center,
+  Checkbox,
+  Group,
+  Loader,
+  Modal,
+  ScrollArea,
+  Select,
+  SimpleGrid,
+  Stack,
+  Table,
+  Tabs,
+  Text,
+  Textarea,
+  TextInput,
+  Title,
+} from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
@@ -56,9 +75,23 @@ interface Opl {
   correos: string[];
 }
 
+interface Obligacion {
+  id: number;
+  prestador: 'opl' | 'fa';
+  codigo: string;
+  texto: string;
+  fuente: string | null;
+  activo: boolean;
+}
+
 interface Mensaje {
   mensaje: string;
 }
+
+const PRESTADORES = [
+  { value: 'opl', label: 'Operador logístico' },
+  { value: 'fa', label: 'Farmacia alterna' },
+];
 
 const UNIDADES = ['ESM', 'FA', 'NC'];
 const errorDe = (e: unknown, defecto: string) => (e instanceof ErrorApi ? e.message : defecto);
@@ -73,7 +106,7 @@ function useMunicipios(departamento: string | null) {
   });
 }
 
-/** Maestros (coordinador): puntos de atención, auditores y operador logístico. */
+/** Maestros (coordinador): puntos de atención, auditores, operador logístico y obligaciones del contrato. */
 export function Maestros() {
   const catalogos = useQuery({ queryKey: ['catalogos'], queryFn: () => api<DatosCatalogos>('/api/catalogos') });
   return (
@@ -85,6 +118,7 @@ export function Maestros() {
           <Tabs.Tab value="puntos">Puntos</Tabs.Tab>
           <Tabs.Tab value="auditores">Auditores</Tabs.Tab>
           <Tabs.Tab value="opl">Operador logístico</Tabs.Tab>
+          <Tabs.Tab value="obligaciones">Obligaciones del contrato</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="puntos" pt="md">
           <Puntos catalogos={catalogos.data} />
@@ -94,6 +128,9 @@ export function Maestros() {
         </Tabs.Panel>
         <Tabs.Panel value="opl" pt="md">
           <OperadorLogistico />
+        </Tabs.Panel>
+        <Tabs.Panel value="obligaciones" pt="md">
+          <Obligaciones />
         </Tabs.Panel>
       </Tabs>
     </Stack>
@@ -592,5 +629,169 @@ function FormOpl({ opl }: { opl: Opl }) {
         </Group>
       </Stack>
     </form>
+  );
+}
+
+interface FormObligacion {
+  id: number;
+  prestador: string | null;
+  codigo: string;
+  texto: string;
+  fuente: string;
+  activo: boolean;
+}
+
+const OBLIGACION_VACIA: FormObligacion = { id: 0, prestador: 'opl', codigo: 'OB-', texto: '', fuente: '', activo: true };
+
+/**
+ * Obligaciones de la minuta del OPL y de la farmacia alterna (parte OBL del formulario): el coordinador las registra mientras llega la
+ * lectura de la minuta. Las inactivas dejan de salir en las visitas nuevas; las ya calificadas se conservan.
+ */
+function Obligaciones() {
+  const qc = useQueryClient();
+  const lista = useQuery({ queryKey: ['maestros', 'obligaciones'], queryFn: () => api<Obligacion[]>('/api/maestros/obligaciones') });
+  const [form, setForm] = useState<FormObligacion | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const guardar = useMutation({
+    mutationFn: (f: FormObligacion) =>
+      api<Mensaje>(f.id ? `/api/maestros/obligaciones/${f.id}` : '/api/maestros/obligaciones', {
+        metodo: f.id ? 'PUT' : 'POST',
+        cuerpo: { prestador: f.prestador, codigo: f.codigo.trim().toUpperCase(), texto: f.texto.trim(), fuente: f.fuente.trim() || null, activo: f.activo },
+      }),
+    onSuccess: (r) => {
+      notifications.show({ color: 'green', message: r.mensaje });
+      setForm(null);
+      qc.invalidateQueries({ queryKey: ['maestros', 'obligaciones'] });
+      qc.invalidateQueries({ queryKey: ['formulario'] });
+    },
+    onError: (e) => setError(errorDe(e, 'No se pudo guardar la obligación.')),
+  });
+  const abrir = (f: FormObligacion) => {
+    setError(null);
+    setForm(f);
+  };
+
+  return (
+    <Stack>
+      <Group justify="space-between">
+        <Text size="sm" c="dimmed">
+          Se califican en la parte «Obligaciones de la minuta» del formulario: las del OPL en los ESM y las de la farmacia alterna en las FA.
+        </Text>
+        <Button onClick={() => abrir({ ...OBLIGACION_VACIA })}>Nueva obligación</Button>
+      </Group>
+      {lista.error && <Alert color="red">{lista.error.message}</Alert>}
+      {lista.isLoading ? (
+        <Center py="xl">
+          <Loader />
+        </Center>
+      ) : (
+        <ScrollArea type="auto">
+          <Table striped miw={820} data-testid="tabla-obligaciones">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Prestador</Table.Th>
+                <Table.Th>Código</Table.Th>
+                <Table.Th>Obligación</Table.Th>
+                <Table.Th>Fuente</Table.Th>
+                <Table.Th>Estado</Table.Th>
+                <Table.Th />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {(lista.data ?? []).map((o) => (
+                <Table.Tr key={o.id} data-testid={'fila-obligacion-' + o.codigo}>
+                  <Table.Td>{PRESTADORES.find((p) => p.value === o.prestador)?.label ?? o.prestador}</Table.Td>
+                  <Table.Td style={{ whiteSpace: 'nowrap' }}>{o.codigo}</Table.Td>
+                  <Table.Td maw={420}>
+                    <Text size="sm" lineClamp={3}>
+                      {o.texto}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>{o.fuente ?? '—'}</Table.Td>
+                  <Table.Td>
+                    <Badge color={o.activo ? 'green' : 'gray'}>{o.activo ? 'Activa' : 'Inactiva'}</Badge>
+                  </Table.Td>
+                  <Table.Td>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      aria-label={'Editar la obligación ' + o.codigo}
+                      onClick={() => abrir({ id: o.id, prestador: o.prestador, codigo: o.codigo, texto: o.texto, fuente: o.fuente ?? '', activo: o.activo })}
+                    >
+                      Editar
+                    </Button>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
+      )}
+      {lista.data && lista.data.length === 0 && <Text c="dimmed">No hay obligaciones registradas.</Text>}
+
+      <Modal opened={form !== null} onClose={() => setForm(null)} title={form?.id ? 'Editar obligación' : 'Nueva obligación'} size="lg">
+        {form && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setError(null);
+              guardar.mutate(form);
+            }}
+          >
+            <Stack>
+              {error && (
+                <Alert color="red" data-testid="error-obligacion">
+                  {error}
+                </Alert>
+              )}
+              <SimpleGrid cols={{ base: 1, xs: 2 }}>
+                <Select
+                  label="Prestador"
+                  required
+                  allowDeselect={false}
+                  data={PRESTADORES}
+                  value={form.prestador}
+                  onChange={(v) => setForm({ ...form, prestador: v })}
+                />
+                <TextInput
+                  label="Código"
+                  required
+                  description="Empieza por OB- (p. ej. OB-OPL-01)."
+                  maxLength={23}
+                  value={form.codigo}
+                  onChange={(e) => setForm({ ...form, codigo: e.currentTarget.value.toUpperCase() })}
+                />
+              </SimpleGrid>
+              <Textarea
+                label="Texto de la obligación"
+                required
+                autosize
+                minRows={3}
+                minLength={10}
+                maxLength={2000}
+                value={form.texto}
+                onChange={(e) => setForm({ ...form, texto: e.currentTarget.value })}
+              />
+              <TextInput
+                label="Fuente"
+                description="Cláusula o página de la minuta."
+                maxLength={200}
+                value={form.fuente}
+                onChange={(e) => setForm({ ...form, fuente: e.currentTarget.value })}
+              />
+              <Checkbox label="Activa" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.currentTarget.checked })} />
+              <Group justify="flex-end">
+                <Button variant="default" onClick={() => setForm(null)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" loading={guardar.isPending}>
+                  Guardar
+                </Button>
+              </Group>
+            </Stack>
+          </form>
+        )}
+      </Modal>
+    </Stack>
   );
 }

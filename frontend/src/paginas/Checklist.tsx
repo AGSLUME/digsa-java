@@ -33,19 +33,26 @@ import { api, ErrorApi, subirArchivos } from '../shared/api';
 import {
   aFechaHoraLocal,
   conteo,
+  cuerpoPlan,
   cumplimientoLegible,
   ENTIDADES,
+  ESTADOS_ABIERTOS,
   ETIQUETA_CALIFICACION,
+  faltantesPlan,
+  planCambiado,
   respuestasCambiadas,
   ROLES_FIRMA,
+  ROLES_FIRMA_PLAN,
   sinHallazgo,
   tamanoLegible,
   textoONulo,
+  valorFila,
   valorItem,
   type Archivo,
   type Calificacion,
   type DatosFormulario,
   type Edicion,
+  type EdicionPlan,
   type Ejecucion,
   type ItemChecklist,
   type PersonaAuditada,
@@ -152,12 +159,17 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
   const p = d.permisos;
   const [campos, setCampos] = useState<CamposEjecucion>(() => camposIniciales(d.ejecucion));
   const [ediciones, setEdiciones] = useState<Record<string, Edicion>>({});
+  // 5W2H: solo lo editado (por clave del hallazgo); null en la fecha es «sin cambio»
+  const [fechaPlan, setFechaPlan] = useState<string | null>(null);
+  const [edicionesPlan, setEdicionesPlan] = useState<Record<string, EdicionPlan>>({});
   const guardarDatos = usePeticion(id);
   const guardarObservaciones = usePeticion(id);
   const qc = useQueryClient();
 
   const cambiadas = respuestasCambiadas(d.componentes, ediciones);
-  const sinGuardar = cambiadas.length > 0 || JSON.stringify(campos) !== JSON.stringify(camposIniciales(d.ejecucion));
+  const planSinGuardar = planCambiado(d.plan, fechaPlan, edicionesPlan);
+  const sinGuardar =
+    cambiadas.length > 0 || planSinGuardar || JSON.stringify(campos) !== JSON.stringify(camposIniciales(d.ejecucion));
   // Aviso del navegador al cerrar o recargar con cambios sin guardar
   useEffect(() => {
     if (!sinGuardar) return;
@@ -302,7 +314,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
                 <Accordion.Control>
                   <Group gap="xs" wrap="wrap">
                     <Text fw={600} size="sm">
-                      {c.codigo} · {c.nombre}
+                      {c.items.every((i) => i.obligacion) ? 'Obligaciones del contrato' : `${c.codigo} · ${c.nombre}`}
                     </Text>
                     <Badge size="sm" variant="light" color={n.pendientes === 0 ? 'green' : 'gray'}>
                       C {n.c} · NC {n.nc} · NA {n.na} · pendientes {n.pendientes}
@@ -311,6 +323,12 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
                 </Accordion.Control>
                 <Accordion.Panel>
                   <Stack gap="sm">
+                    {c.items.every((i) => i.obligacion) && (
+                      <Text size="sm" c="dimmed">
+                        Obligaciones de la minuta del prestador visitado (operador logístico o farmacia alterna). Un «No cumple» es un
+                        hallazgo y va al plan de mejoramiento.
+                      </Text>
+                    )}
                     {c.items.map((it) => (
                       <Item key={it.codigo} id={id} it={it} valor={valorItem(it, ediciones)} alEditar={(x) => editar(it, x)} />
                     ))}
@@ -395,6 +413,22 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
       </Card>
 
       <Firmas id={id} d={d} />
+      {d.plan.hallazgos.length > 0 && (
+        <PlanMejoramiento
+          id={id}
+          d={d}
+          fecha={fechaPlan}
+          ediciones={edicionesPlan}
+          sinGuardar={planSinGuardar}
+          alCambiarFecha={setFechaPlan}
+          alEditar={(clave, e) => setEdicionesPlan((x) => ({ ...x, [clave]: e }))}
+          alGuardar={(fechaEnviada, enviadas) => {
+            // Solo se descarta lo que sigue igual a lo enviado: lo escrito mientras se guardaba se conserva
+            setFechaPlan((f) => (f === fechaEnviada ? null : f));
+            setEdicionesPlan((x) => Object.fromEntries(Object.entries(x).filter(([k, e]) => JSON.stringify(e) !== JSON.stringify(enviadas[k]))));
+          }}
+        />
+      )}
       <Resumen d={d} />
       <Actas id={id} d={d} sinGuardar={sinGuardar} />
     </Stack>
@@ -511,17 +545,33 @@ function Item({ id, it, valor, alEditar }: { id: string; it: ItemChecklist; valo
   const faltaHallazgo = valor.calificacion === 'NC' && valor.hallazgo.trim().length === 0;
   return (
     <Paper withBorder p="sm" data-testid={'item-' + it.codigo}>
-      <Text size="sm">
-        <Text span fw={700}>
-          {it.codigo} · {it.punto}
+      <Group gap="xs" wrap="wrap">
+        <Text size="sm" fw={700}>
+          {it.codigo}
+          {it.obligacion ? '' : ' · ' + it.punto}
         </Text>
-      </Text>
-      {it.criterio && (
+        {it.obligacion && (
+          <Badge size="sm" variant="light" color="grape">
+            Obligación del contrato
+          </Badge>
+        )}
+      </Group>
+      {it.obligacion && (
+        <Text size="sm" mt={2} style={{ whiteSpace: 'pre-wrap' }}>
+          {it.punto}
+        </Text>
+      )}
+      {it.criterio && !it.obligacion && (
         <Text size="sm" mt={2} style={{ whiteSpace: 'pre-wrap' }}>
           {it.criterio}
         </Text>
       )}
-      {(it.requisito || it.evidencia || it.condicion) && (
+      {it.obligacion && it.evidencia && (
+        <Text size="xs" c="dimmed" mt={2}>
+          Fuente: {it.evidencia}
+        </Text>
+      )}
+      {!it.obligacion && (it.requisito || it.evidencia || it.condicion) && (
         <Box component="details" mt={4}>
           <Text component="summary" size="sm" c="blue" style={{ cursor: 'pointer' }}>
             Requisito y evidencia
@@ -605,7 +655,7 @@ function Item({ id, it, valor, alEditar }: { id: string; it: ItemChecklist; valo
       <Box mt="xs">
         <Evidencias
           id={id}
-          clave={'it:' + it.codigo}
+          clave={it.clave ?? 'it:' + it.codigo}
           archivos={it.archivos}
           editable={it.editable}
           etiqueta={'Evidencias de ' + it.codigo}
@@ -714,16 +764,25 @@ function Evidencias({
 }
 
 function Firmas({ id, d }: { id: string; d: DatosFormulario }) {
-  const [rol, setRol] = useState<RolFirma | null>(null);
-  const puedeFirmar = d.permisos.escribeVisita && !d.permisos.correccion;
-  const titulo = ROLES_FIRMA.find((r) => r.rol === rol)?.titulo ?? '';
   return (
     <Card withBorder data-testid="firmas">
       <Title order={5} mb="xs">
         Firmas
       </Title>
-      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs">
-        {ROLES_FIRMA.map((r) => {
+      <GrupoFirmas id={id} d={d} roles={ROLES_FIRMA} />
+    </Card>
+  );
+}
+
+/** Recuadros de firma de unos roles (las del acta o las del plan de mejoramiento), con el diálogo para firmar. */
+function GrupoFirmas({ id, d, roles }: { id: string; d: DatosFormulario; roles: { rol: RolFirma; titulo: string }[] }) {
+  const [rol, setRol] = useState<RolFirma | null>(null);
+  const puedeFirmar = d.permisos.escribeVisita && !d.permisos.correccion;
+  const titulo = roles.find((r) => r.rol === rol)?.titulo ?? '';
+  return (
+    <>
+      <SimpleGrid cols={{ base: 1, sm: roles.length }} spacing="xs">
+        {roles.map((r) => {
           const f = d.firmas.find((x) => x.rol === r.rol);
           return (
             <Paper key={r.rol} withBorder p="sm" data-testid={'firma-' + r.rol}>
@@ -759,11 +818,177 @@ function Firmas({ id, d }: { id: string; d: DatosFormulario }) {
           <FormFirma
             id={id}
             rol={rol}
-            nombreInicial={d.firmas.find((x) => x.rol === rol)?.nombre ?? (rol === 'auditor' ? d.visita.lider ?? '' : '')}
+            nombreInicial={d.firmas.find((x) => x.rol === rol)?.nombre ?? (rol === 'auditor' || rol === 'w5_auditor' ? d.visita.lider ?? '' : '')}
             alCerrar={() => setRol(null)}
           />
         )}
       </Modal>
+    </>
+  );
+}
+
+/**
+ * Plan de mejoramiento 5W2H, parte del auditor (Anexo 3 p.11): fecha del plan y una fila por hallazgo (causas, qué, por qué, dónde,
+ * inicio, fin, indicador y estado), con sus dos firmas. Quién y cómo los diligencia el OPL después, por el enlace del acta.
+ */
+function PlanMejoramiento({
+  id,
+  d,
+  fecha,
+  ediciones,
+  sinGuardar,
+  alCambiarFecha,
+  alEditar,
+  alGuardar,
+}: {
+  id: string;
+  d: DatosFormulario;
+  fecha: string | null;
+  ediciones: Record<string, EdicionPlan>;
+  sinGuardar: boolean;
+  alCambiarFecha: (f: string) => void;
+  alEditar: (clave: string, e: EdicionPlan) => void;
+  alGuardar: (fecha: string | null, enviadas: Record<string, EdicionPlan>) => void;
+}) {
+  const qc = useQueryClient();
+  const plan = d.plan;
+  const editable = d.permisos.escribeVisita;
+  const guardar = useMutation({
+    mutationFn: (x: { fecha: string | null; enviadas: Record<string, EdicionPlan> }) =>
+      api<Mensaje>(`/api/visitas/${id}/plan`, { metodo: 'PUT', cuerpo: cuerpoPlan(plan, x.fecha, x.enviadas) }),
+    onSuccess: (r, x) => {
+      notifications.show({ color: 'green', message: r.mensaje });
+      alGuardar(x.fecha, x.enviadas);
+      qc.invalidateQueries({ queryKey: ['formulario', id] });
+    },
+    onError: (e) => avisarError(e, 'No se pudo guardar el plan de mejoramiento.'),
+  });
+  const faltan = faltantesPlan(plan, fecha, ediciones);
+  const estados = plan.estados.map((e) => ({ value: e, label: e }));
+
+  return (
+    <Card withBorder data-testid="plan-mejoramiento">
+      <Title order={5} mb={4}>
+        Plan de mejoramiento (5W2H)
+      </Title>
+      <Text size="sm" c="dimmed" mb="xs">
+        Una fila por hallazgo. Quién y cómo los diligencia el operador logístico con el enlace del acta. Para enviar el acta se necesitan la
+        fecha del plan, el qué de cada fila, la fecha fin de las acciones abiertas y las dos firmas.
+      </Text>
+      <TextInput
+        label="Fecha del plan"
+        type="date"
+        maw={220}
+        required
+        readOnly={!editable}
+        value={fecha ?? plan.fecha ?? ''}
+        onChange={(e) => alCambiarFecha(e.currentTarget.value)}
+      />
+      <Stack gap="sm" mt="sm">
+        {plan.hallazgos.map((h) => {
+          const v = valorFila(h, ediciones);
+          const cambiar = (c: Partial<EdicionPlan>) => alEditar(h.clave, { ...v, ...c });
+          return (
+            <Paper key={h.clave} withBorder p="sm" data-testid={'plan-' + h.codigo}>
+              <Group gap="xs" wrap="wrap">
+                <Text size="sm" fw={700}>
+                  {h.codigo}
+                </Text>
+                {h.origen === 'obligacion' && (
+                  <Badge size="sm" variant="light" color="grape">
+                    Obligación del contrato
+                  </Badge>
+                )}
+              </Group>
+              <Text size="sm" lineClamp={3}>
+                {h.texto}
+              </Text>
+              <Text size="xs" c="dimmed" mb="xs" style={{ whiteSpace: 'pre-wrap' }}>
+                Hallazgo: {h.hallazgo ?? '—'}
+              </Text>
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
+                <Textarea
+                  label="Causas"
+                  autosize
+                  minRows={2}
+                  maxLength={2000}
+                  readOnly={!editable}
+                  value={v.causas}
+                  onChange={(e) => cambiar({ causas: e.currentTarget.value })}
+                />
+                <Textarea
+                  label="Qué"
+                  description="Acción de mejora"
+                  required
+                  autosize
+                  minRows={2}
+                  maxLength={2000}
+                  readOnly={!editable}
+                  value={v.que}
+                  onChange={(e) => cambiar({ que: e.currentTarget.value })}
+                />
+                <Textarea
+                  label="Por qué"
+                  autosize
+                  minRows={2}
+                  maxLength={2000}
+                  readOnly={!editable}
+                  value={v.porque}
+                  onChange={(e) => cambiar({ porque: e.currentTarget.value })}
+                />
+                <TextInput label="Dónde" maxLength={500} readOnly={!editable} value={v.donde} onChange={(e) => cambiar({ donde: e.currentTarget.value })} />
+                <TextInput label="Inicio" type="date" readOnly={!editable} value={v.inicio} onChange={(e) => cambiar({ inicio: e.currentTarget.value })} />
+                <TextInput
+                  label="Fin"
+                  type="date"
+                  required={ESTADOS_ABIERTOS.includes(v.estado)}
+                  min={v.inicio || undefined}
+                  readOnly={!editable}
+                  value={v.fin}
+                  onChange={(e) => cambiar({ fin: e.currentTarget.value })}
+                />
+                <Textarea
+                  label="Indicador"
+                  description={plan.ayudaIndicador}
+                  autosize
+                  minRows={2}
+                  maxLength={1000}
+                  readOnly={!editable}
+                  value={v.indicador}
+                  onChange={(e) => cambiar({ indicador: e.currentTarget.value })}
+                />
+                <Select
+                  label="Estado"
+                  data={estados}
+                  allowDeselect={false}
+                  readOnly={!editable}
+                  value={v.estado}
+                  onChange={(x) => cambiar({ estado: x ?? 'Pendiente' })}
+                />
+              </SimpleGrid>
+            </Paper>
+          );
+        })}
+      </Stack>
+      {faltan.length > 0 && (
+        <Text size="sm" c="orange" mt="xs" data-testid="faltantes-plan">
+          Falta {faltan.join('; ')}.
+        </Text>
+      )}
+      {editable && (
+        <Group justify="space-between" mt="sm">
+          <Text size="sm" c={sinGuardar ? 'orange' : 'dimmed'}>
+            {sinGuardar ? 'El plan tiene cambios sin guardar.' : 'Sin cambios por guardar en el plan.'}
+          </Text>
+          <Button data-testid="guardar-plan" disabled={!sinGuardar} loading={guardar.isPending} onClick={() => guardar.mutate({ fecha, enviadas: ediciones })}>
+            Guardar plan
+          </Button>
+        </Group>
+      )}
+      <Title order={6} mt="md" mb="xs">
+        Firmas del plan de mejoramiento
+      </Title>
+      <GrupoFirmas id={id} d={d} roles={ROLES_FIRMA_PLAN} />
     </Card>
   );
 }

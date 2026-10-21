@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { colorEstado, horaCorta, type DetalleVisita, type OpcionesAgenda } from '../shared/agenda';
 import { api, ErrorApi } from '../shared/api';
 import { FormularioVisita, MAX_OTROS } from '../shared/FormularioVisita';
+import { COLOR_ESTADO, COLOR_FASE, conAvisoFallido, NOMBRE_ESTADO, NOMBRE_FASE, NOMBRE_PLAN, type HallazgoOpl, type OplDeVisita } from '../shared/opl';
 
 export type OrigenVisita = 'agenda' | 'mis-visitas' | 'calendario';
 
@@ -289,6 +290,8 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
           )}
         </Card>
       )}
+
+      {origen !== 'calendario' && (v.estado === 'cerrada' || v.estado === 'ejecucion') && <RespuestaDelOpl id={v.id} />}
 
       {v.historial && (
         <Card withBorder>
@@ -720,6 +723,165 @@ function FormNotificar({
         <TextInput label="Asunto" required value={asunto} onChange={(e) => setAsunto(e.currentTarget.value)} />
         <Textarea label="Cuerpo" required autosize minRows={6} maxLength={6000} value={cuerpo} onChange={(e) => setCuerpo(e.currentTarget.value)} />
         <Botones boton="Enviar" pendiente={pendiente} alCerrar={alCerrar} />
+      </Stack>
+    </form>
+  );
+}
+
+/**
+ * Respuesta del OPL a los hallazgos del acta vista por el equipo y la coordinación: estado de cada hallazgo y, solo para el auditor
+ * líder, la decisión sobre cada objeción (ratificar o levantar con motivo, una sola vez). Sin enlace del acta no se muestra.
+ */
+function RespuestaDelOpl({ id }: { id: number }) {
+  const qc = useQueryClient();
+  const clave = ['visita', 'opl', id];
+  const datos = useQuery({ queryKey: clave, queryFn: () => api<OplDeVisita>(`/api/visitas/${id}/opl`) });
+  const [decidir, setDecidir] = useState<{ h: HallazgoOpl; resolucion: 'ratifica' | 'levanta' } | null>(null);
+  const resolver = useMutation({
+    mutationFn: (c: { clave: string; resolucion: 'ratifica' | 'levanta'; motivo: string }) =>
+      api<Respuesta>(`/api/visitas/${id}/opl/resolucion`, { metodo: 'POST', cuerpo: c }),
+    onSuccess: (r) => {
+      notifications.show({ color: conAvisoFallido(r.mensaje) ? 'orange' : 'green', autoClose: conAvisoFallido(r.mensaje) ? false : 6000, message: r.mensaje });
+      setDecidir(null);
+      qc.invalidateQueries({ queryKey: clave });
+      qc.invalidateQueries({ queryKey: ['visita'] });
+    },
+    onError: (e) => notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo registrar la decisión.' }),
+  });
+
+  // Sin permiso o sin acta con hallazgos: la sección no aplica
+  if (!datos.data || !datos.data.tieneEnlace) return null;
+  const d = datos.data;
+  return (
+    <Card withBorder data-testid="respuesta-del-opl">
+      <Group gap="sm" mb="xs">
+        <Title order={5}>Respuesta del OPL</Title>
+        <Badge color={COLOR_FASE[d.fase]}>{NOMBRE_FASE[d.fase]}</Badge>
+        <Badge variant="light" color={d.plan.estado === 'firmado' ? 'green' : 'gray'}>
+          Plan: {NOMBRE_PLAN[d.plan.estado]}
+        </Badge>
+      </Group>
+      <Text size="sm" c="dimmed">
+        Acta enviada el {d.enviado}. Aceptar u objetar hasta el {d.venceObjecionesLargo}; plan firmado hasta el {d.vencePlanLargo}.
+      </Text>
+      <Stack gap="xs" mt="sm">
+        {d.hallazgos.map((h) => (
+          <Card key={h.clave} withBorder p="sm" data-testid={'opl-' + h.codigo}>
+            <Group justify="space-between" gap="xs" wrap="wrap">
+              <Text size="sm" fw={600}>
+                {h.codigo} · {h.texto}
+              </Text>
+              <Badge color={COLOR_ESTADO[h.estado]} variant="light">
+                {NOMBRE_ESTADO[h.estado]}
+              </Badge>
+            </Group>
+            {h.respondio && (
+              <Text size="xs" c="dimmed">
+                Respondió: {h.respondio}
+              </Text>
+            )}
+            {h.decision === 'objeta' && h.justificacion && (
+              <Text size="sm" mt={4} style={{ whiteSpace: 'pre-wrap' }}>
+                <Text span fw={500}>
+                  Objeción:{' '}
+                </Text>
+                {h.justificacion}
+              </Text>
+            )}
+            {h.soportes.length > 0 && (
+              <Text size="xs" c="dimmed">
+                Soportes: {h.soportes.map((x) => x.nombre).join(', ')}
+              </Text>
+            )}
+            {(h.quien || h.como) && (
+              <Text size="xs" mt={4}>
+                Quién: {h.quien ?? '—'} · Cómo: {h.como ?? '—'}
+              </Text>
+            )}
+            {h.resolucion && (
+              <Text size="sm" mt={4}>
+                Decisión del líder: {h.resolucion === 'ratifica' ? 'ratificado' : 'levantado'} · {h.resolucionMotivo}
+              </Text>
+            )}
+            {d.esLider && h.estado === 'objetado' && (
+              <Group gap="xs" mt="xs">
+                <Button size="xs" color="red" variant="light" onClick={() => setDecidir({ h, resolucion: 'ratifica' })}>
+                  Ratificar
+                </Button>
+                <Button size="xs" color="green" variant="light" onClick={() => setDecidir({ h, resolucion: 'levanta' })}>
+                  Levantar
+                </Button>
+              </Group>
+            )}
+          </Card>
+        ))}
+      </Stack>
+      <Modal
+        opened={decidir !== null}
+        onClose={() => setDecidir(null)}
+        title={decidir ? `${decidir.resolucion === 'ratifica' ? 'Ratificar' : 'Levantar'} el hallazgo ${decidir.h.codigo}` : ''}
+      >
+        {decidir && (
+          <Decidir
+            texto={
+              decidir.resolucion === 'ratifica'
+                ? 'El hallazgo sigue en el plan y se le pide al OPL diligenciar quién y cómo.'
+                : 'El hallazgo sale del plan y del seguimiento. Si es el último vigente, el plan se cierra.'
+            }
+            boton={decidir.resolucion === 'ratifica' ? 'Ratificar' : 'Levantar'}
+            pendiente={resolver.isPending}
+            alCerrar={() => setDecidir(null)}
+            alEnviar={(motivo) => resolver.mutate({ clave: decidir.h.clave, resolucion: decidir.resolucion, motivo })}
+          />
+        )}
+      </Modal>
+    </Card>
+  );
+}
+
+function Decidir({
+  texto,
+  boton,
+  pendiente,
+  alCerrar,
+  alEnviar,
+}: {
+  texto: string;
+  boton: string;
+  pendiente: boolean;
+  alCerrar: () => void;
+  alEnviar: (motivo: string) => void;
+}) {
+  const [motivo, setMotivo] = useState('');
+  const corto = motivo.trim().length < 10;
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!corto) alEnviar(motivo.trim());
+      }}
+    >
+      <Stack>
+        <Text size="sm">{texto} La decisión es una sola vez.</Text>
+        <Textarea
+          label="Motivo"
+          required
+          autosize
+          minRows={3}
+          minLength={10}
+          maxLength={800}
+          description="Entre 10 y 800 caracteres."
+          value={motivo}
+          onChange={(e) => setMotivo(e.currentTarget.value)}
+        />
+        <Group justify="flex-end">
+          <Button variant="default" onClick={alCerrar}>
+            Volver
+          </Button>
+          <Button type="submit" loading={pendiente} disabled={corto}>
+            {boton}
+          </Button>
+        </Group>
       </Stack>
     </form>
   );

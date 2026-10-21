@@ -39,7 +39,7 @@ export default defineConfig({
       `..\\backend\\mvnw.cmd -q -f ../backend/pom.xml -pl app spring-boot:test-run ` +
       `-Dspring-boot.run.main-class=co.com.agsamericas.digsa.DigsaLocal ` +
       `"-Dspring-boot.run.jvmArguments=-Ddigsa.local.admin=${ADMIN} -Ddigsa.local.raiz=${process.cwd().replace(/\\/g, '/')}/.." ` +
-      `"-Dspring-boot.run.arguments=--digsa.sesion-minutos=1 --digsa.mfa.codigos-por-hora=1000"`,
+      `"-Dspring-boot.run.arguments=--digsa.sesion-minutos=1 --digsa.mfa.codigos-por-hora=1000 --digsa.opl.codigos-por-hora-ip=1000"`,
     url: 'http://localhost:8080/actuator/health',
     timeout: 240_000,
     reuseExistingServer: false,

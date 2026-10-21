@@ -25,6 +25,10 @@ export interface ItemChecklist {
   admiteNoAplica: boolean;
   calificacion: Calificacion | null;
   hallazgo: string | null;
+  /** «it:<código>» para un ítem, «ob:<código>» para una obligación del contrato (clave del hallazgo y de sus soportes). */
+  clave?: string;
+  /** Obligación de la minuta del prestador visitado (parte OBL), no un ítem del checklist. */
+  obligacion?: boolean;
   archivos: Archivo[];
 }
 
@@ -53,7 +57,7 @@ export interface PersonaAuditada {
   correo: string | null;
 }
 
-export type RolFirma = 'auditor' | 'esm' | 'opl';
+export type RolFirma = 'auditor' | 'esm' | 'opl' | 'w5_auditor' | 'w5_auditado';
 
 export interface Firma {
   rol: RolFirma;
@@ -116,7 +120,54 @@ export interface DatosFormulario {
   resumen: { c: number; nc: number; na: number; pendientes: number; hallazgos: number; cumplimiento: string | null };
   faltantes: string[];
   actas: Acta[];
+  plan: DatosPlan;
 }
+
+/** Fila del plan de mejoramiento 5W2H como la guarda el servidor (parte del auditor; quién y cómo los pone el OPL). */
+export interface FilaPlan {
+  causas?: string | null;
+  que?: string | null;
+  porque?: string | null;
+  donde?: string | null;
+  inicio?: string | null;
+  fin?: string | null;
+  indicador?: string | null;
+  estado?: string | null;
+  avance?: number | null;
+}
+
+export interface HallazgoPlan {
+  clave: string;
+  codigo: string;
+  origen: 'item' | 'obligacion';
+  texto: string;
+  hallazgo: string | null;
+  fila: FilaPlan;
+}
+
+export interface DatosPlan {
+  fecha: string | null;
+  hallazgos: HallazgoPlan[];
+  estados: string[];
+  ayudaIndicador: string;
+}
+
+/** Edición local de una fila del 5W2H (textos vacíos en lugar de null para los controles). */
+export interface EdicionPlan {
+  causas: string;
+  que: string;
+  porque: string;
+  donde: string;
+  inicio: string;
+  fin: string;
+  indicador: string;
+  estado: string;
+}
+
+export const CAMPOS_PLAN = ['causas', 'que', 'porque', 'donde', 'inicio', 'fin', 'indicador', 'estado'] as const;
+
+/** Acciones abiertas: las que exigen la fecha fin para enviar el acta (como en el servidor). */
+export const ESTADOS_ABIERTOS = ['Pendiente', 'En curso', 'Retrasado'];
 
 /** Edición local de un ítem (lo que aún no se ha guardado). */
 export interface Edicion {
@@ -136,6 +187,12 @@ export const ROLES_FIRMA: { rol: RolFirma; titulo: string }[] = [
   { rol: 'auditor', titulo: 'Auditor líder' },
   { rol: 'esm', titulo: 'Establecimiento' },
   { rol: 'opl', titulo: 'Operador logístico' },
+];
+
+/** Firmas del plan de mejoramiento, obligatorias para enviar un acta con hallazgos. */
+export const ROLES_FIRMA_PLAN: { rol: RolFirma; titulo: string }[] = [
+  { rol: 'w5_auditor', titulo: 'Auditor' },
+  { rol: 'w5_auditado', titulo: 'Recibí los hallazgos' },
 ];
 
 export const ENTIDADES = [
@@ -221,4 +278,72 @@ export function tamanoLegible(bytes: number): string {
 export function cumplimientoLegible(v: string | null | undefined): string | null {
   if (!v || v === 'null' || Number.isNaN(Number(v))) return null;
   return `${Number(v).toFixed(1).replace('.', ',')} %`;
+}
+
+/** Valor efectivo de una fila del 5W2H: la edición local si la hay, si no lo guardado. */
+export function valorFila(h: HallazgoPlan, ediciones: Record<string, EdicionPlan>): EdicionPlan {
+  const f = h.fila;
+  return (
+    ediciones[h.clave] ?? {
+      causas: f.causas ?? '',
+      que: f.que ?? '',
+      porque: f.porque ?? '',
+      donde: f.donde ?? '',
+      inicio: f.inicio ?? '',
+      fin: f.fin ?? '',
+      indicador: f.indicador ?? '',
+      estado: f.estado || 'Pendiente',
+    }
+  );
+}
+
+/** Hay cambios del 5W2H sin guardar: la fecha o alguna fila distinta de lo guardado (comparando sin espacios sobrantes). */
+export function planCambiado(plan: DatosPlan, fecha: string | null, ediciones: Record<string, EdicionPlan>): boolean {
+  if (fecha !== null && fecha !== (plan.fecha ?? '')) return true;
+  return plan.hallazgos.some((h) => {
+    const e = ediciones[h.clave];
+    if (!e) return false;
+    const g = valorFila(h, {});
+    return CAMPOS_PLAN.some((c) => e[c].trim() !== g[c].trim());
+  });
+}
+
+/** Cuerpo del PUT del plan: la fecha efectiva y todas las filas (el servidor reemplaza la fecha con lo que llega). */
+export function cuerpoPlan(plan: DatosPlan, fecha: string | null, ediciones: Record<string, EdicionPlan>) {
+  const f = fecha ?? plan.fecha ?? '';
+  return {
+    fecha: f || null,
+    filas: plan.hallazgos.map((h) => {
+      const e = valorFila(h, ediciones);
+      return {
+        clave: h.clave,
+        causas: textoONulo(e.causas),
+        que: textoONulo(e.que),
+        porque: textoONulo(e.porque),
+        donde: textoONulo(e.donde),
+        inicio: e.inicio || null,
+        fin: e.fin || null,
+        indicador: textoONulo(e.indicador),
+        estado: e.estado || 'Pendiente',
+        avance: h.fila.avance ?? 0,
+      };
+    }),
+  };
+}
+
+/** Lo que falta del 5W2H para enviar el acta (mismas reglas que el servidor), con las ediciones locales aplicadas. */
+export function faltantesPlan(plan: DatosPlan, fecha: string | null, ediciones: Record<string, EdicionPlan>): string[] {
+  if (plan.hallazgos.length === 0) return [];
+  const r: string[] = [];
+  if (!(fecha ?? plan.fecha)) r.push('la fecha del plan');
+  const sinQue = plan.hallazgos.filter((h) => !valorFila(h, ediciones).que.trim()).map((h) => h.codigo);
+  const sinFin = plan.hallazgos
+    .filter((h) => {
+      const e = valorFila(h, ediciones);
+      return ESTADOS_ABIERTOS.includes(e.estado) && !e.fin;
+    })
+    .map((h) => h.codigo);
+  if (sinQue.length > 0) r.push('el qué de ' + sinQue.join(', '));
+  if (sinFin.length > 0) r.push('la fecha fin de ' + sinFin.join(', '));
+  return r;
 }

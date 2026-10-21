@@ -89,6 +89,11 @@ export async function subirArchivos<T>(ruta: string, campos: Record<string, stri
   return leerRespuesta<T>(r, ruta);
 }
 
+/** Rutas que no usan la sesión del usuario: su 401 no cierra la sesión (el enlace del acta responde 401 cuando hay que abrirlo de nuevo). */
+function sinSesionDeUsuario(ruta: string): boolean {
+  return ruta.startsWith('/api/auth/') || ruta.startsWith('/api/opl-publico/');
+}
+
 async function leerRespuesta<T>(r: Response, ruta: string): Promise<T> {
   marcarActividad();
   const tipo = r.headers.get('Content-Type') ?? '';
@@ -102,7 +107,7 @@ async function leerRespuesta<T>(r: Response, ruta: string): Promise<T> {
           : `Error ${r.status}`;
     // Solo una sesión que existía y se cerró (inactividad, otro equipo, usuario inactivo...) lleva al ingreso con el motivo;
     // "sin_sesion" es quien aún no ha ingresado (p. ej. el enlace para definir la contraseña) y no se interrumpe.
-    if (r.status === 401 && typeof datos.motivo === 'string' && datos.motivo !== 'sin_sesion' && !ruta.startsWith('/api/auth/')) {
+    if (r.status === 401 && typeof datos.motivo === 'string' && datos.motivo !== 'sin_sesion' && !sinSesionDeUsuario(ruta)) {
       try {
         sessionStorage.setItem(CLAVE_MOTIVO, mensaje);
       } catch {
@@ -115,7 +120,7 @@ async function leerRespuesta<T>(r: Response, ruta: string): Promise<T> {
   return datos as T;
 }
 
-/** Descarga un archivo de la API (Excel, CSV) con el nombre que da el servidor. */
+/** Descarga un archivo de la API (Excel, CSV, PDF) con el nombre que da el servidor. */
 export async function descargar(ruta: string): Promise<void> {
   let r: Response;
   try {
@@ -127,10 +132,10 @@ export async function descargar(ruta: string): Promise<void> {
   if (!r.ok) {
     const d = await r.json().catch(() => ({}) as Record<string, unknown>);
     const mensaje = typeof d.mensaje === 'string' ? d.mensaje : `Error ${r.status}`;
-    if (r.status === 401 && typeof d.motivo === 'string' && d.motivo !== 'sin_sesion') {
+    if (r.status === 401 && typeof d.motivo === 'string' && d.motivo !== 'sin_sesion' && !sinSesionDeUsuario(ruta)) {
       window.dispatchEvent(new CustomEvent(EVENTO_SESION_CERRADA, { detail: mensaje }));
     }
-    throw new ErrorApi(r.status, mensaje);
+    throw new ErrorApi(r.status, mensaje, d);
   }
   const nombre = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') ?? '')?.[1] ?? 'reporte';
   const url = URL.createObjectURL(await r.blob());

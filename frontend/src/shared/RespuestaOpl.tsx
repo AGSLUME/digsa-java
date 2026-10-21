@@ -1,0 +1,633 @@
+import { Alert, Anchor, Badge, Box, Button, Card, Center, Group, List, Loader, Paper, Radio, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { api, descargar, ErrorApi, subirArchivos } from './api';
+import { tamanoLegible } from './checklist';
+import {
+  COLOR_ESTADO,
+  conAvisoFallido,
+  COLOR_FASE,
+  DIAS_OBJECIONES,
+  DIAS_PLAN,
+  editaQuienComo,
+  errorFirmaPlan,
+  errorRespuesta,
+  faltanQuienComo,
+  MAX_SOPORTES,
+  NOMBRE_ESTADO,
+  NOMBRE_FASE,
+  NOMBRE_PLAN,
+  pideReabrir,
+  pideRefrescar,
+  pideReverificar,
+  planFirmado,
+  puedeResponder,
+  puedeSubirSoportes,
+  quienComoCambiados,
+  valorQuienComo,
+  vaAlPlan,
+  type DetalleOpl,
+  type HallazgoOpl,
+  type QuienComo,
+} from './opl';
+import { PanelFirma } from './PanelFirma';
+
+interface Mensaje {
+  mensaje: string;
+}
+
+interface EdicionRespuesta {
+  decision: 'acepta' | 'objeta' | null;
+  justificacion: string;
+}
+
+/**
+ * Respuesta del OPL a los hallazgos del acta, común al enlace del acta (base «/api/opl-publico») y al usuario OPL (base
+ * «/api/opl/visitas/{id}»): plazos, aceptar u objetar cada hallazgo, soportes de la objeción, quién y cómo del plan, firma del plan y
+ * descarga del acta. Lo escrito vive aquí: si el enlace pide verificar el código otra vez, el padre lo pide sin desmontar el componente.
+ */
+export function RespuestaOpl({
+  base,
+  rutaDetalle = base,
+  alReverificar,
+}: {
+  base: string;
+  rutaDetalle?: string;
+  alReverificar?: () => void;
+}) {
+  const clave = ['opl', 'detalle', rutaDetalle];
+  const detalle = useQuery({ queryKey: clave, queryFn: () => api<DetalleOpl>(rutaDetalle) });
+  const reverificarDetalle = pideReverificar(detalle.error) || pideReabrir(detalle.error);
+  // Por inactividad el enlace pide el código otra vez: se avisa al padre y, al verificar, la consulta se repite
+  useEffect(() => {
+    if (reverificarDetalle) alReverificar?.();
+  }, [reverificarDetalle, alReverificar]);
+
+  if (detalle.isLoading) {
+    return (
+      <Center py="xl">
+        <Loader />
+      </Center>
+    );
+  }
+  if (!detalle.data) {
+    return <Alert color={reverificarDetalle ? 'orange' : 'red'}>{detalle.error?.message ?? 'No se pudo cargar la visita.'}</Alert>;
+  }
+  return <Contenido base={base} clave={clave} d={detalle.data} alReverificar={alReverificar} />;
+}
+
+function Contenido({ base, clave, d, alReverificar }: { base: string; clave: unknown[]; d: DetalleOpl; alReverificar?: () => void }) {
+  const qc = useQueryClient();
+  const [nombre, setNombre] = useState('');
+  const [cargo, setCargo] = useState('');
+  const [respuestas, setRespuestas] = useState<Record<string, EdicionRespuesta>>({});
+  const [quienComo, setQuienComo] = useState<Record<string, QuienComo>>({});
+
+  const refrescar = () => {
+    qc.invalidateQueries({ queryKey: clave });
+    qc.invalidateQueries({ queryKey: ['opl', 'lista'] });
+  };
+  // Verificación vencida (403) o sesión del QR vencida (401): el padre reabre y pide el código sin desmontar lo escrito
+  const avisarError = (e: unknown, texto: string) => {
+    const otraVez = pideReverificar(e) || pideReabrir(e);
+    if (otraVez) alReverificar?.();
+    if (pideRefrescar(e)) refrescar();
+    notifications.show({ color: otraVez ? 'orange' : 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : texto });
+  };
+
+  const responder = useMutation({
+    mutationFn: (c: { clave: string; decision: 'acepta' | 'objeta'; justificacion: string | null; nombre: string; cargo: string }) =>
+      api<Mensaje>(`${base}/respuestas`, { metodo: 'POST', cuerpo: c }),
+    onSuccess: (r, c) => {
+      notifications.show({ color: conAvisoFallido(r.mensaje) ? 'orange' : 'green', autoClose: conAvisoFallido(r.mensaje) ? false : 6000, message: r.mensaje });
+      setRespuestas((x) => Object.fromEntries(Object.entries(x).filter(([k]) => k !== c.clave)));
+      refrescar();
+    },
+    onError: (e) => avisarError(e, 'No se pudo guardar la respuesta.'),
+  });
+
+  const cambiadosPlan = quienComoCambiados(d.hallazgos, quienComo);
+  const guardarPlan = useMutation({
+    mutationFn: (filas: typeof cambiadosPlan) => api<Mensaje & { faltan: string[] }>(`${base}/plan`, { metodo: 'PUT', cuerpo: { filas } }),
+    onSuccess: (r, filas) => {
+      notifications.show({ color: r.faltan.length === 0 ? 'green' : 'orange', autoClose: 8000, message: r.mensaje });
+      // Solo se descarta lo que sigue igual a lo enviado: lo escrito mientras se guardaba se conserva
+      const enviadas = new Map(filas.map((f) => [f.clave, f]));
+      setQuienComo((x) =>
+        Object.fromEntries(
+          Object.entries(x).filter(([k, v]) => {
+            const f = enviadas.get(k);
+            return !f || f.quien !== v.quien.trim() || f.como !== v.como.trim();
+          }),
+        ),
+      );
+      refrescar();
+    },
+    onError: (e) => avisarError(e, 'No se pudo guardar el plan.'),
+  });
+
+  const firmado = planFirmado(d.plan);
+  const alPlan = d.hallazgos.filter((h) => vaAlPlan(h.estado));
+  const respondibles = d.hallazgos.some((h) => puedeResponder(d, h));
+  const faltan = faltanQuienComo(d.hallazgos, quienComo);
+
+  // Aviso del navegador al cerrar o recargar con respuestas o quién y cómo sin guardar
+  const sinGuardar = Object.keys(respuestas).length > 0 || cambiadosPlan.length > 0;
+  useEffect(() => {
+    if (!sinGuardar) return;
+    const avisar = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', avisar);
+    return () => window.removeEventListener('beforeunload', avisar);
+  }, [sinGuardar]);
+
+  return (
+    <Stack data-testid="respuesta-opl">
+      <Group gap="sm">
+        <Title order={3}>
+          Visita {d.numero} · {d.punto}
+        </Title>
+        <Badge size="lg" color={COLOR_FASE[d.fase]} data-testid="fase-opl">
+          {NOMBRE_FASE[d.fase]}
+        </Badge>
+      </Group>
+      <Plazos d={d} />
+      {!d.abierta && <Alert color="yellow">La visita se reabrió: espere el acta nueva para responder.</Alert>}
+      <Group gap="xs">
+        <Button
+          variant="light"
+          data-testid="descargar-acta-opl"
+          disabled={!d.actaArchivoId}
+          onClick={() => descargar(`${base}/acta`).catch((e: unknown) => avisarError(e, 'No se pudo descargar el acta.'))}
+        >
+          Descargar el acta
+        </Button>
+        <Text size="sm" c="dimmed">
+          Acta enviada el {d.enviado}.
+        </Text>
+      </Group>
+
+      {respondibles && (
+        <Card withBorder data-testid="quien-responde">
+          <Title order={5} mb="xs">
+            Quién responde
+          </Title>
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
+            <TextInput label="Nombre de quien responde" required minLength={3} maxLength={150} value={nombre} onChange={(e) => setNombre(e.currentTarget.value)} />
+            <TextInput label="Cargo de quien responde" required minLength={2} maxLength={150} value={cargo} onChange={(e) => setCargo(e.currentTarget.value)} />
+          </SimpleGrid>
+          <Text size="xs" c="dimmed" mt={4}>
+            Queda con cada respuesta. Puede cambiar su respuesta hasta que el auditor líder decida la objeción.
+          </Text>
+        </Card>
+      )}
+
+      <Stack gap="sm">
+        <Title order={4}>Hallazgos</Title>
+        {d.hallazgos.length === 0 && (
+          <Text size="sm" c="dimmed">
+            El acta no tiene hallazgos.
+          </Text>
+        )}
+        {d.hallazgos.map((h) => (
+          <Hallazgo
+            key={h.clave}
+            base={base}
+            d={d}
+            h={h}
+            edicion={respuestas[h.clave]}
+            alEditar={(e) => setRespuestas((x) => ({ ...x, [h.clave]: e }))}
+            pendiente={responder.isPending}
+            alResponder={(e) => {
+              const error = errorRespuesta(e.decision, e.justificacion, nombre, cargo);
+              if (error) {
+                notifications.show({ color: 'orange', autoClose: 10000, message: error });
+                return;
+              }
+              responder.mutate({
+                clave: h.clave,
+                decision: e.decision!,
+                justificacion: e.decision === 'objeta' ? e.justificacion.trim() : null,
+                nombre: nombre.trim(),
+                cargo: cargo.trim(),
+              });
+            }}
+            alSubir={refrescar}
+            avisarError={avisarError}
+          />
+        ))}
+      </Stack>
+
+      <Card withBorder data-testid="plan-opl">
+        <Title order={5} mb={4}>
+          Plan de mejoramiento: quién y cómo
+        </Title>
+        <Text size="sm" c="dimmed" mb="xs">
+          Diligencie quién y cómo de los hallazgos aceptados (también los aceptados automáticamente) y de los ratificados por el auditor líder.
+        </Text>
+        {alPlan.length === 0 ? (
+          <Text size="sm" c="dimmed">
+            Aún no hay hallazgos que vayan al plan.
+          </Text>
+        ) : (
+          <Stack gap="sm">
+            {alPlan.map((h) => {
+              const v = valorQuienComo(h, quienComo);
+              const editable = editaQuienComo(d, h);
+              return (
+                <Paper key={h.clave} withBorder p="sm" data-testid={'quien-como-' + h.codigo}>
+                  <Text size="sm" fw={600}>
+                    {h.codigo} · {h.texto}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    Qué (auditor): {h.planAuditor.que ?? '—'}
+                  </Text>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs" mt="xs">
+                    <TextInput
+                      label="Quién"
+                      aria-label={'Quién de ' + h.codigo}
+                      maxLength={200}
+                      readOnly={!editable}
+                      value={v.quien}
+                      onChange={(e) => {
+                        const valor = e.currentTarget.value;
+                        setQuienComo((x) => ({ ...x, [h.clave]: { ...v, quien: valor } }));
+                      }}
+                    />
+                    <Textarea
+                      label="Cómo"
+                      aria-label={'Cómo de ' + h.codigo}
+                      autosize
+                      minRows={2}
+                      maxLength={4000}
+                      readOnly={!editable}
+                      value={v.como}
+                      onChange={(e) => {
+                        const valor = e.currentTarget.value;
+                        setQuienComo((x) => ({ ...x, [h.clave]: { ...v, como: valor } }));
+                      }}
+                    />
+                  </SimpleGrid>
+                </Paper>
+              );
+            })}
+            {faltan.length > 0 && (
+              <Text size="sm" c="orange">
+                Falta quién y cómo de: {faltan.join(', ')}.
+              </Text>
+            )}
+            {alPlan.some((h) => editaQuienComo(d, h)) && (
+              <Group justify="flex-end">
+                <Button
+                  data-testid="guardar-quien-como"
+                  disabled={cambiadosPlan.length === 0}
+                  loading={guardarPlan.isPending}
+                  onClick={() => guardarPlan.mutate(cambiadosPlan)}
+                >
+                  Guardar quién y cómo
+                </Button>
+              </Group>
+            )}
+          </Stack>
+        )}
+      </Card>
+
+      <FirmaPlan base={base} d={d} firmado={firmado} sinGuardar={cambiadosPlan.length > 0 || Object.keys(respuestas).length > 0} alFirmar={refrescar} avisarError={avisarError} />
+    </Stack>
+  );
+}
+
+function Plazos({ d }: { d: DetalleOpl }) {
+  return (
+    <Alert color={COLOR_FASE[d.fase]} title="Plazos" data-testid="plazos-opl">
+      <Stack gap={4}>
+        <Text size="sm">
+          Para aceptar u objetar cada hallazgo: {DIAS_OBJECIONES} días hábiles, hasta el {d.venceObjecionesLargo} a las 23:59. Lo que no se
+          responda en ese plazo queda aceptado.
+        </Text>
+        <Text size="md" fw={700}>
+          Plazo máximo para remitir el plan de mejoramiento firmado: {DIAS_PLAN} días hábiles, hasta el {d.vencePlanLargo} a las 23:59. Vencido el
+          plazo no se recibe.
+        </Text>
+        <Text size="sm">Estado del plan: {NOMBRE_PLAN[d.plan.estado]}</Text>
+      </Stack>
+    </Alert>
+  );
+}
+
+function Dato({ titulo, children }: { titulo: string; children: ReactNode }) {
+  return (
+    <div>
+      <Text size="xs" c="dimmed">
+        {titulo}
+      </Text>
+      <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+        {children}
+      </Text>
+    </div>
+  );
+}
+
+function Hallazgo({
+  base,
+  d,
+  h,
+  edicion,
+  alEditar,
+  pendiente,
+  alResponder,
+  alSubir,
+  avisarError,
+}: {
+  base: string;
+  d: DetalleOpl;
+  h: HallazgoOpl;
+  edicion: EdicionRespuesta | undefined;
+  alEditar: (e: EdicionRespuesta) => void;
+  pendiente: boolean;
+  alResponder: (e: EdicionRespuesta) => void;
+  alSubir: () => void;
+  avisarError: (e: unknown, texto: string) => void;
+}) {
+  const valor = edicion ?? { decision: h.decision, justificacion: h.justificacion ?? '' };
+  const responde = puedeResponder(d, h);
+  const p = h.planAuditor;
+  return (
+    <Paper withBorder p="sm" data-testid={'hallazgo-opl-' + h.codigo}>
+      <Group justify="space-between" gap="xs" wrap="wrap">
+        <Text size="sm" fw={700}>
+          {h.codigo} · {h.texto}
+        </Text>
+        <Badge color={COLOR_ESTADO[h.estado]} variant="light" data-testid={'estado-' + h.codigo}>
+          {NOMBRE_ESTADO[h.estado]}
+        </Badge>
+      </Group>
+      {h.origen === 'obligacion' && (
+        <Text size="xs" c="dimmed">
+          Obligación del contrato
+        </Text>
+      )}
+      <Text size="sm" mt={4} style={{ whiteSpace: 'pre-wrap' }}>
+        <Text span fw={500}>
+          Hallazgo:{' '}
+        </Text>
+        {h.hallazgo ?? '—'}
+      </Text>
+      <Box component="details" mt={4}>
+        <Text component="summary" size="sm" c="blue" style={{ cursor: 'pointer' }}>
+          Plan del auditor (5W2H)
+        </Text>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs" mt={4}>
+          <Dato titulo="Causas">{p.causas ?? '—'}</Dato>
+          <Dato titulo="Qué">{p.que ?? '—'}</Dato>
+          <Dato titulo="Por qué">{p.porque ?? '—'}</Dato>
+          <Dato titulo="Dónde">{p.donde ?? '—'}</Dato>
+          <Dato titulo="Inicio">{p.inicio ?? '—'}</Dato>
+          <Dato titulo="Fin">{p.fin ?? '—'}</Dato>
+          <Dato titulo="Indicador">{p.indicador ?? '—'}</Dato>
+          <Dato titulo="Estado">{p.estado}</Dato>
+        </SimpleGrid>
+      </Box>
+
+      {responde ? (
+        <Stack gap="xs" mt="xs">
+          <Radio.Group
+            label="Respuesta"
+            data-testid={'respuesta-' + h.codigo}
+            value={valor.decision ?? ''}
+            onChange={(x) => alEditar({ ...valor, decision: (x || null) as EdicionRespuesta['decision'] })}
+          >
+            <Group gap="md" mt={4}>
+              <Radio value="acepta" label="Acepto el hallazgo" />
+              <Radio value="objeta" label="Objeto el hallazgo" />
+            </Group>
+          </Radio.Group>
+          {valor.decision === 'objeta' && (
+            <Textarea
+              label="Justificación de la objeción"
+              aria-label={'Justificación de la objeción de ' + h.codigo}
+              description="De 10 a 4000 caracteres. Después de guardarla puede subir soportes."
+              required
+              autosize
+              minRows={3}
+              maxLength={4000}
+              value={valor.justificacion}
+              onChange={(e) => alEditar({ ...valor, justificacion: e.currentTarget.value })}
+            />
+          )}
+          <Group justify="flex-end">
+            <Button
+              size="sm"
+              data-testid={'guardar-respuesta-' + h.codigo}
+              disabled={!edicion || !valor.decision}
+              loading={pendiente}
+              onClick={() => alResponder(valor)}
+            >
+              Guardar respuesta
+            </Button>
+          </Group>
+        </Stack>
+      ) : (
+        h.decision && (
+          <Text size="sm" mt="xs">
+            <Text span fw={500}>
+              Respuesta del OPL:{' '}
+            </Text>
+            {h.decision === 'objeta' ? 'Objetado' : h.estado === 'aceptado_auto' ? 'Aceptado automáticamente (sin respuesta en el plazo)' : 'Aceptado'}
+            {h.respondio ? ' · ' + h.respondio : ''}
+          </Text>
+        )
+      )}
+      {h.decision === 'objeta' && h.justificacion && !responde && (
+        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+          {h.justificacion}
+        </Text>
+      )}
+      {h.resolucion && (
+        <Alert mt="xs" color={h.resolucion === 'levanta' ? 'green' : 'red'} data-testid={'decision-' + h.codigo}>
+          Decisión del auditor líder: {h.resolucion === 'levanta' ? 'levantó el hallazgo' : 'ratificó el hallazgo'}. {h.resolucionMotivo}
+        </Alert>
+      )}
+      {(h.decision === 'objeta' || h.soportes.length > 0) && <Soportes base={base} d={d} h={h} alSubir={alSubir} avisarError={avisarError} />}
+    </Paper>
+  );
+}
+
+/** Soportes de la objeción: lista con descarga y carga múltiple (máximo 10 por hallazgo, solo objetado y en plazo). */
+function Soportes({
+  base,
+  d,
+  h,
+  alSubir,
+  avisarError,
+}: {
+  base: string;
+  d: DetalleOpl;
+  h: HallazgoOpl;
+  alSubir: () => void;
+  avisarError: (e: unknown, texto: string) => void;
+}) {
+  const entrada = useRef<HTMLInputElement>(null);
+  const [elegidos, setElegidos] = useState<File[]>([]);
+  const quedan = MAX_SOPORTES - h.soportes.length;
+  const subir = useMutation({
+    mutationFn: (files: File[]) => subirArchivos<Mensaje>(`${base}/soportes`, { clave: h.clave }, files),
+    onSuccess: (r) => {
+      notifications.show({ color: 'green', message: r.mensaje });
+      setElegidos([]);
+      if (entrada.current) entrada.current.value = '';
+      alSubir();
+    },
+    onError: (e) => avisarError(e, 'No se pudieron subir los soportes.'),
+  });
+  return (
+    <Stack gap={4} mt="xs" data-testid={'soportes-' + h.codigo}>
+      <Text size="sm" fw={500}>
+        Soportes de la objeción
+      </Text>
+      {h.soportes.length === 0 ? (
+        <Text size="xs" c="dimmed">
+          Sin soportes.
+        </Text>
+      ) : (
+        <List size="sm" spacing={2}>
+          {h.soportes.map((s) => (
+            <List.Item key={s.id}>
+              <Group gap={6} wrap="wrap">
+                <Anchor
+                  component="button"
+                  type="button"
+                  size="sm"
+                  style={{ wordBreak: 'break-all' }}
+                  onClick={() => descargar(`${base}/soportes/${s.id}`).catch((e: unknown) => avisarError(e, 'No se pudo descargar el soporte.'))}
+                >
+                  {s.nombre}
+                </Anchor>
+                <Text size="xs" c="dimmed">
+                  {tamanoLegible(s.tamano)}
+                </Text>
+              </Group>
+            </List.Item>
+          ))}
+        </List>
+      )}
+      {puedeSubirSoportes(d, h) && (
+        <>
+          <Group gap="xs" wrap="wrap" align="center">
+            <input
+              ref={entrada}
+              type="file"
+              multiple
+              aria-label={'Soportes de la objeción de ' + h.codigo}
+              style={{ maxWidth: '100%', fontSize: 'var(--mantine-font-size-xs)' }}
+              onChange={(e) => setElegidos(Array.from(e.currentTarget.files ?? []))}
+            />
+            <Button
+              size="xs"
+              variant="light"
+              data-testid={'subir-soportes-' + h.codigo}
+              disabled={elegidos.length === 0 || elegidos.length > quedan}
+              loading={subir.isPending}
+              onClick={() => subir.mutate(elegidos)}
+            >
+              Subir
+            </Button>
+          </Group>
+          <Text size="xs" c={elegidos.length > quedan ? 'red' : 'dimmed'}>
+            Máximo {MAX_SOPORTES} soportes por hallazgo (quedan {quedan}); 25 MB cada uno.
+          </Text>
+        </>
+      )}
+    </Stack>
+  );
+}
+
+function FirmaPlan({
+  base,
+  d,
+  firmado,
+  sinGuardar,
+  alFirmar,
+  avisarError,
+}: {
+  base: string;
+  d: DetalleOpl;
+  firmado: boolean;
+  sinGuardar: boolean;
+  alFirmar: () => void;
+  avisarError: (e: unknown, texto: string) => void;
+}) {
+  const [nombre, setNombre] = useState('');
+  const [cargo, setCargo] = useState('');
+  const [documento, setDocumento] = useState('');
+  const [imagen, setImagen] = useState<string | null>(null);
+  const firmar = useMutation({
+    mutationFn: () =>
+      api<Mensaje>(`${base}/firma`, { metodo: 'POST', cuerpo: { nombre: nombre.trim(), cargo: cargo.trim(), documento: documento.trim(), imagen } }),
+    onSuccess: (r) => {
+      notifications.show({ color: conAvisoFallido(r.mensaje) ? 'orange' : 'green', autoClose: conAvisoFallido(r.mensaje) ? false : 6000, message: r.mensaje });
+      alFirmar();
+    },
+    onError: (e) => avisarError(e, 'No se pudo firmar el plan.'),
+  });
+  const sinRespuesta = d.hallazgos.filter((h) => h.estado === 'sin_respuesta').map((h) => h.codigo);
+
+  return (
+    <Card withBorder data-testid="firma-plan-opl">
+      <Title order={5} mb="xs">
+        Firma del plan de mejoramiento
+      </Title>
+      {firmado ? (
+        <Stack gap={2}>
+          <Text size="sm">
+            {d.plan.nombre} · {d.plan.cargo}
+          </Text>
+          <Badge color="green" variant="light">
+            Plan firmado {d.plan.firmado ? String(d.plan.firmado).replace('T', ' ').substring(0, 16) : ''}
+          </Badge>
+        </Stack>
+      ) : d.plan.estado === 'cerrado' ? (
+        <Text size="sm" c="green">
+          El plan quedó cerrado: el auditor líder levantó todos los hallazgos. No se necesita la firma.
+        </Text>
+      ) : d.fase === 'vencido' || !d.abierta || d.plan.estado === 'vencido' || d.plan.estado === 'reportado_digsa' ? (
+        <Text size="sm" c="red">
+          {d.abierta ? 'Venció el plazo para remitir el plan firmado: ya no se recibe la firma.' : 'La visita se reabrió: no se recibe la firma.'}
+        </Text>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const error = sinGuardar ? 'Guarde las respuestas y el quién y cómo antes de firmar el plan.' : errorFirmaPlan(nombre, cargo, documento, imagen);
+            if (error) {
+              notifications.show({ color: 'orange', autoClose: 10000, message: error });
+              return;
+            }
+            firmar.mutate();
+          }}
+        >
+          <Stack gap="xs">
+            {sinRespuesta.length > 0 && (
+              <Text size="sm" c="orange">
+                Antes de firmar, acepte u objete: {sinRespuesta.join(', ')}.
+              </Text>
+            )}
+            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs">
+              <TextInput label="Nombre de quien firma" required minLength={3} maxLength={150} value={nombre} onChange={(e) => setNombre(e.currentTarget.value)} />
+              <TextInput label="Cargo de quien firma" required minLength={2} maxLength={150} value={cargo} onChange={(e) => setCargo(e.currentTarget.value)} />
+              <TextInput label="Número de documento" required maxLength={30} value={documento} onChange={(e) => setDocumento(e.currentTarget.value)} />
+            </SimpleGrid>
+            <PanelFirma alCambiar={setImagen} />
+            <Group justify="flex-end">
+              <Button type="submit" color="green" data-testid="firmar-plan-opl" disabled={!imagen || sinRespuesta.length > 0} loading={firmar.isPending}>
+                Firmar el plan
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      )}
+    </Card>
+  );
+}

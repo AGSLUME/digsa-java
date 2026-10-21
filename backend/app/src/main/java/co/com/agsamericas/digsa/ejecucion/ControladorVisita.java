@@ -78,6 +78,12 @@ public class ControladorVisita {
         return Map.of("mensaje", "Personal auditado guardado.");
     }
 
+    @PutMapping("/api/visitas/{id}/plan")
+    @Accion(modulo = "visita", accion = "plan", operacion = Declarada.ACTUALIZACION)
+    public Map<String, Object> plan(@PathVariable long id, @RequestBody ServicioFormulario.Plan p) {
+        return formulario.guardarPlan(id, p, quien(), UsuarioSesion.perfilesActuales());
+    }
+
     @PostMapping("/api/visitas/{id}/firmas")
     @Accion(modulo = "visita", accion = "firmar", operacion = Declarada.ACTUALIZACION)
     public Map<String, Object> firmar(@PathVariable long id, @RequestBody ServicioFormulario.Firma f) {

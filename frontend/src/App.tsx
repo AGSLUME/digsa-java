@@ -13,6 +13,8 @@ import { Reportes } from './paginas/Reportes';
 import { Solicitudes } from './paginas/Solicitudes';
 import { Maestros } from './paginas/Maestros';
 import { MisVisitas } from './paginas/MisVisitas';
+import { Opl, OplVisita } from './paginas/Opl';
+import { OplResponder } from './paginas/OplResponder';
 import { Seguimiento } from './paginas/Seguimiento';
 import { Usuarios } from './paginas/Usuarios';
 import { VisitaDetalle } from './paginas/VisitaDetalle';
@@ -71,6 +73,8 @@ export function App() {
     <>
       <Route path="/definir-clave" element={<DefinirClave />} />
       <Route path="/olvide-clave" element={<OlvideClave />} />
+      {/* Enlace del acta (QR) para el OPL: sin usuario ni menú, con o sin sesión abierta en el navegador */}
+      <Route path="/opl-responder" element={<OplResponder />} />
     </>
   );
 
@@ -109,6 +113,8 @@ export function App() {
           <Route path="/mis-visitas/visita/:id" element={<Protegida ruta="mis-visitas"><VisitaDetalle key="mis-visitas" origen="mis-visitas" /></Protegida>} />
           <Route path="/visita/:id" element={<Protegida ruta="visita"><Checklist /></Protegida>} />
           <Route path="/calendario" element={<Protegida ruta="calendario"><Calendario /></Protegida>} />
+          <Route path="/opl" element={<Protegida ruta="opl"><Opl /></Protegida>} />
+          <Route path="/opl/visita/:id" element={<Protegida ruta="opl"><OplVisita /></Protegida>} />
           <Route path="/calendario/visita/:id" element={<Protegida ruta="calendario"><VisitaDetalle key="calendario" origen="calendario" /></Protegida>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

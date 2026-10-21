@@ -199,3 +199,112 @@ Quedan pendientes, sin bloquear:
 | 20.4 | Vista en tarjetas de la bandeja en el celular (hoy, tabla con desplazamiento lateral) | Fase 8 |
 | 20.5 | Historial propio de la solicitud: hoy, al cancelar, la visita que la atendió solo queda en el historial de la visita | Fase 7 |
 | 20.6 | Bandeja de salida de correos con reintentos para todos los avisos (hoy SMTP síncrono, con el fallo en la bitácora) | Fase 10 |
+
+## Fase 6 · Flujo del OPL (2026-10-21)
+
+Implementado con las decisiones 7, 8, 11.2, 11.5, 11.7, 11.8, 12.2, 17 y 25:
+- **Hallazgos al cierre:** las obligaciones del contrato y los ítems en NC, con el 5W2H del auditor y sus dos firmas.
+- **Acta con QR:** el QR lleva al enlace de respuesta, con los plazos de 3 y 5 días hábiles destacados.
+- **Código de 6 dígitos:** se envía solo al correo del OPL. Vence en 15 minutos, admite 5 intentos y como máximo salen 5 por hora por visita y 3 por hora por IP.
+- **Respuesta del OPL:** acepta u objeta cada hallazgo con soportes y diligencia quién y cómo. Firma el plan una sola vez, sin firma tardía y con el número de documento.
+- **Decisión del líder:** solo el auditor líder ratifica o levanta cada objeción. Al levantar el último hallazgo se cierra el plan y se avisa solo al OPL.
+- **Tarea diaria:** corre a las 00:15 con candado, aplica la aceptación automática y avisa al líder. Si el plan venció, lo marca «vencido» y envía el reporte formal a la DIGSA y al líder, con consecutivo RD-aaaa-nnnn y el acta adjunta; si el envío sale, el plan queda «reportado a DIGSA». Nunca inicia una multa.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 21.1 | **Consecutivo del reporte a la DIGSA:** formato y alcance (anual o global; prefijo) | RD-aaaa-nnnn, reinicia cada año |
+| 21.2 | **Forma del reporte:** ¿PDF propio o el cuerpo del correo? | Correo con la tabla de hallazgos, su estado y los soportes, más el acta en PDF adjunta y su huella. El contenido queda guardado en `reportes_digsa` |
+| 21.3 | **Sin correos de la DIGSA ni del líder** | El reporte queda «fallido», el plan sigue «vencido» y la tarea lo reintenta cada día |
+| 21.4 | **Firma con objeciones sin decidir:** ¿puede el OPL firmar el plan mientras el líder no ha decidido una objeción? | Sí se permite: lo objetado no entra al plan. Si el líder lo ratifica después, el OPL completa quién y cómo de ese hallazgo, pero solo en lo vacío y antes del plazo |
+| 21.5 | **Aviso de la decisión del líder** | Va solo al OPL, no al punto. Es una deducción de 11.2 y 12.2 |
+| 21.6 | **Vencido el plazo del plan** | El enlace responde 410 y el usuario OPL ya no ve la visita en su lista. ¿Debe seguir viendo lo respondido, en solo lectura? |
+| 21.7 | **Hasta cuándo dura la alerta crítica de plan vencido** | Mientras el plan no esté «cerrado» (pendiente de la fase 7, seguimiento) |
+| 21.8 | **Hora de la tarea diaria** | 00:15 en Bogotá; se configura con `digsa.opl.cron`. El administrador también puede correrla a mano |
+
+Quedan pendientes, sin bloquear:
+
+| # | Pendiente | Cuándo |
+|---|---|---|
+| 21.9 | Alerta crítica de planes vencidos en el tablero (`planesOplVencidos`) | Fase 9 (riesgo y tablero) |
+| 21.10 | Exportar los soportes del OPL en la carpeta de la visita | Fase 10 |
+| 21.11 | IP real detrás del proxy de Azure (`server.forward-headers-strategy`) para los topes por IP | Fase 11 |
+
+### Revisión de los agentes de la fase 6 (2026-10-21)
+
+Revisaron el código Java, la base de datos, los fallos silenciosos y la seguridad. Se corrigieron antes del commit:
+
+**Prioridad alta (P1):**
+- La firma del plan respondía 200 sin guardar nada cuando el plan ya estaba cerrado. Ahora responde 409.
+- El reporte quedaba «reportado a DIGSA» sin ningún correo de la DIGSA, o con su correo rechazado. Ahora queda «fallido» y se reintenta.
+
+**Prioridad media (P2) y menor (P3):**
+- **Avisos:**
+  - Un aviso que falla ya deja historial y lo advierte en la respuesta.
+  - El aviso de «plan cerrado» guarda su resultado.
+  - El aviso de aceptación automática se reintenta si falló.
+  - Cambiar la respuesta varias veces no inunda el correo del líder.
+- **Plan y respuestas:**
+  - La aceptación automática se confirma aparte, así no se pierde con el error que la anuncia.
+  - Con el plan firmado se llenan solo los campos vacíos, uno por uno.
+  - El líder decide solo sobre la visita cerrada y el acta vigente.
+  - Una obligación ya calificada no cambia su código ni su prestador.
+- **Tarea diaria:**
+  - Revalida la visita después de bloquearla.
+  - No reenvía un reporte que ya salió.
+  - Filtra en SQL lo que ya no tiene trabajo.
+- **Código de 6 dígitos:**
+  - Topes con candado por visita y por IP, con reserva mientras sale el correo; un envío fallido no consume el tope.
+  - El código queda atado a la sesión que lo pidió: otra sesión con el mismo QR no le gasta los intentos.
+- **Datos personales:**
+  - Correo enmascarado en la columna «usuario» de la bitácora.
+  - El detalle ya no devuelve el número de documento de quien firmó.
+- **Soportes:** se revisan el tope y el estado antes de leer los archivos.
+- **Base de datos (V12):** CHECK de estados y del consecutivo, índice por vencimiento y sin DELETE de más.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 21.12 | **Habilitación en trámite:** la spec excluye de los hallazgos el ítem NC con subvalidación REPS «SI», pero el formulario no tiene ese campo | Todo NC es hallazgo. ¿Se agrega la subvalidación SI/NO al ítem de habilitación? |
+| 21.13 | **Bloqueo del QR por terceros:** quien tenga el acta (por ejemplo, el punto) puede agotar el cupo de 5 códigos por hora de la visita | Se mantienen los topes de la spec. Queda el usuario OPL como alternativa. ¿Se avisa a la interventoría al llegar al tope? |
+| 21.14 | **Huella del código:** SHA-256 sin llave, como dice la spec | ¿Se cambia a HMAC con una llave de Key Vault? |
+
+Quedan pendientes, sin bloquear:
+
+| # | Pendiente | Cuándo |
+|---|---|---|
+| 21.15 | El token viaja en la consulta del GET del enlace: excluirlo de la telemetría de Application Insights y del ingreso | Fase 11 |
+| 21.16 | Lista del OPL y detalle con consultas N+1: consulta agregada cuando crezca el volumen | Fase 8 |
+| 21.17 | Archivo del acta huérfano si falla la transacción de reserva (no se pierde evidencia; queda un archivo de más) | Fase 10 |
+| 21.18 | Fijar `server.tomcat.remoteip.internal-proxies` a la subred de Container Apps y probar que se registra la IP real | Fase 11 |
+
+### Frontend de la fase 6 (2026-10-21)
+
+Construido:
+- **Checklist:** las obligaciones del contrato y el 5W2H con sus dos firmas. Un cambio sin guardar en el plan bloquea el acta.
+- **Maestros:** la pestaña «Obligaciones del contrato».
+- **Pantallas del OPL:**
+  - `/opl`: lista y detalle para los usuarios OPL;
+  - `/opl-responder`: la página pública del QR, sin sesión. El token sale de la barra de direcciones apenas abre y queda en sessionStorage para poder recargar.
+- **Detalle de la visita:** la sección «Respuesta del OPL», con Ratificar y Levantar para el líder.
+- **Pruebas e2e:** se configura `digsa.opl.codigos-por-hora-ip` (3 por defecto). Las pruebas lo suben porque todos los navegadores piden el código desde la misma IP local.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 21.19 | **Catálogo de obligaciones:** ¿editable a mano o solo desde la lectura de la minuta? | Editable por el coordinador mientras llega la lectura de la minuta |
+| 21.20 | **Avance (%) del 5W2H:** ¿se edita en la visita o solo en el seguimiento? | No se muestra en la visita: va en 0 y se edita en el seguimiento (fase 7) |
+| 21.21 | **Documento del firmante:** la decisión 11.8 habla del QR | También se pide al usuario OPL: es la misma firma del plan |
+| 21.22 | **Soportes del OPL desde la visita:** el equipo ve sus nombres, pero no hay descarga | Se agrega la descarga para el equipo en la fase 7 |
+
+Revisión del frontend (React y seguridad). Se corrigió antes del commit:
+- **P1, sesión del QR vencida:** pasados 30 minutos sin peticiones, la sesión del QR vencía y la página quedaba sin salida. Ahora reabre el enlace con el mismo token y pide el código en un diálogo, sin perder lo escrito.
+- **P2:**
+  - No se puede firmar con respuestas sin guardar ni con hallazgos sin responder.
+  - La pantalla se refresca tras un 409, 410 o 422.
+  - El reenvío del código no admite clics repetidos.
+
+Quedan pendientes, sin bloquear:
+
+| # | Pendiente | Cuándo |
+|---|---|---|
+| 21.23 | Enlace del acta con fragmento (`#t=`) y apertura por POST, para que el token no llegue a los registros del ingreso. Se suma a 21.15 | Fase 11 |
+| 21.24 | E2E de reverificar por inactividad, conservando lo escrito, y e2e de `/opl` con usuarios OPL nacional y regional | Fase 7 |
+| 21.25 | Detalles de pantalla: aviso al cerrar que también cuente la firma, carga por botón, parpadeo tras guardar, 5W2H con revisión ante dos editores, tarjetas en el celular, errores 500 visibles en «Respuesta del OPL» y ESLint con react-hooks y jsx-a11y | Fase 8 |

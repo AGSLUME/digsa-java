@@ -55,9 +55,14 @@ public class ServicioActa {
     private final JdbcClient jdbc;
     private final TransactionTemplate tx;
     private final Clock reloj;
+    private final co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta;
+    private final co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa cfg;
 
     public ServicioActa(ServicioFormulario formulario, ServicioArchivos archivos, ServicioNotificacion notificacion, ServicioCatalogos catalogos,
-                        RepositorioVisitas visitas, Correo correo, RegistroBitacora bitacora, JdbcClient jdbc, TransactionTemplate tx, Clock reloj) {
+                        RepositorioVisitas visitas, Correo correo, RegistroBitacora bitacora, JdbcClient jdbc, TransactionTemplate tx, Clock reloj,
+                        co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta, co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa cfg) {
+        this.consulta = consulta;
+        this.cfg = cfg;
         this.formulario = formulario;
         this.archivos = archivos;
         this.notificacion = notificacion;
@@ -72,7 +77,8 @@ public class ServicioActa {
 
     /** Genera el acta, la envía y cierra la visita. Si el correo no sale, la visita sigue en ejecución y se puede reintentar. */
     public Envio enviar(long visitaId, UsuarioSesion quien, Set<Perfil> perfiles) {
-        record Preparada(long actaId, int ronda, String numero, List<String> para, Set<String> obligatorios, String asunto, byte[] pdf, String nombre) {
+        record Preparada(long actaId, int ronda, String numero, List<String> para, Set<String> obligatorios, String asunto, byte[] pdf, String nombre,
+                         EnlaceOpl enlace) {
         }
         Preparada p = tx.execute(t -> {
             Acceso a = formulario.acceso(visitaId, quien, perfiles, true);
@@ -122,7 +128,10 @@ public class ServicioActa {
 
             Checklist.Resumen s = Checklist.resumen(reglas, resp);
             guardarResumen(visitaId, s);
-            byte[] pdf = GeneradorActa.generar(contenido(v, ronda, items, resp, s));
+            // Con hallazgos: enlace de respuesta del OPL con sus plazos (decisiones 25 y 8; 11.5 sin firma tardía)
+            List<Map<String, Object>> hallazgos = formulario.hallazgos(v, items, resp);
+            EnlaceOpl enlace = hallazgos.isEmpty() ? null : EnlaceOpl.nuevo(consulta.plazos(), OffsetDateTime.now(reloj), cfg::enlace);
+            byte[] pdf = GeneradorActa.generar(contenido(v, ronda, items, resp, s, enlace));
             String nombre = "Acta_" + v.numero() + "_ronda" + ronda + ".pdf";
             ServicioArchivos.Archivo archivo = archivos.guardarGenerado(visitaId, "acta", nombre, pdf, quien);
             Long existente = jdbc.sql("SELECT id FROM visitas_actas WHERE visita_id = :v AND ronda = :r").param("v", visitaId).param("r", ronda)
@@ -144,14 +153,21 @@ public class ServicioActa {
                         .param("a", archivo.id()).param("d", lista.toArray(String[]::new)).param("u", quien.id()).param("ahora", ahora).param("id", actaId)
                         .update();
             }
-            String asunto = "Acta de visita de seguimiento " + v.numero() + " · " + v.puntoNombre() + (ronda > 1 ? " · ronda " + ronda : "");
-            return new Preparada(actaId, ronda, v.numero(), lista, obligatorios, asunto, pdf, nombre);
+            guardarHallazgosYEnlace(v, actaId, hallazgos, enlace);
+            String asunto = (v.tipo().equals("plan") ? "Acta de seguimiento a plan de mejoramiento " : "Acta de visita ") + v.numero() + " · "
+                    + v.puntoNombre() + (ronda > 1 ? " · ronda " + ronda : "");
+            return new Preparada(actaId, ronda, v.numero(), lista, obligatorios, asunto, pdf, nombre, enlace);
         });
 
         Correo.Resultado r = correo.enviar(new Correo.Mensaje(p.para(), List.of(), p.asunto(),
                 PlantillaCorreo.marco("Acta de visita de seguimiento", "<p>Adjuntamos el acta de la visita <strong>" + PlantillaCorreo.e(p.numero())
                         + "</strong>" + (p.ronda() > 1 ? " (ronda " + p.ronda() + ", visita reabierta)" : "") + ".</p>"
-                        + "<p>Los hallazgos registrados requieren el plan de mejoramiento en los plazos del contrato.</p>"),
+                        + (p.enlace() == null ? "<p>La visita no tiene hallazgos.</p>"
+                                : "<p style=\"border:2px solid #961414;padding:10px;color:#961414\"><strong>" + PlantillaCorreo.e(p.enlace().textoPlazos())
+                                        + "</strong></p><p>Responda los hallazgos y firme el plan en: <a href=\"" + PlantillaCorreo.e(p.enlace().url()) + "\">"
+                                        + PlantillaCorreo.e(p.enlace().url()) + "</a></p>")
+                        + "<p style=\"color:#6b7280;font-size:11px\">Huella SHA-256 del acta: "
+                        + co.com.agsamericas.digsa.reglas.Huellas.sha256(p.pdf()) + "</p>"),
                 List.of(new Correo.Adjunto(p.nombre(), "application/pdf", p.pdf()))));
         List<String> rechazados = r.ok() ? r.rechazados() : p.para();
         long obligatoriosRechazados = rechazados.stream().filter(x -> p.obligatorios().contains(x.toLowerCase(Locale.ROOT))).count();
@@ -204,8 +220,39 @@ public class ServicioActa {
                 .param("j", json.toString()).param("ahora", OffsetDateTime.now(reloj)).update();
     }
 
+    /**
+     * Hallazgos de esta acta (reemplazan los de un intento anterior de la misma ronda), enlace del OPL (uno por visita: se reemplaza con
+     * el acta nueva; sin hallazgos se quita) y el plan del OPL de esta acta en «pendiente».
+     */
+    private void guardarHallazgosYEnlace(RepositorioVisitas.Visita v, long actaId, List<Map<String, Object>> hallazgos, EnlaceOpl enlace) {
+        jdbc.sql("DELETE FROM visitas_hallazgos WHERE acta_id = :a").param("a", actaId).update();
+        Map<String, Map<String, Object>> filas = formulario.filasPlan(v.id());
+        for (Map<String, Object> h : hallazgos) {
+            Map<String, Object> fila = filas.get((String) h.get("clave"));
+            jdbc.sql("""
+                    INSERT INTO visitas_hallazgos (visita_id, acta_id, clave, codigo, origen, texto, hallazgo, fin, estado_plan)
+                    VALUES (:v, :a, :c, :cod, :o, :t, :h, :fin, :e)""")
+                    .param("v", v.id()).param("a", actaId).param("c", h.get("clave")).param("cod", h.get("codigo")).param("o", h.get("origen"))
+                    .param("t", h.get("texto")).param("h", h.get("hallazgo"))
+                    .param("fin", fila == null || fila.get("fin") == null ? null : java.time.LocalDate.parse((String) fila.get("fin")))
+                    .param("e", fila == null ? "Pendiente" : fila.get("estado")).update();
+        }
+        if (enlace == null) {
+            jdbc.sql("DELETE FROM opl_accesos WHERE visita_id = :v").param("v", v.id()).update();
+            return;
+        }
+        jdbc.sql("""
+                INSERT INTO opl_accesos (visita_id, token_hash, acta_id, enviado, vence_objeciones, vence_plan) VALUES (:v, :t, :a, :e, :vo, :vp)
+                ON CONFLICT (visita_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, acta_id = EXCLUDED.acta_id, enviado = EXCLUDED.enviado,
+                  vence_objeciones = EXCLUDED.vence_objeciones, vence_plan = EXCLUDED.vence_plan""")
+                .param("v", v.id()).param("t", enlace.huella()).param("a", actaId).param("e", enlace.enviado()).param("vo", enlace.venceObjeciones())
+                .param("vp", enlace.vencePlan()).update();
+        jdbc.sql("INSERT INTO opl_planes (visita_id, acta_id) VALUES (:v, :a) ON CONFLICT (acta_id) DO NOTHING").param("v", v.id()).param("a", actaId)
+                .update();
+    }
+
     private GeneradorActa.Contenido contenido(RepositorioVisitas.Visita v, int ronda, List<ServicioFormulario.ItemVisita> items,
-                                              Map<String, Checklist.Respuesta> resp, Checklist.Resumen s) {
+                                              Map<String, Checklist.Respuesta> resp, Checklist.Resumen s, EnlaceOpl enlace) {
         Map<String, Object> e = formulario.ejecucion(v.id());
         Map<String, Object> lugar = jdbc.sql("""
                 SELECT p.nombre, p.sigla, p.direccion, mu.nombre AS municipio, d.nombre AS departamento FROM puntos p
@@ -249,12 +296,31 @@ public class ServicioActa {
                 ORDER BY CASE rol WHEN 'auditor' THEN 0 WHEN 'esm' THEN 1 ELSE 2 END""").param("v", v.id())
                 .query((rs, n) -> new GeneradorActa.FirmaActa(switch (rs.getString(1)) {
                     case "auditor" -> "Auditor líder";
+                    case "w5_auditor" -> "Plan de mejoramiento: auditor";
+                    case "w5_auditado" -> "Plan de mejoramiento: recibí los hallazgos";
                     case "esm" -> "Por el establecimiento (ESM)";
                     default -> "Por el operador logístico (OPL)";
                 }, rs.getString(2), rs.getString(3), rs.getString(4), rs.getBytes(5))).list();
         return new GeneradorActa.Contenido(v.numero(), ronda, datos, equipo, personal, new ArrayList<>(comps.values()), resumen,
                 (String) e.get("recomendaciones"), (String) e.get("observacionesAuditor"), (String) e.get("observacionesEsm"),
-                (String) e.get("observacionesOpl"), soportes, firmas, HORA.format(OffsetDateTime.now(reloj).atZoneSameInstant(Fechas.BOGOTA)));
+                (String) e.get("observacionesOpl"), soportes, firmas, HORA.format(OffsetDateTime.now(reloj).atZoneSameInstant(Fechas.BOGOTA)),
+                planActa(v, items, resp), formulario.plan(v, items, resp).get("fecha") == null ? null : String.valueOf(formulario.plan(v, items, resp).get("fecha")),
+                enlace == null ? null : enlace.textoPlazos(), enlace == null ? null : enlace.url(), enlace == null ? null : enlace.qr());
+    }
+
+    private List<String[]> planActa(RepositorioVisitas.Visita v, List<ServicioFormulario.ItemVisita> items, Map<String, Checklist.Respuesta> resp) {
+        Map<String, Map<String, Object>> filas = formulario.filasPlan(v.id());
+        List<String[]> r = new ArrayList<>();
+        for (Map<String, Object> h : formulario.hallazgos(v, items, resp)) {
+            Map<String, Object> f = filas.getOrDefault((String) h.get("clave"), Map.of());
+            r.add(new String[] {(String) h.get("codigo"), str(f.get("que")), str(f.get("porque")), str(f.get("donde")), str(f.get("inicio")),
+                    str(f.get("fin")), str(f.get("indicador")), f.get("estado") == null ? "Pendiente" : String.valueOf(f.get("estado"))});
+        }
+        return r;
+    }
+
+    private static String str(Object o) {
+        return o == null ? "" : String.valueOf(o);
     }
 
     private static String nulo(Object o) {

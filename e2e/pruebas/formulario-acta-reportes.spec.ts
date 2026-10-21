@@ -1,40 +1,15 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { ADMIN, api, ingresar, ingresarConClaveInicial, salir, unico } from './apoyo';
+import { firmarRol, llenarPlan, PNG } from './apoyo-acta';
 
 // Anexo 5, prueba 12 (formulario), prueba 10 (acta en PDF y reabrir) y prueba 13 (reportes con descarga).
 
 test.afterEach(async ({ page }) => salir(page));
 
-/** PNG de 2x2 px para las evidencias (el servidor valida el tipo por el contenido). */
-const PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR4nGP8z8DwnwEIGBkZGRgYGAAqBAIDL2QaUQAAAABJRU5ErkJggg==',
-  'base64',
-);
-
 function ahora(minutos: number): string {
   const d = new Date(Date.now() - minutos * 60_000);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-/** Dibuja un trazo en el panel de firma del modal. */
-async function dibujar(page: Page): Promise<void> {
-  const panel = page.getByRole('dialog').locator('canvas').first();
-  const caja = (await panel.boundingBox())!;
-  await page.mouse.move(caja.x + 20, caja.y + caja.height - 20);
-  await page.mouse.down();
-  await page.mouse.move(caja.x + caja.width / 2, caja.y + 20, { steps: 8 });
-  await page.mouse.move(caja.x + caja.width - 20, caja.y + caja.height - 30, { steps: 8 });
-  await page.mouse.up();
-}
-
-async function firmar(page: Page, rol: string, nombre: string): Promise<void> {
-  await page.getByTestId('firma-' + rol).getByRole('button', { name: 'Firmar' }).click();
-  const dialogo = page.getByRole('dialog');
-  await dialogo.getByLabel('Nombre').fill(nombre);
-  await dibujar(page);
-  await dialogo.getByRole('button', { name: 'Guardar firma' }).click();
-  await expect(page.getByTestId('firma-' + rol)).toContainText(nombre);
 }
 
 test('pruebas 12, 10 y 13: formulario, evidencias, firmas, acta, reabrir y reportes con descarga', async ({ page, browser }) => {
@@ -120,8 +95,16 @@ test('pruebas 12, 10 y 13: formulario, evidencias, firmas, acta, reabrir y repor
   await expect(evid).toContainText('foto2.png');
 
 
-  await firmar(p2, 'auditor', 'Auditor líder e2e');
-  await firmar(p2, 'esm', 'Regente del punto e2e');
+  await firmarRol(p2, 'auditor', 'Auditor líder e2e');
+  await firmarRol(p2, 'esm', 'Regente del punto e2e');
+
+  // Con un hallazgo, el acta exige el plan 5W2H (fecha, qué y fin de cada fila) y sus dos firmas
+  await expect(p2.getByTestId('faltantes')).toContainText('fecha del plan');
+  await expect(p2.getByTestId('enviar-acta')).toBeDisabled();
+  await llenarPlan(p2, hoy);
+  await firmarRol(p2, 'w5_auditor', 'Auditor líder e2e');
+  await firmarRol(p2, 'w5_auditado', 'Regente del punto e2e');
+  await expect(p2.getByTestId('faltantes')).toHaveCount(0);
 
 
   // Prueba 10: acta en PDF y cierre

@@ -416,6 +416,61 @@ public class ServicioMaestros {
         bitacora.registrar("catalogo_editado", "Operador logístico actualizado: «" + Bitacora.cortar(nombre, 80) + "»", quien.id(), quien.usuario());
     }
 
+    // ---------- Obligaciones del contrato (parte OBL del formulario) ----------
+
+    public record Obligacion(String prestador, String codigo, String texto, String fuente, Boolean activo) {
+    }
+
+    public List<Map<String, Object>> obligaciones() {
+        return jdbc.sql("SELECT id, prestador, codigo, texto, fuente, activo FROM obligaciones_contrato ORDER BY prestador, orden, codigo").query().listOfRows();
+    }
+
+    /** El coordinador registra las obligaciones de la minuta del OPL y de la farmacia alterna (mientras llega la lectura de la minuta). */
+    @Transactional
+    public long guardarObligacion(Long id, Obligacion o, UsuarioSesion quien) {
+        String prestador = texto(o.prestador()).toLowerCase();
+        if (!Set.of("opl", "fa").contains(prestador)) {
+            throw ErrorNegocio.validacion("El prestador debe ser el OPL o la farmacia alterna.");
+        }
+        String codigo = texto(o.codigo()).toUpperCase();
+        if (!codigo.matches("^OB-[A-Z0-9-]{1,20}$")) {
+            throw ErrorNegocio.validacion("El código de la obligación empieza por OB- (p. ej. OB-OPL-01).");
+        }
+        String t = texto(o.texto());
+        if (t.length() < 10 || t.length() > 2000) {
+            throw ErrorNegocio.validacion("El texto de la obligación debe tener de 10 a 2000 caracteres.");
+        }
+        String fuente = vacioANulo(o.fuente());
+        boolean activo = o.activo() == null || o.activo();
+        try {
+            if (id == null) {
+                long nuevo = jdbc.sql("""
+                        INSERT INTO obligaciones_contrato (prestador, codigo, texto, fuente, activo, orden)
+                        VALUES (:p, :c, :t, :f, :a, (SELECT coalesce(max(orden), 0) + 1 FROM obligaciones_contrato)) RETURNING id""")
+                        .param("p", prestador).param("c", codigo).param("t", t).param("f", fuente).param("a", activo).query(Long.class).single();
+                bitacora.registrar("catalogo_creado", "Obligación " + codigo + " creada", quien.id(), quien.usuario());
+                return nuevo;
+            }
+            // Una obligación ya calificada conserva su código y su prestador: la clave «ob:<código>» une el 5W2H, las respuestas y los soportes del OPL
+            boolean cambiaClave = jdbc.sql("""
+                    SELECT count(*) FROM obligaciones_contrato o WHERE o.id = :id AND (o.codigo <> :c OR o.prestador <> :p)
+                      AND EXISTS (SELECT 1 FROM visitas_obligaciones x WHERE x.obligacion_id = o.id)""")
+                    .param("id", id).param("c", codigo).param("p", prestador).query(Long.class).single() > 0;
+            if (cambiaClave) {
+                throw ErrorNegocio.validacion("La obligación ya se calificó en visitas: no cambie su código ni su prestador; inactívela y cree otra.");
+            }
+            int n = jdbc.sql("UPDATE obligaciones_contrato SET prestador = :p, codigo = :c, texto = :t, fuente = :f, activo = :a WHERE id = :id")
+                    .param("p", prestador).param("c", codigo).param("t", t).param("f", fuente).param("a", activo).param("id", id).update();
+            if (n != 1) {
+                throw ErrorNegocio.noEncontrado("La obligación no existe.");
+            }
+            bitacora.registrar("catalogo_editado", "Obligación " + codigo + " editada", quien.id(), quien.usuario());
+            return id;
+        } catch (DuplicateKeyException e) {
+            throw ErrorNegocio.validacion("Ya existe la obligación " + codigo + ".");
+        }
+    }
+
     // ---------- Apoyo ----------
 
     private boolean existe(String sql, Object valor) {

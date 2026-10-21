@@ -39,7 +39,12 @@ public class ServicioFormulario {
 
     /** Ítem del formulario de esta visita (de la versión con que se ejecuta y de los componentes elegidos). */
     record ItemVisita(long id, String codigo, String componente, String componenteNombre, String parte, String punto, String criterio,
-                      String requisito, String evidencia, String condicion, boolean escalaPropia) {
+                      String requisito, String evidencia, String condicion, boolean escalaPropia, boolean obligacion) {
+        /** Clave del hallazgo y de sus soportes: «it:<código>» para un ítem, «ob:<código>» para una obligación de la minuta. */
+        String clave() {
+            return (obligacion ? "ob:" : "it:") + codigo;
+        }
+
         Checklist.Item regla() {
             return new Checklist.Item(codigo, componente, parte, escalaPropia, condicion != null && !condicion.isBlank());
         }
@@ -57,6 +62,18 @@ public class ServicioFormulario {
 
     public record Firma(String rol, String nombre, String documento, String cargo, String imagen) {
     }
+
+    /** Fila del plan de mejoramiento 5W2H, parte del auditor (Anexo 3 p.11); quién y cómo los diligencia el OPL. */
+    public record FilaPlan(String clave, String causas, String que, String porque, String donde, String inicio, String fin, String indicador,
+                           String estado, Integer avance) {
+    }
+
+    public record Plan(String fecha, List<FilaPlan> filas) {
+    }
+
+    static final Set<String> ESTADOS_PLAN = Set.of("Pendiente", "En curso", "Completado", "Retrasado", "Cancelado");
+    /** Acciones abiertas: las que exigen fecha fin para enviar el acta y se verifican en el seguimiento. */
+    static final Set<String> ESTADOS_ABIERTOS = Set.of("Pendiente", "En curso", "Retrasado");
 
     private final RepositorioVisitas visitas;
     private final JdbcClient jdbc;
@@ -120,7 +137,7 @@ public class ServicioFormulario {
                 : visitas.versionVigente().orElseThrow(() -> ErrorNegocio.validacion("No hay una versión vigente del checklist."));
         List<String> elegidos = visitas.componentesDe(v.id());
         boolean sis = visitas.reparto(v.id()).containsKey(Reparto.PARTE_SISTEMAS);
-        return jdbc.sql("""
+        List<ItemVisita> lista = jdbc.sql("""
                 SELECT i.id, i.codigo, c.codigo AS componente, c.nombre AS componente_nombre, i.punto, i.criterio, i.requisito, i.evidencia,
                        i.condicion, (c.escala IS NOT NULL) AS escala_propia
                 FROM chk_items i JOIN chk_componentes c ON c.id = i.componente_id
@@ -130,7 +147,27 @@ public class ServicioFormulario {
                 .query((rs, n) -> new ItemVisita(rs.getLong("id"), rs.getString("codigo"), rs.getString("componente"),
                         rs.getString("componente_nombre"), Reparto.parteDeItem(rs.getString("codigo"), rs.getString("componente"), sis),
                         rs.getString("punto"), rs.getString("criterio"), rs.getString("requisito"), rs.getString("evidencia"),
-                        rs.getString("condicion"), rs.getBoolean("escala_propia")))
+                        rs.getString("condicion"), rs.getBoolean("escala_propia"), false))
+                .list();
+        List<ItemVisita> todos = new ArrayList<>(lista);
+        if (visitas.reparto(v.id()).containsKey(Reparto.OBLIGACIONES) || "ejecucion".equals(v.estado()) || "cerrada".equals(v.estado())) {
+            todos.addAll(obligaciones(v));
+        }
+        return todos;
+    }
+
+    /**
+     * Obligaciones de la minuta del prestador visitado (farmacia alterna si la unidad es FA; si no, el OPL) como parte OBL: las activas
+     * y las ya calificadas en esta visita (aunque luego se hayan inactivado).
+     */
+    List<ItemVisita> obligaciones(RepositorioVisitas.Visita v) {
+        String prestador = "FA".equals(v.unidad()) ? "fa" : "opl";
+        return jdbc.sql("""
+                SELECT o.id, o.codigo, o.texto, o.fuente FROM obligaciones_contrato o
+                WHERE o.prestador = :p AND (o.activo OR EXISTS (SELECT 1 FROM visitas_obligaciones vo WHERE vo.visita_id = :v AND vo.obligacion_id = o.id))
+                ORDER BY o.orden, o.codigo""").param("p", prestador).param("v", v.id())
+                .query((rs, n) -> new ItemVisita(rs.getLong("id"), rs.getString("codigo"), Reparto.OBLIGACIONES, "Obligaciones de la minuta",
+                        Reparto.OBLIGACIONES, rs.getString("texto"), rs.getString("texto"), null, rs.getString("fuente"), null, false, true))
                 .list();
     }
 
@@ -138,6 +175,10 @@ public class ServicioFormulario {
         Map<String, Checklist.Respuesta> r = new LinkedHashMap<>();
         jdbc.sql("""
                 SELECT i.codigo, r.calificacion, r.hallazgo FROM visitas_respuestas r JOIN chk_items i ON i.id = r.item_id WHERE r.visita_id = :v""")
+                .param("v", visitaId).query((rs, n) -> r.put(rs.getString(1), new Checklist.Respuesta(rs.getString(2), rs.getString(3)))).list();
+        jdbc.sql("""
+                SELECT o.codigo, vo.calificacion, vo.hallazgo FROM visitas_obligaciones vo JOIN obligaciones_contrato o ON o.id = vo.obligacion_id
+                WHERE vo.visita_id = :v""")
                 .param("v", visitaId).query((rs, n) -> r.put(rs.getString(1), new Checklist.Respuesta(rs.getString(2), rs.getString(3)))).list();
         return r;
     }
@@ -229,13 +270,16 @@ public class ServicioFormulario {
             Checklist.Respuesta r = resp.get(i.codigo());
             it.put("calificacion", r == null ? null : r.calificacion());
             it.put("hallazgo", r == null ? null : r.hallazgo());
-            it.put("archivos", archivos.getOrDefault("it:" + i.codigo(), List.of()));
+            it.put("clave", i.clave());
+            it.put("obligacion", i.obligacion());
+            it.put("archivos", archivos.getOrDefault(i.clave(), List.of()));
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> lista = (List<Map<String, Object>>) c.get("items");
             lista.add(it);
         }
         m.put("componentes", comps.values());
         m.put("archivosVisita", archivos.getOrDefault("visita", List.of()));
+        m.put("plan", plan(v, items, resp));
         List<Checklist.Item> reglas = items.stream().map(ItemVisita::regla).toList();
         Checklist.Resumen s = Checklist.resumen(reglas, resp);
         m.put("resumen", Map.of("c", s.c(), "nc", s.nc(), "na", s.na(), "pendientes", s.pendientes(), "hallazgos", s.hallazgos(),
@@ -307,6 +351,40 @@ public class ServicioFormulario {
         if (!firmas.contains("esm") && !firmas.contains("opl")) {
             f.add("Falta la firma de al menos una persona que atiende la visita (ESM u OPL).");
         }
+        // Con hallazgos: el plan 5W2H con su fecha, el qué y la fecha fin de cada acción abierta, y sus dos firmas
+        List<Map<String, Object>> hallazgos = hallazgos(v, items(v), resp);
+        if (!hallazgos.isEmpty()) {
+            Map<String, Map<String, Object>> filas = filasPlan(v.id());
+            Object fecha = jdbc.sql("SELECT plan_fecha FROM visitas_ejecucion WHERE visita_id = :v").param("v", v.id()).query().listOfRows().stream()
+                    .findFirst().map(x -> x.get("plan_fecha")).orElse(null);
+            if (fecha == null) {
+                f.add("Registre la fecha del plan de mejoramiento (5W2H).");
+            }
+            List<String> sinQue = new ArrayList<>();
+            List<String> sinFin = new ArrayList<>();
+            for (Map<String, Object> h : hallazgos) {
+                Map<String, Object> fila = filas.get((String) h.get("clave"));
+                String estado = fila == null ? "Pendiente" : (String) fila.get("estado");
+                if (fila == null || fila.get("que") == null || String.valueOf(fila.get("que")).isBlank()) {
+                    sinQue.add((String) h.get("codigo"));
+                }
+                if (ESTADOS_ABIERTOS.contains(estado) && (fila == null || fila.get("fin") == null)) {
+                    sinFin.add((String) h.get("codigo"));
+                }
+            }
+            if (!sinQue.isEmpty()) {
+                f.add("Diligencie el qué del plan de los hallazgos: " + String.join(", ", sinQue) + ".");
+            }
+            if (!sinFin.isEmpty()) {
+                f.add("Registre la fecha fin de las acciones abiertas: " + String.join(", ", sinFin) + ".");
+            }
+            if (!firmas.contains("w5_auditor")) {
+                f.add("Falta la firma del auditor en el plan de mejoramiento.");
+            }
+            if (!firmas.contains("w5_auditado")) {
+                f.add("Falta la firma de «recibí los hallazgos» del auditado en el plan de mejoramiento.");
+            }
+        }
         return f;
     }
 
@@ -358,7 +436,19 @@ public class ServicioFormulario {
                 continue;
             }
             cambiados.add(i.codigo());
-            if (cal == null && hallazgo == null) {
+            if (i.obligacion()) {
+                if (cal == null && hallazgo == null) {
+                    jdbc.sql("DELETE FROM visitas_obligaciones WHERE visita_id = :v AND obligacion_id = :o").param("v", visitaId).param("o", i.id()).update();
+                } else {
+                    jdbc.sql("""
+                            INSERT INTO visitas_obligaciones (visita_id, obligacion_id, calificacion, hallazgo, usuario_id, actualizado)
+                            VALUES (:v, :o, :c, :h, :u, :ahora)
+                            ON CONFLICT (visita_id, obligacion_id) DO UPDATE SET calificacion = EXCLUDED.calificacion, hallazgo = EXCLUDED.hallazgo,
+                              usuario_id = EXCLUDED.usuario_id, actualizado = EXCLUDED.actualizado""")
+                            .param("v", visitaId).param("o", i.id()).param("c", cal).param("h", hallazgo).param("u", quien.id()).param("ahora", ahora)
+                            .update();
+                }
+            } else if (cal == null && hallazgo == null) {
                 jdbc.sql("DELETE FROM visitas_respuestas WHERE visita_id = :v AND item_id = :i").param("v", visitaId).param("i", i.id()).update();
             } else {
                 jdbc.sql("""
@@ -481,8 +571,8 @@ public class ServicioFormulario {
         exigir(a.escribeVisita() && !a.correccion(), a.correccion() ? "El coordinador no cambia las firmas del acta."
                 : a.escribible() ? "Las firmas las registra el auditor líder." : a.motivoSoloLectura());
         String rol = f.rol() == null ? "" : f.rol().strip().toLowerCase();
-        if (!Set.of("auditor", "esm", "opl").contains(rol)) {
-            throw ErrorNegocio.validacion("La firma debe ser del auditor, del ESM o del OPL.");
+        if (!Set.of("auditor", "esm", "opl", "w5_auditor", "w5_auditado").contains(rol)) {
+            throw ErrorNegocio.validacion("La firma debe ser del auditor, del ESM, del OPL o del plan de mejoramiento (auditor y auditado).");
         }
         String nombre = texto(f.nombre(), 150, "El nombre");
         if (nombre == null || nombre.length() < 3) {
@@ -498,7 +588,140 @@ public class ServicioFormulario {
         visitas.historial(visitaId, quien.id(), quien.usuario(), "Firma registrada", "Firma de " + ("auditor".equals(rol) ? "el auditor líder" : "el " + rol.toUpperCase()));
     }
 
-    static byte[] png(String base64) {
+    // ---------- Hallazgos y plan 5W2H (parte del auditor) ----------
+
+    /**
+     * Hallazgos de la visita: los ítems de los componentes y las obligaciones de la minuta calificados «No cumple»
+     * (docs/especificaciones/flujo-opl: «Hallazgos de la visita al cerrarla»).
+     */
+    List<Map<String, Object>> hallazgos(RepositorioVisitas.Visita v, List<ItemVisita> items, Map<String, Checklist.Respuesta> resp) {
+        List<Map<String, Object>> r = new ArrayList<>();
+        for (ItemVisita i : items) {
+            Checklist.Respuesta x = resp.get(i.codigo());
+            if (x != null && "NC".equals(x.calificacion())) {
+                Map<String, Object> h = new LinkedHashMap<>();
+                h.put("clave", i.clave());
+                h.put("codigo", i.codigo());
+                h.put("origen", i.obligacion() ? "obligacion" : "item");
+                h.put("texto", i.punto());
+                h.put("hallazgo", x.hallazgo());
+                r.add(h);
+            }
+        }
+        return r;
+    }
+
+    Map<String, Map<String, Object>> filasPlan(long visitaId) {
+        Map<String, Map<String, Object>> r = new LinkedHashMap<>();
+        jdbc.sql("""
+                SELECT clave, causas, que, porque, donde, inicio, fin, indicador, estado, avance FROM visitas_plan WHERE visita_id = :v ORDER BY clave""")
+                .param("v", visitaId).query().listOfRows().forEach(f -> {
+                    Map<String, Object> m = new LinkedHashMap<>(f);
+                    m.put("inicio", f.get("inicio") == null ? null : f.get("inicio").toString());
+                    m.put("fin", f.get("fin") == null ? null : f.get("fin").toString());
+                    r.put((String) f.get("clave"), m);
+                });
+        return r;
+    }
+
+    /** El plan para la pantalla: cada hallazgo con su fila (vacía si aún no se diligencia), la fecha y el texto de ayuda del indicador. */
+    Map<String, Object> plan(RepositorioVisitas.Visita v, List<ItemVisita> items, Map<String, Checklist.Respuesta> resp) {
+        Map<String, Map<String, Object>> filas = filasPlan(v.id());
+        List<Map<String, Object>> lista = new ArrayList<>();
+        for (Map<String, Object> h : hallazgos(v, items, resp)) {
+            Map<String, Object> x = new LinkedHashMap<>(h);
+            x.put("fila", filas.getOrDefault((String) h.get("clave"), Map.of("estado", "Pendiente", "avance", 0)));
+            lista.add(x);
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("fecha", jdbc.sql("SELECT plan_fecha FROM visitas_ejecucion WHERE visita_id = :v").param("v", v.id()).query().listOfRows().stream().findFirst()
+                .map(x -> x.get("plan_fecha") == null ? null : x.get("plan_fecha").toString()).orElse(null));
+        m.put("hallazgos", lista);
+        m.put("estados", List.of("Pendiente", "En curso", "Completado", "Retrasado", "Cancelado"));
+        m.put("ayudaIndicador", "Cómo se mide el cumplimiento de la acción: fórmula o evidencia verificable (Anexo 3 p.11 v).");
+        return m;
+    }
+
+    /** Parte del auditor del plan 5W2H: la registra el líder (o quien escribe todo). Todo o nada. */
+    @Transactional
+    public Map<String, Object> guardarPlan(long visitaId, Plan p, UsuarioSesion quien, Set<Perfil> perfiles) {
+        Acceso a = acceso(visitaId, quien, perfiles, true);
+        exigir(a.escribeVisita(), a.escribible() ? "El plan de mejoramiento lo diligencia el auditor líder." : a.motivoSoloLectura());
+        Set<String> claves = new java.util.HashSet<>();
+        hallazgos(a.visita(), items(a.visita()), respuestas(visitaId)).forEach(h -> claves.add((String) h.get("clave")));
+        java.time.LocalDate fecha = p.fecha() == null || p.fecha().isBlank() ? null
+                : Fechas.valida(p.fecha()).orElseThrow(() -> ErrorNegocio.validacion("La fecha del plan no es válida."));
+        List<FilaPlan> filas = p.filas() == null ? List.of() : p.filas().stream().filter(java.util.Objects::nonNull).toList();
+        List<String> errores = new ArrayList<>();
+        for (FilaPlan f : filas) {
+            if (f.clave() == null || !claves.contains(f.clave())) {
+                errores.add((f.clave() == null ? "(sin clave)" : f.clave()) + ": no es un hallazgo de esta visita");
+                continue;
+            }
+            String estado = f.estado() == null || f.estado().isBlank() ? "Pendiente" : f.estado();
+            if (!ESTADOS_PLAN.contains(estado)) {
+                errores.add(f.clave() + ": estado no válido");
+            }
+            if (f.avance() != null && (f.avance() < 0 || f.avance() > 100)) {
+                errores.add(f.clave() + ": el avance va de 0 a 100");
+            }
+            java.time.LocalDate ini = fechaOpcional(f.inicio(), f.clave() + ": inicio", errores);
+            java.time.LocalDate fin = fechaOpcional(f.fin(), f.clave() + ": fin", errores);
+            if (ini != null && fin != null && fin.isBefore(ini)) {
+                errores.add(f.clave() + ": la fecha fin no puede ser anterior al inicio");
+            }
+            largo(errores, f.causas(), 2000, f.clave() + ": causas");
+            largo(errores, f.que(), 2000, f.clave() + ": qué");
+            largo(errores, f.porque(), 2000, f.clave() + ": por qué");
+            largo(errores, f.donde(), 500, f.clave() + ": dónde");
+            largo(errores, f.indicador(), 1000, f.clave() + ": indicador");
+        }
+        if (!errores.isEmpty()) {
+            throw ErrorNegocio.validacion("No se guardó el plan: " + String.join("; ", errores.subList(0, Math.min(10, errores.size()))) + ".");
+        }
+        OffsetDateTime ahora = OffsetDateTime.now(reloj);
+        jdbc.sql("""
+                INSERT INTO visitas_ejecucion (visita_id, plan_fecha, actualizado, actualizado_por) VALUES (:v, :f, :ahora, :u)
+                ON CONFLICT (visita_id) DO UPDATE SET plan_fecha = EXCLUDED.plan_fecha, actualizado = EXCLUDED.actualizado,
+                  actualizado_por = EXCLUDED.actualizado_por""").param("v", visitaId).param("f", fecha).param("ahora", ahora).param("u", quien.id()).update();
+        for (FilaPlan f : filas) {
+            jdbc.sql("""
+                    INSERT INTO visitas_plan (visita_id, clave, causas, que, porque, donde, inicio, fin, indicador, estado, avance, usuario_id, actualizado)
+                    VALUES (:v, :c, :causas, :que, :porque, :donde, :ini, :fin, :ind, :estado, :avance, :u, :ahora)
+                    ON CONFLICT (visita_id, clave) DO UPDATE SET causas = EXCLUDED.causas, que = EXCLUDED.que, porque = EXCLUDED.porque,
+                      donde = EXCLUDED.donde, inicio = EXCLUDED.inicio, fin = EXCLUDED.fin, indicador = EXCLUDED.indicador, estado = EXCLUDED.estado,
+                      avance = EXCLUDED.avance, usuario_id = EXCLUDED.usuario_id, actualizado = EXCLUDED.actualizado""")
+                    .param("v", visitaId).param("c", f.clave()).param("causas", texto(f.causas(), 2000, "Causas")).param("que", texto(f.que(), 2000, "Qué"))
+                    .param("porque", texto(f.porque(), 2000, "Por qué")).param("donde", texto(f.donde(), 500, "Dónde"))
+                    .param("ini", f.inicio() == null || f.inicio().isBlank() ? null : Fechas.valida(f.inicio()).orElse(null))
+                    .param("fin", f.fin() == null || f.fin().isBlank() ? null : Fechas.valida(f.fin()).orElse(null))
+                    .param("ind", texto(f.indicador(), 1000, "Indicador")).param("estado", f.estado() == null || f.estado().isBlank() ? "Pendiente" : f.estado())
+                    .param("avance", f.avance() == null ? 0 : f.avance()).param("u", quien.id()).param("ahora", ahora).update();
+        }
+        if (a.correccion()) {
+            visitas.historial(visitaId, quien.id(), quien.usuario(), "Corrección", "Plan de mejoramiento (" + filas.size() + " filas)");
+        }
+        return Map.of("mensaje", "Plan de mejoramiento guardado.");
+    }
+
+    private static java.time.LocalDate fechaOpcional(String s, String campo, List<String> errores) {
+        if (s == null || s.isBlank()) {
+            return null;
+        }
+        java.util.Optional<java.time.LocalDate> d = Fechas.valida(s);
+        if (d.isEmpty()) {
+            errores.add(campo + " no es una fecha válida");
+        }
+        return d.orElse(null);
+    }
+
+    private static void largo(List<String> errores, String s, int max, String campo) {
+        if (s != null && s.strip().length() > max) {
+            errores.add(campo + " tiene máximo " + max + " caracteres");
+        }
+    }
+
+    public static byte[] png(String base64) {
         if (base64 == null || base64.isBlank()) {
             throw ErrorNegocio.validacion("Dibuje la firma.");
         }

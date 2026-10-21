@@ -74,6 +74,26 @@ public class ControladorMaestros {
         return Map.of("mensaje", "Auditor actualizado.");
     }
 
+    @GetMapping("/obligaciones")
+    @Accion(modulo = "maestros", accion = "obligaciones", operacion = Declarada.CONSULTA)
+    public List<Map<String, Object>> obligaciones() {
+        return servicio.obligaciones();
+    }
+
+    @PostMapping("/obligaciones")
+    @Accion(modulo = "maestros", accion = "obligacion_crear", operacion = Declarada.INSERCION)
+    public ResponseEntity<Map<String, Object>> crearObligacion(@RequestBody ServicioMaestros.Obligacion o) {
+        long id = servicio.guardarObligacion(null, o, UsuarioSesion.actual().orElseThrow());
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("id", id, "mensaje", "Obligación creada."));
+    }
+
+    @PutMapping("/obligaciones/{id}")
+    @Accion(modulo = "maestros", accion = "obligacion_editar", operacion = Declarada.ACTUALIZACION)
+    public Map<String, Object> editarObligacion(@PathVariable long id, @RequestBody ServicioMaestros.Obligacion o) {
+        servicio.guardarObligacion(id, o, UsuarioSesion.actual().orElseThrow());
+        return Map.of("mensaje", "Obligación actualizada.");
+    }
+
     @GetMapping("/opl")
     @Accion(modulo = "maestros", accion = "opl", operacion = Declarada.CONSULTA)
     public Map<String, Object> opl() {

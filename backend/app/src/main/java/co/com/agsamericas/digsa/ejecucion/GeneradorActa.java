@@ -37,7 +37,8 @@ final class GeneradorActa {
     /** Contenido del acta, armado por el servicio. */
     record Contenido(String numero, int ronda, Map<String, String> datos, List<String[]> equipo, List<String[]> personal,
                      List<Componente> componentes, Map<String, String> resumen, String recomendaciones, String observacionesAuditor,
-                     String observacionesEsm, String observacionesOpl, List<String[]> soportes, List<FirmaActa> firmas, String generado) {
+                     String observacionesEsm, String observacionesOpl, List<String[]> soportes, List<FirmaActa> firmas, String generado,
+                     List<String[]> plan, String planFecha, String plazos, String enlace, byte[] qr) {
     }
 
     record Componente(String codigo, String nombre, List<String[]> items) {
@@ -104,6 +105,36 @@ final class GeneradorActa {
                     .map(i -> new String[] {i[0], i[3]}).toList();
             doc.add(hallazgos.isEmpty() ? new Paragraph("Sin hallazgos.", NORMAL)
                     : tabla(new String[] {"Ítem", "Hallazgo"}, hallazgos, new float[] {1, 6}));
+
+            if (!c.plan().isEmpty()) {
+                seccion(doc, "Plan de mejoramiento (5W2H)" + (c.planFecha() == null ? "" : " · " + c.planFecha()));
+                doc.add(tabla(new String[] {"Hallazgo", "Qué", "Por qué", "Dónde", "Inicio", "Fin", "Indicador", "Estado"}, c.plan(),
+                        new float[] {1, 2.5f, 2, 1.3f, 1.1f, 1.1f, 1.8f, 1.1f}));
+                doc.add(new Paragraph("Quién y cómo los diligencia el operador logístico al responder el acta.", PEQUENA));
+            }
+            if (c.plazos() != null) {
+                seccion(doc, "Respuesta del operador logístico");
+                Paragraph pl = new Paragraph(c.plazos(), new Font(Font.HELVETICA, 10, Font.BOLD, new Color(150, 20, 20)));
+                pl.setSpacingAfter(6);
+                doc.add(pl);
+                PdfPTable q = new PdfPTable(new float[] {1, 3});
+                q.setWidthPercentage(100);
+                PdfPCell celdaQr = new PdfPCell();
+                celdaQr.setBorder(0);
+                try {
+                    Image img = Image.getInstance(c.qr());
+                    img.scaleToFit(110, 110);
+                    celdaQr.addElement(img);
+                } catch (IOException | RuntimeException e) {
+                    throw new IllegalStateException("No se pudo poner el código QR en el acta", e);
+                }
+                q.addCell(celdaQr);
+                PdfPCell celdaEnlace = new PdfPCell(new Phrase("Escanee el código o abra el enlace para aceptar u objetar los hallazgos y firmar el plan:\n"
+                        + c.enlace(), NORMAL));
+                celdaEnlace.setBorder(0);
+                q.addCell(celdaEnlace);
+                doc.add(q);
+            }
 
             texto(doc, "Recomendaciones", c.recomendaciones());
             texto(doc, "Observaciones del auditor", c.observacionesAuditor());

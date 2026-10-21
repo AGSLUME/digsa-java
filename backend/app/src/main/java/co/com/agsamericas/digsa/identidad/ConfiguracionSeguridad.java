@@ -58,6 +58,7 @@ public class ConfiguracionSeguridad {
                 .securityContext(s -> s.securityContextRepository(repositorioContexto()))
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/opl-publico/**").permitAll() // enlace del acta (QR): se autoriza con el token y el código de 6 dígitos
                         .requestMatchers("/api/salud").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())

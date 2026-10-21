@@ -80,6 +80,12 @@
             <artifactId>openpdf</artifactId>
             <version>${openpdf.version}</version>
         </dependency>
+        <!-- Código QR del enlace de respuesta del OPL en el acta (decisión 25) -->
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>${zxing.version}</version>
+        </dependency>
         <!-- Orientación EXIF de las fotos (decisión 10.7) -->
         <dependency>
             <groupId>com.drewnoakes</groupId>

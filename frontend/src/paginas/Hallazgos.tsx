@@ -116,7 +116,7 @@ function Visita({ v }: { v: VisitaConHallazgos }) {
   const programa = v.situacion === 'sin_programar' && puedeEntrar(s, 'agenda');
   // ZIP con los soportes del OPL (duda 22.12): DIGSA, Sanidad y administrador, y solo si la visita los tiene
   const soportesOpl = soportesOplDeVisita(v);
-  const descargaSoportes = veSoportesOpl((r) => puedeEntrar(s, r), soportesOpl);
+  const descargaSoportes = veSoportesOpl(v.descargaSoportesOpl, soportesOpl);
   const [programar, setProgramar] = useState(false);
   return (
     <Paper withBorder p="sm" data-testid={'visita-hallazgos-' + v.numero}>

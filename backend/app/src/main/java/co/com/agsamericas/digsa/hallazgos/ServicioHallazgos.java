@@ -64,6 +64,8 @@ public class ServicioHallazgos {
             throw new ErrorNegocio(HttpStatus.FORBIDDEN, "Esta pantalla no es del perfil OPL.");
         }
         boolean esm = alcance instanceof Alcance.Esm;
+        // El enlace del ZIP de soportes del OPL lo decide el servidor por perfil (el nombre del perfil en la sesión lo puede cambiar el administrador)
+        boolean descargaSoportesOpl = !esm && perfiles.stream().anyMatch(PERFILES_SOPORTES_OPL::contains);
         // Solo el auditor y la coordinación abren el checklist (la DIGSA, con alcance de todo el país, no)
         boolean abreChecklist = perfiles.contains(co.com.agsamericas.digsa.reglas.Perfil.AUDITOR) || perfiles.contains(co.com.agsamericas.digsa.reglas.Perfil.COORDINADOR)
                 || perfiles.contains(co.com.agsamericas.digsa.reglas.Perfil.ADMINISTRADOR);
@@ -114,6 +116,7 @@ public class ServicioHallazgos {
                     sig.get("estado")));
             m.put("situacion", situacion);
             m.put("abreChecklist", abreChecklist);
+            m.put("descargaSoportesOpl", descargaSoportesOpl);
             Map<String, Object> punto = porPunto.computeIfAbsent(((Number) v.get("punto_id")).longValue(), k -> {
                 Map<String, Object> x = new LinkedHashMap<>();
                 x.put("puntoId", k);

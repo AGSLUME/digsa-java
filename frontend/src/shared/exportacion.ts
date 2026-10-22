@@ -97,10 +97,9 @@ export function soportesOplDeVisita(v: { hallazgos: { soportes?: number }[] }): 
 }
 
 /**
- * Quién ve el enlace de los soportes del OPL (duda 22.12): la DIGSA, Sanidad y el administrador; el servidor responde 403 a los demás.
- * Se decide por las pantallas de la sesión (no por el nombre del perfil, que el administrador puede cambiar): el calendario de consulta
- * es de DIGSA, Sanidad y ESM (más el administrador), y al ESM no le llega el número de soportes, así que con 0 tampoco ve el enlace.
+ * Quién ve el enlace de los soportes del OPL (duda 22.12): la DIGSA, Sanidad y el administrador. Lo decide el servidor por perfil
+ * (`descargaSoportesOpl` de cada visita) y además la visita debe tener soportes.
  */
-export function veSoportesOpl(pantallas: (ruta: string) => boolean, soportes: number): boolean {
-  return soportes > 0 && pantallas('calendario');
+export function veSoportesOpl(permitido: boolean | undefined, soportes: number): boolean {
+  return !!permitido && soportes > 0;
 }

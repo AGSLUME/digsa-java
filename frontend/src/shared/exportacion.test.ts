@@ -79,10 +79,9 @@ describe('otros', () => {
   it('soportes del OPL de la visita y quién ve el enlace', () => {
     expect(soportesOplDeVisita({ hallazgos: [{ soportes: 2 }, {}, { soportes: 1 }] })).toBe(3);
     expect(soportesOplDeVisita({ hallazgos: [{}, {}] })).toBe(0);
-    const consulta = (r: string) => r === 'calendario';
-    const coordinador = (r: string) => r === 'agenda';
-    expect(veSoportesOpl(consulta, 2)).toBe(true);
-    expect(veSoportesOpl(consulta, 0)).toBe(false);
-    expect(veSoportesOpl(coordinador, 2)).toBe(false);
+    expect(veSoportesOpl(true, 2)).toBe(true);
+    expect(veSoportesOpl(true, 0)).toBe(false);
+    expect(veSoportesOpl(false, 2)).toBe(false);
+    expect(veSoportesOpl(undefined, 2)).toBe(false);
   });
 });

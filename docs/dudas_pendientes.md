@@ -541,3 +541,17 @@ Sin P1. Corregidos: FK compuestas para que un movimiento no cruce vigencias; `ev
 | P.18 | `GRANT USAGE ON ALL SEQUENCES` y el `RETURN` sin aviso del bloque de permisos siguen el patrón de V16 y V17 | Igual que las demás migraciones |
 | P.19 | `presupuesto_notificaciones.para` repite los destinatarios de `correos_salida` | Se deja por trazabilidad de la notificación formal; `par_fuerzas.correos` debe tener solo buzones institucionales (Ley 1581) |
 | P.20 | La desviación se muestra con 2 decimales y se compara exacta: +10,004 % se ve «10,00 %» y ya es exceso | Así lo pide la spec («se comparan sin redondear») |
+
+### F2 de presupuesto: presupuesto y novedades (2026-10-22)
+
+Hecho: vigencias, modalidades, centralizador de los satélites y parámetros desde la pantalla; asignación inicial por archivo (CSV «;» o .xlsx, simular y aplicar todo o nada, idempotente por huella; M7-1); novedades por formulario (adición, disminución, reajuste por valor o por %, rebalanceo y recomposición) con soporte obligatorio y archivo opcional, saldos bloqueados en orden y antes y después por línea (M7-2); historial paginado y descarga del soporte en el alcance. Pruebas: 12 de API, 99 de Vitest y la e2e en Chromium, Firefox, WebKit, Chrome y Edge.
+
+Revisión de los agentes: P1 corregidos (reajuste por % calculado con los saldos ya bloqueados; Excel medido al descomprimir antes de abrirlo con POI). También: doble asignación inicial simultánea (409), tope de 500 líneas por novedad, HOMIL exige la fuerza en el formulario, columna de vigencia en la vista «Contrato», tope de 5000 líneas con mensaje, nombre del archivo fuera de la observación.
+
+| # | Pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| P.21 | La carga masiva hace varias consultas por fila (asegurar la línea, movimientos): con 5000 filas son miles de idas a la base dentro de la transacción | Se deja para la fase de rendimiento (F6) con inserciones por lote |
+| P.22 | Un usuario ESM de un satélite no ve nada: los satélites no tienen líneas propias (su ejecución está en la línea del centralizador) | Así, por la spec; confirmar si debe ver la línea de su centralizador |
+| P.23 | `ejecutado_al_momento` del movimiento guarda lo facturado aunque la base de los umbrales sea «reconocido» | Lo facturado es lo que limita la disminución (spec) |
+| P.24 | Interfaz: Cerrar/Reabrir vigencia y los interruptores de modalidad no piden confirmación ni muestran carga | Pendiente de pulir en F5 |
+| P.25 | El `install` del backend publica en el repositorio Maven compartido y las sesiones se pisan | Para las e2e de presupuesto se usa `MAVEN_OPTS="-Dmaven.repo.local=<worktree>/.local/m2 -Dmaven.repo.local.tail=%USERPROFILE%/.m2/repository"` (Maven 3.9): sugerido para las tres sesiones |

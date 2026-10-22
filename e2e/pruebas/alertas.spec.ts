@@ -36,14 +36,17 @@ test('el administrador desactiva un tipo del catálogo, lo restaura, ve la valid
   await nombre.fill(original);
 
   // Desactivar
-  await dialogo.getByLabel('Activa').uncheck();
+  // El input del Switch de Mantine está oculto y fuera de la vista: se pulsa su etiqueta, como haría el usuario
+  await dialogo.getByText('Activa', { exact: true }).click();
+  await expect(dialogo.getByLabel('Activa')).not.toBeChecked();
   await dialogo.getByRole('button', { name: 'Guardar' }).click();
   await expect(page.getByText(/Alerta actualizada/)).toBeVisible();
   await expect(fila.getByTestId('estado-alerta')).toHaveText('Inactiva');
 
   // Restaurar
   await fila.getByRole('button', { name: /^Editar la alerta/ }).click();
-  await dialogo.getByLabel('Activa').check();
+  await dialogo.getByText('Activa', { exact: true }).click();
+  await expect(dialogo.getByLabel('Activa')).toBeChecked();
   await dialogo.getByRole('button', { name: 'Guardar' }).click();
   await expect(fila.getByTestId('estado-alerta')).toHaveText('Activa');
 
@@ -51,7 +54,9 @@ test('el administrador desactiva un tipo del catálogo, lo restaura, ve la valid
   await page.getByRole('tab', { name: 'Eventos', exact: true }).click();
   await expect(page.getByTestId('bandeja-alertas')).toContainText('Latencia p95');
   await expect(page.getByTestId('indicador-p50')).toHaveText(/—|\d/);
-  await page.getByRole('radio', { name: 'Recientes' }).check({ force: true });
+  // El radio del SegmentedControl también está oculto: se pulsa su etiqueta
+  await page.getByLabel('Eventos que se muestran').getByText('Recientes', { exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'Recientes' })).toBeChecked();
   await expect(page.getByTestId('tabla-eventos').or(page.getByTestId('sin-eventos'))).toBeVisible();
 
   // A 360 px: tarjetas, sin desplazamiento horizontal

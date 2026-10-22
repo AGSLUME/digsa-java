@@ -1,7 +1,24 @@
-import { Alert, Badge, Button, Checkbox, Group, Modal, PasswordInput, ScrollArea, Select, SimpleGrid, Stack, Switch, Table, Text, TextInput, Title } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Button,
+  Checkbox,
+  Group,
+  Modal,
+  PasswordInput,
+  ScrollArea,
+  Select,
+  SimpleGrid,
+  Stack,
+  Switch,
+  Table,
+  Text,
+  TextInput,
+  Title,
+} from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { errorTelefono } from '../shared/alertas';
 import { api, ErrorApi } from '../shared/api';
 
@@ -67,6 +84,9 @@ export function Usuarios() {
   const datos = useQuery({ queryKey: ['usuarios'], queryFn: () => api<Datos>('/api/usuarios') });
   const [form, setForm] = useState<Formulario | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Hay un botón del puntero presionado dentro del formulario (ver el onBlur del teléfono). */
+  const punteroPresionado = useRef(false);
+  const marcarTelefonoTocado = () => setForm((f) => (f ? { ...f, telefonoTocado: true } : f));
   const [claveDe, setClaveDe] = useState<Usuario | null>(null);
   const [claveNueva, setClaveNueva] = useState('');
   const [verPerfiles, setVerPerfiles] = useState(false);
@@ -105,8 +125,7 @@ export function Usuarios() {
   });
 
   const accion = useMutation({
-    mutationFn: ({ ruta, metodo, cuerpo }: { ruta: string; metodo: string; cuerpo?: unknown }) =>
-      api<{ mensaje: string }>(ruta, { metodo, cuerpo }),
+    mutationFn: ({ ruta, metodo, cuerpo }: { ruta: string; metodo: string; cuerpo?: unknown }) => api<{ mensaje: string }>(ruta, { metodo, cuerpo }),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
       qc.invalidateQueries({ queryKey: ['usuarios'] });
@@ -186,9 +205,19 @@ export function Usuarios() {
                 <Table.Td>{u.ultimoIngreso ?? '—'}</Table.Td>
                 <Table.Td>
                   <Group gap={4}>
-                    <Badge color={u.activo ? (u.bloqueado ? 'orange' : 'green') : 'gray'}>{u.activo ? (u.bloqueado ? 'Bloqueado' : 'Activo') : 'Inactivo'}</Badge>
-                    {u.sesionAbierta && <Badge color="blue" variant="outline">Sesión abierta</Badge>}
-                    {u.claveInicial && <Badge color="grape" variant="outline">Contraseña inicial</Badge>}
+                    <Badge color={u.activo ? (u.bloqueado ? 'orange' : 'green') : 'gray'}>
+                      {u.activo ? (u.bloqueado ? 'Bloqueado' : 'Activo') : 'Inactivo'}
+                    </Badge>
+                    {u.sesionAbierta && (
+                      <Badge color="blue" variant="outline">
+                        Sesión abierta
+                      </Badge>
+                    )}
+                    {u.claveInicial && (
+                      <Badge color="grape" variant="outline">
+                        Contraseña inicial
+                      </Badge>
+                    )}
                   </Group>
                 </Table.Td>
                 <Table.Td>
@@ -218,25 +247,57 @@ export function Usuarios() {
                     >
                       Editar
                     </Button>
-                    <Button size="xs" variant="light" color={u.activo ? 'gray' : 'green'} disabled={accion.isPending}
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color={u.activo ? 'gray' : 'green'}
+                      disabled={accion.isPending}
                       aria-label={(u.activo ? 'Inactivar a ' : 'Activar a ') + u.nombre}
-                      onClick={() => window.confirm(`¿${u.activo ? 'Inactivar' : 'Activar'} a ${u.nombre}?`) && accion.mutate({ ruta: `/api/usuarios/${u.id}/estado`, metodo: 'PUT', cuerpo: { activo: !u.activo } })}>
+                      onClick={() =>
+                        window.confirm(`¿${u.activo ? 'Inactivar' : 'Activar'} a ${u.nombre}?`) &&
+                        accion.mutate({ ruta: `/api/usuarios/${u.id}/estado`, metodo: 'PUT', cuerpo: { activo: !u.activo } })
+                      }
+                    >
                       {u.activo ? 'Inactivar' : 'Activar'}
                     </Button>
-                    <Button size="xs" variant="light" color="orange" disabled={accion.isPending} aria-label={'Restablecer la contraseña de ' + u.nombre}
-                      onClick={() => window.confirm(`¿Enviar a ${u.nombre} un enlace para definir una contraseña nueva?`) && accion.mutate({ ruta: `/api/usuarios/${u.id}/restablecer`, metodo: 'POST' })}>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="orange"
+                      disabled={accion.isPending}
+                      aria-label={'Restablecer la contraseña de ' + u.nombre}
+                      onClick={() =>
+                        window.confirm(`¿Enviar a ${u.nombre} un enlace para definir una contraseña nueva?`) &&
+                        accion.mutate({ ruta: `/api/usuarios/${u.id}/restablecer`, metodo: 'POST' })
+                      }
+                    >
                       Restablecer contraseña
                     </Button>
-                    <Button size="xs" variant="light" color="grape" disabled={accion.isPending} aria-label={'Asignar contraseña inicial a ' + u.nombre}
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="grape"
+                      disabled={accion.isPending}
+                      aria-label={'Asignar contraseña inicial a ' + u.nombre}
                       onClick={() => {
                         setClaveNueva('');
                         setClaveDe(u);
-                      }}>
+                      }}
+                    >
                       Contraseña inicial
                     </Button>
                     {u.sesionAbierta && (
-                      <Button size="xs" variant="light" color="red" disabled={accion.isPending} aria-label={'Cerrar la sesión de ' + u.nombre}
-                        onClick={() => window.confirm(`¿Cerrar la sesión abierta de ${u.nombre}?`) && accion.mutate({ ruta: `/api/usuarios/${u.id}/cerrar-sesion`, metodo: 'POST' })}>
+                      <Button
+                        size="xs"
+                        variant="light"
+                        color="red"
+                        disabled={accion.isPending}
+                        aria-label={'Cerrar la sesión de ' + u.nombre}
+                        onClick={() =>
+                          window.confirm(`¿Cerrar la sesión abierta de ${u.nombre}?`) &&
+                          accion.mutate({ ruta: `/api/usuarios/${u.id}/cerrar-sesion`, metodo: 'POST' })
+                        }
+                      >
                         Cerrar sesión
                       </Button>
                     )}
@@ -250,7 +311,13 @@ export function Usuarios() {
 
       <Modal opened={form !== null} onClose={() => setForm(null)} title={form?.id ? 'Editar usuario' : 'Nuevo usuario'} size="lg">
         {form && (
-          <form onSubmit={enviar}>
+          <form
+            onSubmit={enviar}
+            onPointerDownCapture={() => {
+              punteroPresionado.current = true;
+              window.addEventListener('pointerup', () => (punteroPresionado.current = false), { once: true, capture: true });
+            }}
+          >
             <Stack>
               {error && (
                 <Alert color="red" data-testid="error-usuario">
@@ -265,7 +332,13 @@ export function Usuarios() {
                 value={form.usuario}
                 onChange={(e) => setForm({ ...form, usuario: e.currentTarget.value.toLowerCase() })}
               />
-              <TextInput label="Correo" type="email" required value={form.correo} onChange={(e) => setForm({ ...form, correo: e.currentTarget.value })} />
+              <TextInput
+                label="Correo"
+                type="email"
+                required
+                value={form.correo}
+                onChange={(e) => setForm({ ...form, correo: e.currentTarget.value })}
+              />
               <SimpleGrid cols={{ base: 1, sm: 2 }}>
                 <TextInput label="Documento" value={form.documento} onChange={(e) => setForm({ ...form, documento: e.currentTarget.value })} />
                 <TextInput
@@ -282,18 +355,18 @@ export function Usuarios() {
                     if (error && /tel[eé]fono/i.test(error)) setError(null);
                     setForm({ ...form, telefono: e.currentTarget.value });
                   }}
-                  onBlur={() => setForm({ ...form, telefonoTocado: true })}
+                  onBlur={() => {
+                    // Si el foco sale con un clic (p. ej. en un perfil), el error se muestra al soltar: mostrarlo en el mousedown desplazaba
+                    // el formulario y el clic caía en otro sitio, así que la casilla no cambiaba
+                    if (punteroPresionado.current) window.addEventListener('pointerup', () => setTimeout(marcarTelefonoTocado, 0), { once: true });
+                    else marcarTelefonoTocado();
+                  }}
                 />
               </SimpleGrid>
               <Checkbox.Group label="Perfiles" value={form.perfiles.map(String)} onChange={(v) => setForm({ ...form, perfiles: v.map(Number) })}>
                 <Stack gap={6} mt={6}>
                   {perfiles.map((p) => (
-                    <Checkbox
-                      key={p.id}
-                      value={String(p.id)}
-                      label={p.nombre}
-                      description={p.descripcion}
-                    />
+                    <Checkbox key={p.id} value={String(p.id)} label={p.nombre} description={p.descripcion} />
                   ))}
                 </Stack>
               </Checkbox.Group>
@@ -302,7 +375,10 @@ export function Usuarios() {
                   label="Establecimiento (ESM)"
                   required
                   searchable
-                  data={(datos.data?.puntos ?? []).map((p) => ({ value: String(p.id), label: `${p.sigla ? p.sigla + ' · ' : ''}${p.nombre} (${p.fuerza})` }))}
+                  data={(datos.data?.puntos ?? []).map((p) => ({
+                    value: String(p.id),
+                    label: `${p.sigla ? p.sigla + ' · ' : ''}${p.nombre} (${p.fuerza})`,
+                  }))}
                   value={form.alcancePunto || null}
                   onChange={(v) => setForm({ ...form, alcancePunto: v ?? '' })}
                 />
@@ -416,7 +492,11 @@ export function Usuarios() {
                 variant="light"
                 disabled={accion.isPending || (nombresPerfiles[p.id] ?? '') === p.nombre}
                 onClick={() =>
-                  accion.mutate({ ruta: `/api/usuarios/perfiles/${p.id}`, metodo: 'PUT', cuerpo: { nombre: nombresPerfiles[p.id], descripcion: p.descripcion } })
+                  accion.mutate({
+                    ruta: `/api/usuarios/perfiles/${p.id}`,
+                    metodo: 'PUT',
+                    cuerpo: { nombre: nombresPerfiles[p.id], descripcion: p.descripcion },
+                  })
                 }
               >
                 Guardar

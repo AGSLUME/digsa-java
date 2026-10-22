@@ -21,7 +21,8 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { api, ErrorApi } from '../shared/api';
+import { api, ErrorApi, marcarActividad } from '../shared/api';
+import { rutaSoportesOpl, soportesOplDeVisita, veSoportesOpl } from '../shared/exportacion';
 import { NOMBRE_PLAN } from '../shared/opl';
 import {
   COLOR_OPL,
@@ -113,6 +114,9 @@ function Visita({ v }: { v: VisitaConHallazgos }) {
   const siguienteEnAgenda = v.siguiente && puedeEntrar(s, 'agenda');
   // Programar a mano el seguimiento que falta (acciones abiertas sin seguimiento): solo el coordinador, con la pantalla de la agenda
   const programa = v.situacion === 'sin_programar' && puedeEntrar(s, 'agenda');
+  // ZIP con los soportes del OPL (duda 22.12): DIGSA, Sanidad y administrador, y solo si la visita los tiene
+  const soportesOpl = soportesOplDeVisita(v);
+  const descargaSoportes = veSoportesOpl((r) => puedeEntrar(s, r), soportesOpl);
   const [programar, setProgramar] = useState(false);
   return (
     <Paper withBorder p="sm" data-testid={'visita-hallazgos-' + v.numero}>
@@ -209,7 +213,7 @@ function Visita({ v }: { v: VisitaConHallazgos }) {
         ))}
       </Stack>
 
-      {(abreChecklist || detalleLider || programa) && (
+      {(abreChecklist || detalleLider || programa || descargaSoportes) && (
         <Group gap="md" mt="sm" wrap="wrap">
           {programa && (
             <Button size="xs" onClick={() => setProgramar(true)} aria-label={'Programar el seguimiento de la visita ' + v.numero}>
@@ -224,6 +228,18 @@ function Visita({ v }: { v: VisitaConHallazgos }) {
           {detalleLider && (
             <Anchor component={Link} to={`/mis-visitas/visita/${v.visitaId}`} size="sm" py={6}>
               Detalle de la visita
+            </Anchor>
+          )}
+          {descargaSoportes && (
+            <Anchor
+              href={rutaSoportesOpl(v.visitaId)}
+              size="sm"
+              py={6}
+              onClick={() => marcarActividad()}
+              aria-label={`Descargar soportes del OPL (ZIP) de la visita ${v.numero}`}
+              data-testid="soportes-opl"
+            >
+              Descargar soportes del OPL (ZIP) · {soportesOpl}
             </Anchor>
           )}
         </Group>

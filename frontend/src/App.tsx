@@ -8,6 +8,7 @@ import { Catalogos } from './paginas/Catalogos';
 import { Checklist } from './paginas/Checklist';
 import { DefinirClave, OlvideClave } from './paginas/Claves';
 import { Dashboard } from './paginas/Dashboard';
+import { Exportacion } from './paginas/Exportacion';
 import { Hallazgos } from './paginas/Hallazgos';
 import { Ingreso } from './paginas/Ingreso';
 import { Logs } from './paginas/Logs';
@@ -107,6 +108,7 @@ export function App() {
           <Route path="/" element={<Inicio />} />
           <Route path="/usuarios" element={<Protegida ruta="usuarios"><Usuarios /></Protegida>} />
           <Route path="/logs" element={<Protegida ruta="logs"><Logs /></Protegida>} />
+          <Route path="/exportacion" element={<Protegida ruta="exportacion"><Exportacion /></Protegida>} />
           <Route path="/reportes" element={<Protegida ruta="reportes"><Reportes /></Protegida>} />
           <Route path="/riesgo" element={<Protegida ruta="riesgo"><Riesgo /></Protegida>} />
           <Route path="/dashboard" element={<Protegida ruta="dashboard"><Dashboard /></Protegida>} />

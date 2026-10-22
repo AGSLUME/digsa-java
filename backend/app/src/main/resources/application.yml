@@ -93,6 +93,9 @@ digsa:
     dominios-permitidos: ${DIGSA_DOMINIOS_REPORTES:}
   archivos:
     carpeta: ${DIGSA_ARCHIVOS_CARPETA:almacen/archivos}
+  exportacion:
+    limite-minutos: ${DIGSA_EXPORTACION_LIMITE_MINUTOS:10}   # tiempo máximo de la generación del ZIP (AGS-75 / GMI P74)
+    vigencia-horas: ${DIGSA_EXPORTACION_VIGENCIA_HORAS:24}   # luego la limpieza borra el ZIP (datos personales, Ley 1581)
 
 logging:
   level:

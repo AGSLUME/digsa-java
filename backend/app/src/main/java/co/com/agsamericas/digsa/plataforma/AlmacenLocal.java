@@ -2,6 +2,7 @@ package co.com.agsamericas.digsa.plataforma;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -46,6 +47,13 @@ public class AlmacenLocal implements Almacen {
     @Override
     public InputStream leer(String ruta) throws IOException {
         return Files.newInputStream(resolver(ruta));
+    }
+
+    @Override
+    public OutputStream escribir(String ruta) throws IOException {
+        Path p = resolver(ruta);
+        Files.createDirectories(p.getParent());
+        return Files.newOutputStream(p, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
     }
 
     @Override

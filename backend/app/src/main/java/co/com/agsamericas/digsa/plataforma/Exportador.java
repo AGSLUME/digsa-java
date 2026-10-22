@@ -207,15 +207,9 @@ public class Exportador {
         };
     }
 
+    /** Campo del CSV sin fórmulas: la misma regla de la exportación completa. */
     private static String campo(String s) {
-        String t = s == null ? "" : s;
-        if (!t.isEmpty() && "=+-@\t\r".indexOf(t.charAt(0)) >= 0) {
-            t = "'" + t;
-        }
-        if (t.contains(";") || t.contains("\"") || t.contains("\n") || t.contains("\r")) {
-            t = "\"" + t.replace("\"", "\"\"") + "\"";
-        }
-        return t;
+        return co.com.agsamericas.digsa.reglas.Exportacion.campo(s);
     }
 
     private static String nombreHoja(String titulo) {

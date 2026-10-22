@@ -235,4 +235,14 @@ class BitacoraTest {
         assertThat(Bitacora.enmascararUsuario("ab")).isEqualTo("ab***");
         assertThat(Bitacora.enmascararUsuario(null)).isEqualTo("***");
     }
+
+    @Test
+    @DisplayName("TIPOS de la exportación: la descarga es consulta, la solicitud inserción y la limpieza eliminación")
+    void tiposExportacion() {
+        assertThat(Bitacora.operacionDeTipo("exportacion_completa")).isEqualTo(Operacion.CONSULTA);
+        assertThat(Bitacora.operacionDeTipo("soportes_opl_descargados")).isEqualTo(Operacion.CONSULTA);
+        assertThat(Bitacora.operacionDeTipo("exportacion_solicitada")).isEqualTo(Operacion.INSERCION);
+        assertThat(Bitacora.operacionDeTipo("exportacion_vencida")).isEqualTo(Operacion.ELIMINACION);
+        assertThat(Bitacora.TIPOS).containsKeys("exportacion_generada", "exportacion_fallida");
+    }
 }

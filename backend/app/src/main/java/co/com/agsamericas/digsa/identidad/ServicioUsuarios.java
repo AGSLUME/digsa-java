@@ -186,6 +186,16 @@ public class ServicioUsuarios {
         }
     }
 
+    /** Quita el bloqueo por intentos fallidos antes de los 15 minutos (el usuario lo pide al administrador). @return si estaba bloqueado */
+    public boolean desbloquear(long id, UsuarioSesion quien) {
+        Usuario u = usuarios.porId(id).orElseThrow(() -> ErrorNegocio.noEncontrado("El usuario no existe."));
+        boolean estaba = usuarios.desbloquear(id, reloj.instant());
+        if (estaba) {
+            bitacora.registrar("usuario_desbloqueado", "Usuario " + u.usuario() + " desbloqueado por el administrador", quien.id(), quien.usuario());
+        }
+        return estaba;
+    }
+
     /** Decisión 7.1: el administrador cierra la sesión abierta de un usuario (p. ej. la dejó abierta en otro equipo). */
     public boolean cerrarSesion(long id, UsuarioSesion quien) {
         Usuario u = usuarios.porId(id).orElseThrow(() -> ErrorNegocio.noEncontrado("El usuario no existe."));

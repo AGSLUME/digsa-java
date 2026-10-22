@@ -1,6 +1,5 @@
 package co.com.agsamericas.digsa.identidad;
 
-import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Bitacora;
 import co.com.agsamericas.digsa.reglas.Sesion;
@@ -35,16 +34,21 @@ public class FiltroSesion extends OncePerRequestFilter {
     private final RepositorioUsuarios usuarios;
     private final ServicioClaves claves;
     private final RegistroBitacora bitacora;
-    private final ConfiguracionDigsa cfg;
+    /** Estado de la sesión sin renovarla (aviso de inactividad). */
+    static final String RUTA_ESTADO = "/api/sesion/estado";
+    /** Segundos que le quedan a la sesión, para {@link ControladorSesion#estado}. */
+    static final String ATR_RESTANTES = "digsa.sesion.restantes";
+
+    private final ParametrosSeguridad parametros;
     private final ObjectMapper json;
     private final Clock reloj;
 
-    public FiltroSesion(RepositorioUsuarios usuarios, ServicioClaves claves, RegistroBitacora bitacora, ConfiguracionDigsa cfg,
+    public FiltroSesion(RepositorioUsuarios usuarios, ServicioClaves claves, RegistroBitacora bitacora, ParametrosSeguridad parametros,
                         ObjectMapper json, Clock reloj) {
         this.usuarios = usuarios;
         this.claves = claves;
         this.bitacora = bitacora;
-        this.cfg = cfg;
+        this.parametros = parametros;
         this.json = json;
         this.reloj = reloj;
     }
@@ -69,7 +73,8 @@ public class FiltroSesion extends OncePerRequestFilter {
         Long ultimo = (Long) s.getAttribute(AtributosSesion.ULTIMO);
         String ip = req.getRemoteAddr();
 
-        if (ultimo == null || Sesion.vencida(Instant.ofEpochMilli(ultimo), ahora, cfg.minutosSesion())) {
+        int minutos = parametros.minutosSesion();
+        if (ultimo == null || Sesion.vencida(Instant.ofEpochMilli(ultimo), ahora, minutos)) {
             if (marca != null) {
                 usuarios.cerrarSesion(us.id(), Sesion.huella(marca));
             }
@@ -83,16 +88,22 @@ public class FiltroSesion extends OncePerRequestFilter {
             return;
         }
         Usuario u = enBase.get();
-        if (u.claveActualizada() != null && inicio != null && u.claveActualizada().isAfter(Instant.ofEpochMilli(inicio))) {
+        // Los cambios de contraseña hechos fuera de esta sesión (enlace, contraseña inicial) también borran la huella. Si la huella sigue
+        // siendo la de esta sesión, el cambio lo hizo ella misma («Cambiar mi contraseña»): una petición simultánea que aún no ve el
+        // INICIO nuevo (Spring Session guarda al final de la petición) no debe cerrarla.
+        if (u.claveActualizada() != null && inicio != null && u.claveActualizada().isAfter(Instant.ofEpochMilli(inicio))
+                && !Sesion.esLaVigente(u.sesionHuella(), marca)) {
             cerrar(req, res, s, "La contraseña cambió. Inicie sesión de nuevo.", "clave");
             return;
         }
         if (!Sesion.esLaVigente(u.sesionHuella(), marca)) {
-            // Sin huella: la cerró el administrador (o «Salir» en otra pestaña); con otra huella: venció por inactividad y hubo otro ingreso
+            // Sin huella: la cerró el administrador, «Salir» en otra pestaña, la inactivación o un cambio de contraseña, y quien la cerró ya
+            // dejó la salida en la bitácora (duda 18.17: no se repite). Con otra huella: venció por inactividad y hubo otro ingreso.
             boolean cerradaPorOtro = u.sesionHuella() == null;
-            bitacora.escribir(Bitacora.Operacion.SALIDA, cerradaPorOtro ? "sesion_cerrada" : "sesion_reemplazada", "sesion",
-                    cerradaPorOtro ? "Sesión cerrada desde otra pestaña o por el administrador" : "Sesión reemplazada por un ingreso posterior",
-                    u.id(), u.usuario(), ip);
+            if (!cerradaPorOtro) {
+                bitacora.escribir(Bitacora.Operacion.SALIDA, "sesion_reemplazada", "sesion", "Sesión reemplazada por un ingreso posterior",
+                        u.id(), u.usuario(), ip);
+            }
             cerrar(req, res, s, cerradaPorOtro ? "Su sesión fue cerrada. Vuelva a iniciar sesión."
                     : "Su sesión se cerró porque su usuario ingresó desde otro equipo o navegador. Solo se permite una sesión a la vez.",
                     cerradaPorOtro ? "cerrada" : "reemplazada");
@@ -100,17 +111,27 @@ public class FiltroSesion extends OncePerRequestFilter {
         }
         if (u.cambioPendiente(ahora)) {
             usuarios.cerrarSesion(u.id(), Sesion.huella(marca));
+            if (u.claveVencida(ahora)) {
+                // La conoce: la cambia al volver a ingresar, dentro de la aplicación (sin correo)
+                bitacora.escribir(Bitacora.Operacion.SALIDA, "sesion_cerrada", "sesion", "Sesión cerrada: la contraseña venció", u.id(), u.usuario(), ip);
+                cerrar(req, res, s, "Su contraseña venció. Ingrese de nuevo para cambiarla.", "clave_vencida");
+                return;
+            }
             ServicioClaves.EnvioEnlace e = claves.enviarEnlace(u, "Defina su contraseña", "Debe actualizar su contraseña.", false);
+            bitacora.escribir(Bitacora.Operacion.SALIDA, "sesion_cerrada", "sesion", "Sesión cerrada: debe actualizar la contraseña", u.id(),
+                    u.usuario(), ip);
             cerrar(req, res, s, "Debe actualizar su contraseña." + (e.correoOk() ? " Le enviamos un enlace a su correo." : ""), "cambio_clave");
             return;
         }
+        if (s.getMaxInactiveInterval() != (minutos + 5) * 60) {
+            s.setMaxInactiveInterval((minutos + 5) * 60); // el administrador cambió el TIME OUT con la sesión abierta
+        }
 
-        s.setAttribute(AtributosSesion.ULTIMO, ahora.toEpochMilli());
-        Long enBaseMs = (Long) s.getAttribute(AtributosSesion.ULTIMO_EN_BASE);
-        if (enBaseMs == null || ahora.toEpochMilli() - enBaseMs >= 30_000) {
-            // Actividad para el bloqueo del segundo ingreso (decisión 7.1); como máximo una escritura cada 30 s
-            usuarios.tocarSesion(u.id(), u.sesionHuella(), ahora);
-            s.setAttribute(AtributosSesion.ULTIMO_EN_BASE, ahora.toEpochMilli());
+        if (req.getRequestURI().equals(req.getContextPath() + RUTA_ESTADO)) {
+            // Consulta del estado de la sesión desde el aviso de inactividad: no es actividad del usuario, no renueva el plazo
+            req.setAttribute(ATR_RESTANTES, Math.max(0, minutos * 60L - (ahora.toEpochMilli() - ultimo) / 1000));
+        } else {
+            renovar(s, u, ahora);
         }
         req.setAttribute(RegistroBitacora.ATR_USUARIO_ID, u.id());
         req.setAttribute(RegistroBitacora.ATR_USUARIO, u.usuario());
@@ -121,6 +142,17 @@ public class FiltroSesion extends OncePerRequestFilter {
         ctx.setAuthentication(auth);
         SecurityContextHolder.setContext(ctx);
         chain.doFilter(req, res);
+    }
+
+    /** Petición del usuario: renueva el último acceso (inactividad) y, cada 30 s como máximo, la actividad guardada en la base. */
+    private void renovar(HttpSession s, Usuario u, Instant ahora) {
+        s.setAttribute(AtributosSesion.ULTIMO, ahora.toEpochMilli());
+        Long enBaseMs = (Long) s.getAttribute(AtributosSesion.ULTIMO_EN_BASE);
+        if (enBaseMs == null || ahora.toEpochMilli() - enBaseMs >= 30_000) {
+            // Actividad para el bloqueo del segundo ingreso (decisión 7.1); como máximo una escritura cada 30 s
+            usuarios.tocarSesion(u.id(), u.sesionHuella(), ahora);
+            s.setAttribute(AtributosSesion.ULTIMO_EN_BASE, ahora.toEpochMilli());
+        }
     }
 
     private void cerrar(HttpServletRequest req, HttpServletResponse res, HttpSession s, String mensaje, String motivo) throws IOException {

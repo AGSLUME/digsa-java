@@ -6,6 +6,7 @@ import co.com.agsamericas.digsa.reglas.Perfil;
 import co.com.agsamericas.digsa.soporte.Navegador;
 import co.com.agsamericas.digsa.soporte.Navegador.Respuesta;
 import co.com.agsamericas.digsa.soporte.PruebaIntegracion;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -155,9 +156,30 @@ class UsuariosYClavesApiTest extends PruebaIntegracion {
         Respuesta existe = tercero.post("/api/auth/olvide", Map.of("valor", u));
         Respuesta noExiste = tercero.post("/api/auth/olvide", Map.of("valor", "nadie@example.com"));
         assertThat(existe.mensaje()).isEqualTo(noExiste.mensaje());
+        // El correo sale en otro hilo (duda 17.16: la respuesta no espera la búsqueda ni el SMTP)
+        esperarCorreoA(u + "@example.com", "Recuperación de contraseña");
+        esperar(() -> bitacoraDe(idDe(u)).stream().anyMatch(f -> f.startsWith("actualizacion|clave_olvido|Enlace de recuperación")), "bitácora del olvido");
         assertThat(suyo.get("/api/sesion").estado()).isEqualTo(200);
         assertThat(usuarios.porUsuario(u).orElseThrow().debeCambiarClave()).isFalse();
-        assertThat(bitacoraDe(idDe(u))).anyMatch(f -> f.startsWith("actualizacion|clave_olvido|"));
+    }
+
+    @Test
+    @DisplayName("olvidé mi contraseña dos veces seguidas: un solo enlace cada 5 minutos por usuario (duda 17.16)")
+    void olvideConTope() {
+        String u = crearUsuario("olvtope", Perfil.AUDITOR);
+        String correo = u + "@example.com";
+        Navegador tercero = navegador();
+        tercero.post("/api/auth/olvide", Map.of("valor", u));
+        esperarCorreoA(correo, "Recuperación de contraseña");
+        String tokenAntes = usuarios.porUsuario(u).orElseThrow().tokenHash();
+        tercero.post("/api/auth/olvide", Map.of("valor", correo));
+        esperar(() -> bitacoraDe(idDe(u)).stream().anyMatch(f -> f.contains("no se envía otro enlace")), "segundo pedido en la bitácora");
+        assertThat(correos().stream().filter(m -> m.para().contains(correo)).count()).isEqualTo(1);
+        assertThat(usuarios.porUsuario(u).orElseThrow().tokenHash()).as("el primer enlace sigue sirviendo").isEqualTo(tokenAntes);
+
+        reloj.adelantar(Duration.ofMinutes(ServicioClaves.MINUTOS_ENTRE_ENLACES).plusSeconds(1));
+        tercero.post("/api/auth/olvide", Map.of("valor", u));
+        esperar(() -> correos().stream().filter(m -> m.para().contains(correo)).count() == 2, "segundo enlace pasados 5 minutos");
     }
 
     @Test

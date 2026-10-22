@@ -95,7 +95,8 @@ function sinSesionDeUsuario(ruta: string): boolean {
 }
 
 async function leerRespuesta<T>(r: Response, ruta: string): Promise<T> {
-  marcarActividad();
+  // Consultar el estado de la sesión no es actividad: el servidor tampoco la renueva
+  if (ruta !== '/api/sesion/estado') marcarActividad();
   const tipo = r.headers.get('Content-Type') ?? '';
   const datos: Record<string, unknown> = tipo.includes('application/json') ? await r.json().catch(() => ({})) : {};
   if (!r.ok) {

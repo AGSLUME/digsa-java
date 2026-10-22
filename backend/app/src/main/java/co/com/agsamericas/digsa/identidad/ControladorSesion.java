@@ -1,7 +1,6 @@
 package co.com.agsamericas.digsa.identidad;
 
 import co.com.agsamericas.digsa.plataforma.Accion;
-import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.reglas.Bitacora.Declarada;
 import co.com.agsamericas.digsa.reglas.Pantallas;
 import co.com.agsamericas.digsa.reglas.Perfil;
@@ -19,11 +18,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/sesion")
 public class ControladorSesion {
 
-    private final ConfiguracionDigsa cfg;
+    private final ParametrosSeguridad parametros;
     private final RepositorioUsuarios usuarios;
 
-    public ControladorSesion(ConfiguracionDigsa cfg, RepositorioUsuarios usuarios) {
-        this.cfg = cfg;
+    public ControladorSesion(ParametrosSeguridad parametros, RepositorioUsuarios usuarios) {
+        this.parametros = parametros;
         this.usuarios = usuarios;
     }
 
@@ -50,14 +49,26 @@ public class ControladorSesion {
         m.put("menu", menu);
         // Todas las pantallas permitidas, incluidas las que no van en el menú (p. ej. el formulario de la visita)
         m.put("pantallas", Arrays.stream(Pantallas.values()).filter(p -> p.puedeEntrar(perfiles, true)).map(Pantallas::ruta).toList());
-        m.put("minutosInactividad", cfg.minutosSesion());
+        m.put("minutosInactividad", parametros.minutosSesion());
         return m;
+    }
+
+    /**
+     * Estado de la sesión SIN renovarla: los minutos de inactividad vigentes (el administrador los puede cambiar con la sesión abierta)
+     * y los segundos que le quedan. El aviso de inactividad lo usa para no quedarse con un plazo viejo. Si ya venció, el filtro responde
+     * 401 «inactividad».
+     */
+    @GetMapping("/estado")
+    @Accion(modulo = "sesion", accion = "estado", operacion = Declarada.SIN_REGISTRO)
+    public Map<String, Object> estado(jakarta.servlet.http.HttpServletRequest req) {
+        Object r = req.getAttribute(FiltroSesion.ATR_RESTANTES);
+        return Map.of("minutos", parametros.minutosSesion(), "restantes", r instanceof Long l ? l : 0L);
     }
 
     /** «Seguir conectado»: renueva el último acceso (lo hace el filtro de la sesión) y no deja fila en la bitácora. */
     @GetMapping("/mantener")
     @Accion(modulo = "sesion", accion = "mantener", operacion = Declarada.SIN_REGISTRO)
     public Map<String, Object> mantener() {
-        return Map.of("minutos", cfg.minutosSesion());
+        return Map.of("minutos", parametros.minutosSesion());
     }
 }

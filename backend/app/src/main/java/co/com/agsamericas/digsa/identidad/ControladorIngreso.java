@@ -73,11 +73,11 @@ public class ControladorIngreso {
         return Map.of("usuario", u.usuario(), "nombre", u.nombre());
     }
 
-    /** Contraseña inicial asignada por el administrador: se cambia antes del código, sin salir al correo. */
+    /** Contraseña inicial asignada por el administrador o vencida: se cambia antes del código, sin salir al correo. */
     @PostMapping("/cambiar-clave")
     @Accion(modulo = "sesion", accion = "clave_inicial", operacion = Declarada.SIN_REGISTRO)
     public ServicioIngreso.Paso cambiarClave(@RequestBody @jakarta.validation.Valid CambioInicial c, HttpServletRequest req) {
-        return conCodigoLocal(ingreso.cambiarClaveInicial(c.clave(), c.confirmacion(), req), req);
+        return conCodigoLocal(ingreso.cambiarClaveEnIngreso(c.clave(), c.confirmacion(), req), req);
     }
 
     @PostMapping("/codigo/reenviar")

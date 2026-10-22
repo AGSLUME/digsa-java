@@ -19,6 +19,7 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfException;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.session.SessionManagementFilter;
 import org.springframework.session.web.http.CookieSerializer;
@@ -49,9 +50,7 @@ public class ConfiguracionSeguridad {
             "frame-ancestors 'none'");
 
     @Bean
-    SecurityFilterChain cadena(HttpSecurity http, FiltroSesion filtroSesion, ObjectMapper json, ConfiguracionDigsa cfg) throws Exception {
-        CookieCsrfTokenRepository csrf = CookieCsrfTokenRepository.withHttpOnlyFalse();
-        csrf.setCookieCustomizer(c -> c.sameSite("Strict").secure(cfg.urlSegura()).path("/"));
+    SecurityFilterChain cadena(HttpSecurity http, FiltroSesion filtroSesion, ObjectMapper json, CsrfTokenRepository csrf) throws Exception {
         http
                 .csrf(c -> c.csrfTokenRepository(csrf).csrfTokenRequestHandler(new ManejadorCsrfSpa()))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED).sessionFixation(f -> f.changeSessionId()))
@@ -84,6 +83,14 @@ public class ConfiguracionSeguridad {
                         .permissionsPolicyHeader(p -> p.policy("geolocation=(), microphone=(), camera=(self)")))
                 .addFilterAfter(filtroSesion, SessionManagementFilter.class);
         return http.build();
+    }
+
+    /** Token CSRF en la cookie XSRF-TOKEN (la SPA lo devuelve en X-XSRF-TOKEN). Es un bean para que el ingreso lo renueve. */
+    @Bean
+    CsrfTokenRepository repositorioCsrf(ConfiguracionDigsa cfg) {
+        CookieCsrfTokenRepository csrf = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        csrf.setCookieCustomizer(c -> c.sameSite("Strict").secure(cfg.urlSegura()).path("/"));
+        return csrf;
     }
 
     @Bean

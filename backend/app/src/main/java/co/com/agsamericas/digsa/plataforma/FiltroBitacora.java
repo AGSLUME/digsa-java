@@ -114,7 +114,8 @@ public class FiltroBitacora extends OncePerRequestFilter {
         String tipo = req.getContentType();
         byte[] cuerpo = req.getContentAsByteArray();
         // El cuerpo del ingreso y de las contraseñas nunca se lee (secretos); los demás pasan por la lista blanca y la negra
-        boolean rutaDeSecretos = req.getRequestURI().startsWith(req.getContextPath() + "/api/auth/");
+        boolean rutaDeSecretos = req.getRequestURI().startsWith(req.getContextPath() + "/api/auth/")
+                || req.getRequestURI().startsWith(req.getContextPath() + "/api/cuenta/"); // «Cambiar mi contraseña»
         if (!rutaDeSecretos && tipo != null && tipo.toLowerCase().startsWith("application/json") && cuerpo.length > 0) {
             try {
                 JsonNode raiz = json.readTree(cuerpo);

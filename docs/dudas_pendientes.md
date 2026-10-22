@@ -509,3 +509,38 @@ Implementado según `docs/especificaciones/riesgo-tablero`, con la decisión 14 
 | 25.6 | **Acciones vencidas:** se miden con la fecha fin original del 5W2H, sin la prórroga aprobada | Duda abierta del spec. Se dejó así |
 | 25.7 | **Plan vencido en el dashboard:** ahora usa el mismo criterio del riesgo (no cuenta la visita que ya tiene un seguimiento cerrado) | Hecho. Pendiente: que el plan en «reportado a la DIGSA» se cierre cuando el seguimiento deja todo completado |
 | 25.8 | **Prueba intermitente `IngresoYSesionApiTest.csrf`:** en una corrida completa la última fila de la bitácora fue la del ingreso y no la del 419 | Pasa sola y pasó en las otras corridas completas. Sin cambio de código; si se repite, ordenar la bitácora de la prueba por id |
+
+## Usuarios, roles y logs (sesión 2, rama identidad-roles-logs, 2026-10-22)
+
+Decisiones del usuario del 2026-10-22: el MFA por correo **se deja como está** (siempre encendido, sin interruptor); los roles adicionales son **perfil base + subconjunto de sus pantallas**; el **Analista** tiene consulta nacional en visitas (los anexos solo le dan funciones en cuentas médicas). Entregas: E1 contraseñas y sesión, E2 roles adicionales, E3 bitácora con antes y después, E4 guion de la prueba en sitio.
+
+### E1 · Contraseñas y sesión
+
+Hecho:
+
+- **«Cambiar mi contraseña»** en el menú lateral (`POST /api/cuenta/clave`), sin salir al correo (condición 12):
+  - la actual errada suma intento fallido y, al quinto, bloquea y cierra la sesión;
+  - con el usuario ya bloqueado responde 401 y no cambia nada;
+  - la sesión en curso sigue abierta, con identificador y token CSRF nuevos.
+- **Contraseña vencida (30 días):**
+  - se cambia en el ingreso (paso `cambiar_clave`), sin enlace;
+  - si vence con la sesión abierta, la sesión se cierra con «clave_vencida».
+- **TIME OUT editable por el Administrador** en Usuarios › Seguridad (Anexo 5, 3.2: «parametrizable y ajustable»):
+  - se guarda en `seg_parametros` (V30), aplica en la siguiente petición y queda en la bitácora con el antes y el después;
+  - la SPA consulta `GET /api/sesion/estado`, que no renueva la sesión, y adopta el plazo vigente.
+- **Desbloquear** (Administrador): atómico; si el usuario no estaba bloqueado no borra los intentos.
+- **17.16:**
+  - token CSRF nuevo al ingresar;
+  - «olvidé mi contraseña» en un hilo aparte, con el mismo tiempo de respuesta exista o no el usuario;
+  - un enlace cada 5 minutos por usuario; un enlace que no salió no cuenta.
+- **18.17:** el cierre de sesión por el administrador deja una sola fila de salida.
+- La especificación `identidad-sesion` ya dice que el segundo ingreso se rechaza (decisión 7.1), no «gana el último».
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 26.1 | **CSRF de doble envío:** el token se renueva al ingresar y al cambiar la contraseña, pero no está atado a la sesión. Un token viejo junto con su cookie vieja seguiría pasando, aunque un tercero no puede leer la cookie (SameSite=Strict, mismo origen) | Se deja así: es el patrón documentado de Spring para SPA. Atarlo a la sesión exige cambiar el cliente; queda para después de la prueba si TI lo pide |
+| 26.2 | **Tope de «olvidé mi contraseña» con varias instancias:** se decide leyendo `token_vence` y escribiendo después; con dos instancias, dos pedidos simultáneos pueden enviar dos enlaces (el segundo anula el primero) | Con una instancia, el hilo único lo serializa. Pendiente: UPDATE condicional si se despliega en más de una instancia |
+| 26.3 | **El enlace del QR del OPL** (`opl/ServicioOplPublico`) sigue usando `DIGSA_SESION_MINUTOS`, no el TIME OUT editable | No es una sesión de usuario. Coordinar con la sesión 1 si debe seguir al parámetro |
+| 26.4 | **Ramas 409 sin prueba:** el cambio en el ingreso cuando la contraseña dejó de estar vencida entre los dos pasos, y el cambio concurrente de la propia contraseña | El control optimista (`WHERE clave_hash = :anterior`) está; faltan sus pruebas |
+| 26.5 | **Restablecer el TIME OUT en las e2e:** el servidor de las e2e es compartido; la prueba lo restablece y falla con un mensaje claro si no puede | Hecho |
+| 26.6 | **Coordinación con la exportación (sesión 1):** cada tabla nueva debe ir en `reglas/Exportacion.TABLAS` (lo exige `ExportacionApiTest.tablasContraElEsquema`) | Se agregó `seg_parametros` (V30) con una línea aditiva; las tablas de E2 y E3 se agregarán igual. Avisar a la sesión 1 al integrar |

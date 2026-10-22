@@ -178,6 +178,29 @@ El sistema DEBE exigir definir la contraseña cuando el usuario nunca la ha defi
 
 ---
 
+### Requirement: Contraseña vencida y «Cambiar mi contraseña» dentro de la aplicación
+<!-- decision: condición 12 de la prueba en sitio (no saltar a otra herramienta); sesión 2, E1 (2026-10-22) -->
+
+La contraseña vencida (30 días) de un usuario que la conoce DEBE cambiarse en el ingreso, sin enlace al correo; el usuario con sesión DEBE poder cambiar su contraseña dando la actual.
+
+#### Scenario: Vencida al ingresar
+- **CUANDO** el usuario ingresa con su contraseña correcta y vencida
+- **ENTONCES** el ingreso responde el paso `cambiar_clave` («Su contraseña venció…»), no envía correo, y después del cambio sigue el código; queda `clave_cambio` «Contraseña vencida cambiada»
+
+#### Scenario: Vence con la sesión abierta
+- **CUANDO** la contraseña vence mientras la sesión está abierta
+- **ENTONCES** la siguiente petición responde 401 `clave_vencida` («Ingrese de nuevo para cambiarla»), sin correo, y queda la salida `sesion_cerrada`
+
+#### Scenario: Cambiar mi contraseña
+- **CUANDO** el usuario con sesión envía `POST /api/cuenta/clave` con la actual, la nueva y la confirmación
+- **ENTONCES** con la actual correcta se guarda (vigencia nueva de 30 días), la sesión en curso sigue abierta y queda `clave_cambio`; con la actual errada responde 422 y suma un intento fallido (`clave_cambio_fallido`); al quinto el usuario se bloquea 15 minutos y la sesión se cierra (401 `bloqueado`)
+
+#### Scenario: Desbloqueo por el administrador
+- **CUANDO** el administrador pulsa «Desbloquear» en un usuario bloqueado por intentos
+- **ENTONCES** se reinician los intentos y queda `usuario_desbloqueado`
+
+---
+
 ### Requirement: Olvidé mi contraseña
 <!-- id: ControladorUsuarios.olvideClave -->
 <!-- entidades: Usuario, Correo, Bitacora -->
@@ -198,6 +221,10 @@ La ruta pública `olvide-clave` DEBE aceptar usuario o correo, exigir CSRF y cap
 - **CUANDO** el usuario existe y está activo
 - **ENTONCES** se envía el enlace "Recuperación de contraseña" y se registra `clave_olvido` indicando si el correo salió
 
+#### Scenario: Mismo tiempo de respuesta y tope por usuario (Java, duda 17.16)
+- **CUANDO** se pide la recuperación
+- **ENTONCES** la búsqueda y el correo van en un hilo aparte (la respuesta no revela por su tiempo si el usuario existe) y un mismo usuario recibe como máximo un enlace cada 5 minutos; el pedido repetido queda en la bitácora sin enviar otro
+
 ---
 
 ### Requirement: Sesión única por usuario
@@ -207,7 +234,7 @@ La ruta pública `olvide-clave` DEBE aceptar usuario o correo, exigir CSRF y cap
 <!-- decision: Anexo 5, 3.2 -->
 <!-- duda: 7.1 -->
 
-Un usuario DEBE tener una sola sesión vigente: al ingresar se guarda en `usuarios.sesion_huella` el SHA-256 del identificador de la sesión nueva y cualquier otra sesión del mismo usuario DEBE cerrarse en su siguiente petición (gana el último ingreso).
+Un usuario DEBE tener una sola sesión vigente: al ingresar se guarda en `usuarios.sesion_huella` el SHA-256 de la marca de la sesión nueva. **Decisión 7.1 (2026-10-20, manda sobre el PHP): mientras la sesión abierta tenga actividad dentro del plazo de inactividad, el segundo ingreso se rechaza (409 «ya tiene una sesión abierta»)**; la sesión se libera con «Salir», por inactividad o cuando el administrador la cierra. Solo si la sesión anterior venció por inactividad, el ingreso nuevo la reemplaza y la anterior recibe «reemplazada».
 
 #### Scenario: Segundo ingreso desde otro navegador
 <!-- test: tests/e2e_local.php:559 -->
@@ -249,7 +276,7 @@ Un usuario DEBE tener una sola sesión vigente: al ingresar se guarda en `usuari
 <!-- decision: Anexo 5, 3.2 -->
 <!-- duda: 7.4 -->
 
-El servidor DEBE cerrar la sesión cuando pasan `SESSION_MINUTOS` (10 por defecto) o más desde el último acceso; un valor de `SESSION_MINUTOS` que no sea un entero positivo DEBE volver a 10 y uno mayor que 480 DEBE quedar en 480.
+El servidor DEBE cerrar la sesión cuando pasan los minutos de inactividad (10 por defecto) o más desde el último acceso. **Java (E1 de la sesión 2): el Administrador los cambia en Usuarios › Seguridad (tabla `seg_parametros`, V30; aplica en la siguiente petición y queda en la bitácora); sin valor guardado vale `DIGSA_SESION_MINUTOS`**; un valor de `SESSION_MINUTOS` que no sea un entero positivo DEBE volver a 10 y uno mayor que 480 DEBE quedar en 480.
 
 #### Scenario: Plazo cumplido
 <!-- test: tests/sesion_test.php:42 -->
@@ -458,7 +485,7 @@ La cookie de sesión DEBE ser `HttpOnly`, `SameSite=Strict`, sin vencimiento pro
 <!-- entidades: Sesion -->
 <!-- impuesto_en: app/Support/Auth.php Auth::csrf(), Auth::csrfValido() -->
 
-Cada sesión DEBE tener un token CSRF aleatorio de 64 caracteres hexadecimales, regenerado al ingresar, y compararse en tiempo constante.
+Cada sesión DEBE tener un token CSRF aleatorio de 64 caracteres hexadecimales, regenerado al ingresar, y compararse en tiempo constante. (Java: cookie `XSRF-TOKEN`; el ingreso emite un token nuevo, duda 17.16.)
 
 <!-- duda: 7.6 · TI de producción: `session.gc_maxlifetime` mayor que `SESSION_MINUTOS`; en la reescritura equivale a la vida de la sesión del servidor -->
 <!-- duda: 7.7 · las sesiones abiertas antes del despliegue de la fase 0 se cerraron una vez con el aviso de "otro equipo" -->

@@ -86,6 +86,12 @@ public class RepositorioUsuarios {
                 .param("id", id).query(Boolean.class).optional().orElse(false);
     }
 
+    /** Quita el bloqueo vigente; si no estaba bloqueado no toca los intentos (son rastro de posibles ataques). @return si lo desbloqueó */
+    public boolean desbloquear(long id, Instant ahora) {
+        return jdbc.sql("UPDATE usuarios SET intentos = 0, bloqueado_hasta = NULL, actualizado = :ahora WHERE id = :id AND bloqueado_hasta > :ahora")
+                .param("ahora", odt(ahora)).param("id", id).update() == 1;
+    }
+
     public void reiniciarIntentos(long id, Instant ahora) {
         jdbc.sql("UPDATE usuarios SET intentos = 0, bloqueado_hasta = NULL, actualizado = :ahora WHERE id = :id")
                 .param("ahora", odt(ahora)).param("id", id).update();
@@ -132,12 +138,18 @@ public class RepositorioUsuarios {
                 .param("ahora", odt(ahora)).param("id", id).update();
     }
 
-    /** Cambio de la contraseña inicial dentro de la aplicación (sin enlace). @return false si ya se había cambiado (doble envío) */
-    public boolean cambiarClaveInicial(long id, String claveHash, Instant vence, Instant ahora) {
+    /**
+     * Cambio de la contraseña dentro de la aplicación, sin enlace: la inicial, la vencida o la que el usuario cambia por su cuenta. Solo
+     * si la contraseña guardada sigue siendo la que se verificó (un doble envío o un cambio de otro lado no se pisan). Consume el enlace
+     * pendiente, si lo hubiera. @return false si la contraseña ya había cambiado
+     */
+    public boolean cambiarClave(long id, String hashAnterior, String claveHash, Instant vence, Instant ahora) {
         return jdbc.sql("""
-                UPDATE usuarios SET clave_hash = :c, clave_inicial = false, debe_cambiar_clave = false, clave_vence = :vence,
-                  clave_actualizada = :ahora, actualizado = :ahora WHERE id = :id AND clave_inicial""")
-                .param("c", claveHash).param("vence", odt(vence)).param("ahora", odt(ahora)).param("id", id).update() == 1;
+                UPDATE usuarios SET clave_hash = :c, clave_definida = true, clave_inicial = false, debe_cambiar_clave = false, clave_vence = :vence,
+                  clave_actualizada = :ahora, token_hash = NULL, token_vence = NULL, intentos = 0, bloqueado_hasta = NULL, actualizado = :ahora
+                WHERE id = :id AND clave_hash = :anterior""")
+                .param("c", claveHash).param("vence", odt(vence)).param("ahora", odt(ahora)).param("id", id).param("anterior", hashAnterior)
+                .update() == 1;
     }
 
     /** Nombres configurables de los perfiles (el catálogo final de perfiles llega por adenda). */

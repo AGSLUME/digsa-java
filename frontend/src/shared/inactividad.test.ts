@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { estadoAviso, mmss } from './inactividad';
+import { estadoAviso, mmss, ultimaActividadDelServidor } from './inactividad';
 
 // Portado de tests/ui/ui_sesion.js (aviso con cuenta regresiva y vuelta al ingreso) como regla pura.
 describe('aviso de inactividad', () => {
@@ -26,5 +26,25 @@ describe('aviso de inactividad', () => {
   it('cuenta regresiva en mm:ss', () => {
     expect(mmss(60)).toBe('01:00');
     expect(mmss(9)).toBe('00:09');
+  });
+});
+
+describe('sincronización con el servidor (TIME OUT editable por el administrador)', () => {
+  const t0 = 1_800_000_000_000;
+
+  it('la actividad fue hace (plazo - restantes): con un TIME OUT nuevo de 30 min y 25 min restantes, fue hace 5 min', () => {
+    const ultima = ultimaActividadDelServidor(t0, 30, 25 * 60);
+    expect(t0 - ultima).toBe(5 * 60_000);
+    expect(estadoAviso(ultima, t0, 30).vencida).toBe(false);
+  });
+
+  it('si al servidor le quedan 0 s, el cliente la da por vencida a los 2 s', () => {
+    const ultima = ultimaActividadDelServidor(t0, 10, 0);
+    expect(estadoAviso(ultima, t0 + 2_000, 10).vencida).toBe(true);
+  });
+
+  it('valores fuera de rango (restantes negativos o mayores que el plazo) no corren la actividad al futuro', () => {
+    expect(ultimaActividadDelServidor(t0, 10, -5)).toBe(t0 - 600_000);
+    expect(ultimaActividadDelServidor(t0, 10, 9_999)).toBe(t0);
   });
 });

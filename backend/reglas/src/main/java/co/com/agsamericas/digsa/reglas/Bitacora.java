@@ -75,7 +75,9 @@ public final class Bitacora {
             // Exportación completa y soportes del OPL (fase 10)
             Map.entry("exportacion_solicitada", Operacion.INSERCION), Map.entry("exportacion_generada", Operacion.INSERCION),
             Map.entry("exportacion_fallida", Operacion.INSERCION), Map.entry("exportacion_vencida", Operacion.ELIMINACION),
-            Map.entry("exportacion_completa", Operacion.CONSULTA), Map.entry("soportes_opl_descargados", Operacion.CONSULTA));
+            Map.entry("exportacion_completa", Operacion.CONSULTA), Map.entry("soportes_opl_descargados", Operacion.CONSULTA),
+            // Usuarios, roles y logs (sesión 2, rama identidad-roles-logs)
+            Map.entry("usuario_desbloqueado", Operacion.ACTUALIZACION), Map.entry("clave_cambio_fallido", Operacion.ACTUALIZACION));
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",
@@ -84,7 +86,8 @@ public final class Bitacora {
             "anio", "item", "catalogo", "componente", "operacion", "pagina");
 
     /** Nunca van al detalle, aunque alguien las agregue a la lista blanca: secretos del ingreso y de las contraseñas. */
-    public static final Set<String> SECRETOS = Set.of("clave", "confirmacion", "password", "contrasena", "codigo", "tkn", "token", "captcha");
+    public static final Set<String> SECRETOS = Set.of("clave", "confirmacion", "password", "contrasena", "codigo", "tkn", "token", "captcha",
+            "actual");
 
     static final int MAX_VALOR = 60;
     static final int MAX_ESTADO = 20;

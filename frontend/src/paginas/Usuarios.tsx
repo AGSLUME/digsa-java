@@ -5,6 +5,7 @@ import {
   Checkbox,
   Group,
   Modal,
+  NumberInput,
   PasswordInput,
   ScrollArea,
   Select,
@@ -90,6 +91,9 @@ export function Usuarios() {
   const [claveDe, setClaveDe] = useState<Usuario | null>(null);
   const [claveNueva, setClaveNueva] = useState('');
   const [verPerfiles, setVerPerfiles] = useState(false);
+  const [verSeguridad, setVerSeguridad] = useState(false);
+  /** Lo escrito en el TIME OUT; sin tocar (undefined) se muestra el valor guardado. */
+  const [minutos, setMinutos] = useState<number | string | undefined>(undefined);
   const [nombresPerfiles, setNombresPerfiles] = useState<Record<number, string>>({});
 
   const guardar = useMutation({
@@ -133,6 +137,22 @@ export function Usuarios() {
     onError: (e) => notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo completar la acción.' }),
   });
 
+  const seguridad = useQuery({
+    queryKey: ['usuarios-seguridad'],
+    queryFn: () => api<{ minutosSesion: number; minutosMaximo: number }>('/api/usuarios/seguridad'),
+    enabled: verSeguridad,
+  });
+  const guardarSeguridad = useMutation({
+    mutationFn: (m: number) => api<{ mensaje: string }>('/api/usuarios/seguridad', { metodo: 'PUT', cuerpo: { minutosSesion: m } }),
+    onSuccess: (r) => {
+      notifications.show({ color: 'green', message: r.mensaje });
+      setVerSeguridad(false);
+      qc.invalidateQueries({ queryKey: ['usuarios-seguridad'] });
+      qc.invalidateQueries({ queryKey: ['sesion'] });
+    },
+    onError: (e) => notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo guardar.' }),
+  });
+
   const enviar = (e: FormEvent) => {
     e.preventDefault();
     if (!form) return;
@@ -154,6 +174,15 @@ export function Usuarios() {
       <Group justify="space-between">
         <Title order={3}>Usuarios</Title>
         <Group gap="xs">
+          <Button
+            variant="default"
+            onClick={() => {
+              setMinutos(undefined);
+              setVerSeguridad(true);
+            }}
+          >
+            Seguridad
+          </Button>
           <Button
             variant="default"
             onClick={() => {
@@ -286,6 +315,18 @@ export function Usuarios() {
                     >
                       Contraseña inicial
                     </Button>
+                    {u.bloqueado && (
+                      <Button
+                        size="xs"
+                        variant="light"
+                        color="orange"
+                        disabled={accion.isPending}
+                        aria-label={'Desbloquear a ' + u.nombre}
+                        onClick={() => accion.mutate({ ruta: `/api/usuarios/${u.id}/desbloquear`, metodo: 'POST' })}
+                      >
+                        Desbloquear
+                      </Button>
+                    )}
                     {u.sesionAbierta && (
                       <Button
                         size="xs"
@@ -469,6 +510,40 @@ export function Usuarios() {
             </Stack>
           </form>
         )}
+      </Modal>
+
+      <Modal opened={verSeguridad} onClose={() => setVerSeguridad(false)} title="Seguridad">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const m = minutos ?? seguridad.data?.minutosSesion;
+            if (typeof m === 'number') guardarSeguridad.mutate(m);
+          }}
+        >
+          <Stack>
+            {seguridad.error && <Alert color="red">{(seguridad.error as Error).message}</Alert>}
+            <NumberInput
+              label="Tiempo de inactividad (TIME OUT), en minutos"
+              description="Anexo 5, 3.2: la sesión se cierra sola tras este tiempo sin actividad. Aplica desde la siguiente acción de cada usuario."
+              min={1}
+              max={seguridad.data?.minutosMaximo ?? 480}
+              allowDecimal={false}
+              allowNegative={false}
+              required
+              value={minutos ?? seguridad.data?.minutosSesion ?? ''}
+              onChange={setMinutos}
+              data-testid="minutos-sesion"
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setVerSeguridad(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" loading={guardarSeguridad.isPending} disabled={!seguridad.data}>
+                Guardar
+              </Button>
+            </Group>
+          </Stack>
+        </form>
       </Modal>
 
       <Modal opened={verPerfiles} onClose={() => setVerPerfiles(false)} title="Nombres de perfiles" size="lg">

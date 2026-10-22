@@ -21,6 +21,14 @@ public record Usuario(long id, String nombre, String documento, String telefono,
         return !claveDefinida || debeCambiarClave || (claveVence != null && claveVence.isBefore(ahora));
     }
 
+    /**
+     * ¿Solo venció la vigencia (30 días) de una contraseña que el usuario sí conoce? Se cambia dentro de la aplicación, sin ir al correo
+     * (condición 12 de la prueba en sitio). El cambio exigido por el administrador y la contraseña nunca definida siguen con el enlace.
+     */
+    public boolean claveVencida(Instant ahora) {
+        return claveDefinida && !debeCambiarClave && !claveInicial && claveVence != null && claveVence.isBefore(ahora);
+    }
+
     public Alcance alcance() {
         return Alcance.de(perfiles, new Alcance.DatosUsuario(id, alcanceFuerza, alcancePunto, alcanceRegional));
     }

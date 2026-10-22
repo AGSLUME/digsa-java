@@ -5,13 +5,13 @@ import java.time.Instant;
 import java.util.regex.Pattern;
 
 /**
- * Reglas de la sesión (Anexo 5, 3.2): sin sesiones simultáneas del mismo usuario (gana el último ingreso, duda 7.1) y cierre
- * por inactividad de 10 minutos, parametrizable (duda 7.4: de 1 a 480).
+ * Reglas de la sesión (Anexo 5, 3.2): sin sesiones simultáneas del mismo usuario (el segundo ingreso se rechaza, decisión 7.1) y
+ * cierre por inactividad de 10 minutos, parametrizable (duda 7.4: de 1 a 480).
  */
 public final class Sesion {
 
     public static final int MINUTOS_DEFECTO = 10;
-    private static final int MINUTOS_MAXIMO = 480;
+    public static final int MINUTOS_MAXIMO = 480;
     private static final Pattern ENTERO = Pattern.compile("^\\d+$");
 
     private Sesion() {

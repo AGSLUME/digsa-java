@@ -118,6 +118,12 @@ public class Navegador {
     }
 
     public Respuesta multipart(String ruta, java.util.Map<String, String> campos, java.util.Map<String, byte[]> archivos, String campoArchivos) {
+        return multipart(ruta, campos, archivos, campoArchivos, "application/octet-stream");
+    }
+
+    /** @param tipoArchivo Content-Type que declara cada archivo (como lo pone el navegador); null o vacío lo omite */
+    public Respuesta multipart(String ruta, java.util.Map<String, String> campos, java.util.Map<String, byte[]> archivos, String campoArchivos,
+                               String tipoArchivo) {
         if (xsrf() == null) {
             get("/api/auth/inicio");
         }
@@ -131,7 +137,7 @@ public class Navegador {
             }
             for (var a : archivos.entrySet()) {
                 cuerpo.write(("--" + limite + crlf + "Content-Disposition: form-data; name=\"" + campoArchivos + "\"; filename=\"" + a.getKey() + "\"" + crlf
-                        + "Content-Type: application/octet-stream" + crlf + crlf).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        + (tipoArchivo == null || tipoArchivo.isEmpty() ? "" : "Content-Type: " + tipoArchivo + crlf) + crlf).getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 cuerpo.write(a.getValue());
                 cuerpo.write(crlf.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }

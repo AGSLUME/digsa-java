@@ -16,6 +16,14 @@ digsa:
     carpeta: target/correos-prueba
   archivos:
     carpeta: target/archivos-prueba     # las evidencias y actas de las pruebas no quedan en el árbol fuente
+  sms:
+    modo: archivo                       # los SMS quedan en target/archivos-prueba/sms y en memoria (SmsArchivo.ultimos)
+  # Las pruebas manejan a mano el respaldo de la bandeja y el monitor de salud (con el reloj movible); el envío inmediato sí corre
+  salida:
+    intervalo-ms: 3600000
+    inicio-ms: 3600000
+  salud:
+    inicio-ms: 3600000
   captcha:
     clave-sitio: ""
     clave-secreta: ""

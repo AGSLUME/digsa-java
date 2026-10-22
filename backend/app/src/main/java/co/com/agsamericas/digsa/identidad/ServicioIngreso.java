@@ -59,10 +59,14 @@ public class ServicioIngreso {
     private final String hashRelleno;
     /** Códigos del segundo factor por hora y usuario (digsa.mfa.codigos-por-hora; 5 por defecto). */
     private final int codigosPorHora;
+    /** Publica el bloqueo de una cuenta (alerta de bloqueo masivo). */
+    private final org.springframework.context.ApplicationEventPublisher eventos;
 
     public ServicioIngreso(RepositorioUsuarios usuarios, ServicioClaves claves, Captcha captcha, Correo correo, PasswordEncoder codificador,
                            RegistroBitacora bitacora, SecurityContextRepository contextos, ConfiguracionDigsa cfg, JdbcClient jdbc, Clock reloj,
-                           @org.springframework.beans.factory.annotation.Value("${digsa.mfa.codigos-por-hora:5}") int codigosPorHora) {
+                           @org.springframework.beans.factory.annotation.Value("${digsa.mfa.codigos-por-hora:5}") int codigosPorHora,
+                           org.springframework.context.ApplicationEventPublisher eventos) {
+        this.eventos = eventos;
         this.codigosPorHora = codigosPorHora > 0 ? codigosPorHora : Mfa.CODIGOS_POR_HORA;
         this.usuarios = usuarios;
         this.claves = claves;
@@ -102,7 +106,9 @@ public class ServicioIngreso {
             codificador.matches(clave == null ? "" : clave, hashRelleno);
             motivo = "Intento con el usuario bloqueado";
         } else if (clave == null || !codificador.matches(clave, encontrado.get().claveHash())) {
-            usuarios.registrarFallo(encontrado.get().id(), ahora, INTENTOS_MAXIMOS, MINUTOS_BLOQUEO);
+            if (usuarios.registrarFallo(encontrado.get().id(), ahora, INTENTOS_MAXIMOS, MINUTOS_BLOQUEO)) {
+                eventos.publishEvent(new CuentaBloqueada(ahora, ahora.plusSeconds(MINUTOS_BLOQUEO * 60L)));
+            }
             motivo = "contraseña incorrecta";
         } else if (encontrado.get().claveInicial() && encontrado.get().claveVence() != null && encontrado.get().claveVence().isBefore(ahora)) {
             motivo = "contraseña inicial vencida (" + RepositorioUsuarios.HORAS_CLAVE_INICIAL + " h): el administrador debe asignar otra";

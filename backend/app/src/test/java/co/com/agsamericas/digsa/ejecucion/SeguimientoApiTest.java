@@ -327,7 +327,7 @@ class SeguimientoApiTest extends EscenariosVisita {
         Respuesta r1 = admin.post("/api/seguimiento/recordatorios", null);
         assertThat(r1.estado()).as(r1.texto()).isEqualTo(200);
         assertThat(r1.json().path("enviados").asInt()).isGreaterThanOrEqualTo(1);
-        assertThat(ultimoCorreoA(e.liderUsuario() + "@example.com").asunto()).startsWith("Recordatorio: Primera visita de seguimiento");
+        esperarCorreoA(e.liderUsuario() + "@example.com", "Recordatorio: Primera visita de seguimiento");
         admin.post("/api/seguimiento/recordatorios", null);
         assertThat(jdbc.sql("SELECT count(*) FROM visitas_historial WHERE visita_id = :s AND evento = 'Recordatorio al auditor'").param("s", sid).query(Long.class).single())
                 .isEqualTo(1);

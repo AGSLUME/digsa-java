@@ -2,6 +2,7 @@ package co.com.agsamericas.digsa.ejecucion;
 
 import co.com.agsamericas.digsa.agenda.RepositorioVisitas;
 import co.com.agsamericas.digsa.agenda.ServicioNotificacion;
+import co.com.agsamericas.digsa.alertas.ServicioAlertas;
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
 import co.com.agsamericas.digsa.plataforma.Correo;
@@ -58,11 +59,13 @@ public class ServicioActa {
     private final co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta;
     private final co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa cfg;
     private final ServicioSeguimiento seguimiento;
+    private final ServicioAlertas alertas;
 
     public ServicioActa(ServicioFormulario formulario, ServicioArchivos archivos, ServicioNotificacion notificacion, ServicioCatalogos catalogos,
                         RepositorioVisitas visitas, Correo correo, RegistroBitacora bitacora, JdbcClient jdbc, TransactionTemplate tx, Clock reloj,
                         co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta, co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa cfg,
-                        ServicioSeguimiento seguimiento) {
+                        ServicioSeguimiento seguimiento, ServicioAlertas alertas) {
+        this.alertas = alertas;
         this.seguimiento = seguimiento;
         this.consulta = consulta;
         this.cfg = cfg;
@@ -210,6 +213,7 @@ public class ServicioActa {
         if (completa && cerrada) {
             bitacora.registrar("visita_cerrada", "Visita " + p.numero() + ": acta de la ronda " + p.ronda() + " enviada y visita cerrada", quien.id(),
                     quien.usuario());
+            avisarIntervencionInmediata(visitaId, p.actaId(), p.numero(), p.ronda());
             List<String> avisos = seg[0] == null ? List.of() : seguimiento.despuesDelCierre(visitas.porId(visitaId).orElseThrow(), p.actaId(), seg[0], quien);
             return new Envio(true, "Acta enviada a " + p.para().size() + " destinatarios y visita cerrada."
                     + (rechazados.isEmpty() ? "" : " " + rechazados.size() + " destinatarios no obligatorios la rechazaron.")
@@ -225,6 +229,26 @@ public class ServicioActa {
         bitacora.registrar("visita_notificacion_fallida", "Visita " + p.numero() + ": el acta de la ronda " + p.ronda() + " no salió", quien.id(), quien.usuario());
         return new Envio(false, "El acta se generó pero no llegó a los destinatarios obligatorios (" + error + "). La visita sigue en ejecución: "
                 + "intente enviarla de nuevo cuando el correo funcione.", p.ronda());
+    }
+
+    /**
+     * Fase 10: el acta salió con hallazgos marcados de intervención inmediata → aviso operativo a la coordinación y a la DIGSA (alerta
+     * «intervencion_inmediata», solo correo, una vez por acta). Después del cierre ya confirmado: no frena ni deshace el envío del acta.
+     * El correo lleva el número de la visita, el punto y cuántos hallazgos, sin su texto.
+     */
+    private void avisarIntervencionInmediata(long visitaId, long actaId, String numero, int ronda) {
+        try {
+            long inmediatos = jdbc.sql("SELECT count(*) FROM visitas_hallazgos WHERE acta_id = :a AND inmediata").param("a", actaId).query(Long.class).single();
+            if (inmediatos == 0) {
+                return;
+            }
+            String punto = jdbc.sql("SELECT p.nombre FROM visitas v JOIN puntos p ON p.id = v.punto_id WHERE v.id = :v").param("v", visitaId)
+                    .query(String.class).optional().orElse("");
+            alertas.disparar(co.com.agsamericas.digsa.reglas.Alertas.INTERVENCION_INMEDIATA, "acta:" + actaId, "Visita " + numero + " · " + punto + ": el acta"
+                    + (ronda > 1 ? " de la ronda " + ronda : "") + " se envió con " + inmediatos + " hallazgo(s) de intervención inmediata. Consulte el detalle en la Suite DIGSA.");
+        } catch (RuntimeException e) {
+            org.slf4j.LoggerFactory.getLogger(ServicioActa.class).error("[acta] Aviso de intervención inmediata de la visita {}", visitaId, e);
+        }
     }
 
     private void guardarResumen(long visitaId, Checklist.Resumen s) {

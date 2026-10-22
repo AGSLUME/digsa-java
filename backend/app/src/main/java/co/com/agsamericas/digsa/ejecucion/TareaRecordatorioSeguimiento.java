@@ -2,10 +2,12 @@ package co.com.agsamericas.digsa.ejecucion;
 
 import co.com.agsamericas.digsa.agenda.RepositorioVisitas;
 import co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda;
+import co.com.agsamericas.digsa.alertas.ServicioAlertas;
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
+import co.com.agsamericas.digsa.plataforma.BandejaSalida;
 import co.com.agsamericas.digsa.plataforma.Correo;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
-import co.com.agsamericas.digsa.reglas.Bitacora;
+import co.com.agsamericas.digsa.reglas.Alertas;
 import co.com.agsamericas.digsa.reglas.Correos;
 import co.com.agsamericas.digsa.reglas.EstadosVisita;
 import co.com.agsamericas.digsa.reglas.Fechas;
@@ -20,11 +22,16 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Recordatorio diario al auditor líder de cada seguimiento por ejecutar cuya fecha esté entre hoy y hoy + {@code
  * recordatorio_seguimiento_habiles} días hábiles (duda 6.9), una sola vez por visita: la marca es «Recordatorio al auditor» en el
- * historial. Si falla queda «Recordatorio al auditor fallido» y se reintenta al día siguiente.
+ * historial. Si el líder no tiene correo queda «Recordatorio al auditor fallido», se reintenta al día siguiente y la corrida dispara la
+ * alerta crítica «tarea_diaria_fallida».
+ *
+ * <p>Fase 10: el recordatorio es un aviso informativo y va por la bandeja de salida, encolado en la misma transacción que la marca del
+ * historial: sale en segundos y la bandeja lo reintenta (1, 5, 30 min y 2 h).
  */
 @Component
 public class TareaRecordatorioSeguimiento {
@@ -40,18 +47,22 @@ public class TareaRecordatorioSeguimiento {
     private final RepositorioVisitas visitas;
     private final ServicioConsultaAgenda consulta;
     private final ServicioCatalogos catalogos;
-    private final Correo correo;
+    private final BandejaSalida bandeja;
     private final Clock reloj;
     private final javax.sql.DataSource ds;
+    private final TransactionTemplate tx;
+    private final ServicioAlertas alertas;
 
     public TareaRecordatorioSeguimiento(JdbcClient jdbc, RepositorioVisitas visitas, ServicioConsultaAgenda consulta, ServicioCatalogos catalogos,
-                                        Correo correo, Clock reloj, javax.sql.DataSource ds) {
+                                        BandejaSalida bandeja, Clock reloj, javax.sql.DataSource ds, TransactionTemplate tx, ServicioAlertas alertas) {
         this.ds = ds;
+        this.tx = tx;
+        this.alertas = alertas;
         this.jdbc = jdbc;
         this.visitas = visitas;
         this.consulta = consulta;
         this.catalogos = catalogos;
-        this.correo = correo;
+        this.bandeja = bandeja;
         this.reloj = reloj;
     }
 
@@ -82,11 +93,17 @@ public class TareaRecordatorioSeguimiento {
                 LOG.warn("[seguimiento] Recordatorio no corrió: otra instancia tiene el candado");
                 return new Resumen(0, 0);
             }
+            Resumen r;
             try {
-                return pasos();
+                r = pasos();
             } finally {
                 candado(c, "SELECT pg_advisory_unlock(?)");
             }
+            if (r.fallidos() > 0) {
+                alertas.disparar(Alertas.TAREA_DIARIA_FALLIDA, "seguimiento:" + LocalDate.now(reloj.withZone(Fechas.BOGOTA)),
+                        "El recordatorio de seguimientos terminó con " + r.fallidos() + " recordatorio(s) sin enviar (auditor líder sin correo).");
+            }
+            return r;
         } catch (java.sql.SQLException e) {
             throw new IllegalStateException("No se pudo tomar el candado del recordatorio", e);
         }
@@ -144,15 +161,15 @@ public class TareaRecordatorioSeguimiento {
                 + "</strong>, el " + PlantillaCorreo.e(Plazos.fechaLarga(v.fecha())) + (v.hora() == null ? "" : " a las " + v.hora()) + " en "
                 + PlantillaCorreo.e(v.puntoNombre()) + ".</p><p>Acciones abiertas por verificar:</p><ul>" + filas + "</ul>");
         try {
-            Correo.Resultado r = correo.enviar(new Correo.Mensaje(para, List.of(), "Recordatorio: " + titulo, html, List.of()));
-            if (r.ok()) {
-                visitas.historial(id, null, "sistema", MARCA, "Seguimiento del " + v.fecha());
-                return true;
-            }
-            visitas.historial(id, null, "sistema", MARCA + " fallido", Bitacora.cortar(Bitacora.sinCorreos(String.valueOf(r.error())), 300));
+            // La marca y el correo en la misma transacción: o quedan los dos o ninguno (y se reintenta mañana)
+            tx.executeWithoutResult(t -> {
+                bandeja.encolar("recordatorio_seguimiento", "visita:" + id, new Correo.Mensaje(para, List.of(), "Recordatorio: " + titulo, html, List.of()));
+                visitas.historial(id, null, "sistema", MARCA, "Seguimiento del " + v.fecha() + " (correo en la bandeja de salida)");
+            });
+            return true;
         } catch (RuntimeException e) {
             LOG.error("[seguimiento] Recordatorio de la visita {}", id, e);
-            visitas.historial(id, null, "sistema", MARCA + " fallido", "Error al enviar el correo");
+            visitas.historial(id, null, "sistema", MARCA + " fallido", "Error al encolar el correo");
         }
         return false;
     }

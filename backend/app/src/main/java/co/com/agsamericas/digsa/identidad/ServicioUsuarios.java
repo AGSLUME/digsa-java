@@ -67,7 +67,8 @@ public class ServicioUsuarios {
         String usuario = texto(d.usuario()).toLowerCase();
         String correo = Correos.normalizar(texto(d.correo()));
         String documento = vacioANulo(d.documento());
-        String telefono = vacioANulo(d.telefono());
+        // Móvil en E.164 para los SMS de las alertas críticas; el que no cambió se conserva (usuarios anteriores a la validación)
+        String telefono = telefonoMovil(vacioANulo(d.telefono()), nuevo ? null : usuarios.porId(d.id()).map(Usuario::telefono).orElse(null));
         if (nombre.codePointCount(0, nombre.length()) < 3 || nombre.length() > 150) {
             throw ErrorNegocio.validacion("Escriba el nombre completo (mínimo 3 caracteres).");
         }
@@ -232,6 +233,19 @@ public class ServicioUsuarios {
         usuarios.renombrarPerfil(id, n, d);
         bitacora.registrar("perfil_editado", "Perfil " + id + ": nombre «" + Bitacora.cortar(antes.getOrDefault(id, ""), 60) + "» → «" + n + "»",
                 quien.id(), quien.usuario());
+    }
+
+    /**
+     * Teléfono móvil colombiano en E.164 (+57 y 10 dígitos que empiezan por 3): lo usan los SMS de las alertas críticas (spec
+     * exportacion-alertas, punto 10). Vacío se admite; un valor igual al guardado se conserva tal cual para no impedir editar a los
+     * usuarios registrados antes de la validación.
+     */
+    static String telefonoMovil(String escrito, String actual) {
+        if (escrito == null || escrito.equals(actual)) {
+            return escrito;
+        }
+        return co.com.agsamericas.digsa.reglas.Alertas.normalizarTelefono(escrito).orElseThrow(() -> ErrorNegocio.validacion(
+                "El teléfono debe ser un móvil colombiano: +57 y 10 dígitos que empiezan por 3 (p. ej. +57 300 000 0000). Se usa para los SMS de las alertas críticas."));
     }
 
     private static Map<String, Object> foto(String nombre, String documento, String telefono, String usuario, String correo,

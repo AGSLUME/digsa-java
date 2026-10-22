@@ -2,6 +2,7 @@ package co.com.agsamericas.digsa.agenda;
 
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
 import co.com.agsamericas.digsa.plataforma.Almacen;
+import co.com.agsamericas.digsa.plataforma.BandejaSalida;
 import co.com.agsamericas.digsa.plataforma.Correo;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
@@ -50,19 +51,19 @@ public class ServicioSolicitudes {
     private final ServicioConsultaAgenda consulta;
     private final ValidadorArchivos validador;
     private final Almacen almacen;
-    private final Correo correo;
+    private final BandejaSalida bandeja;
     private final RegistroBitacora bitacora;
     private final TransactionTemplate tx;
     private final Clock reloj;
 
     public ServicioSolicitudes(JdbcClient jdbc, RepositorioVisitas visitas, ServicioConsultaAgenda consulta, ValidadorArchivos validador, Almacen almacen,
-                               Correo correo, RegistroBitacora bitacora, TransactionTemplate tx, Clock reloj) {
+                               BandejaSalida bandeja, RegistroBitacora bitacora, TransactionTemplate tx, Clock reloj) {
         this.jdbc = jdbc;
         this.visitas = visitas;
         this.consulta = consulta;
         this.validador = validador;
         this.almacen = almacen;
-        this.correo = correo;
+        this.bandeja = bandeja;
         this.bitacora = bitacora;
         this.tx = tx;
         this.reloj = reloj;
@@ -142,24 +143,33 @@ public class ServicioSolicitudes {
                 throw new ErrorNegocio(HttpStatus.INTERNAL_SERVER_ERROR, "No se pudo guardar el escrito. Intente de nuevo.");
             }
         }
-        long id;
+        LocalDate limite = consulta.plazos().limiteNecesidad(f);
+        // La solicitud y su aviso al coordinador en la bandeja de salida: o quedan los dos o ninguno (y el escrito se descarta). Antes iban
+        // sin transacción: si el aviso fallaba, la solicitud quedaba registrada detrás de un 500 y el usuario la repetía.
+        final String rutaEscrito = ruta;
+        final String nombreEscrito = nombre;
+        final ValidadorArchivos.Valido valido = escrito;
+        long[] registro;
         try {
-            id = jdbc.sql("""
-                    INSERT INTO visitas_solicitudes (punto_id, solicitante_id, entidad, fecha_solicitud, motivo, archivo_ruta, archivo_nombre,
-                      archivo_tamano, archivo_sha256, registrado, actualizado)
-                    VALUES (:p, :u, :e, :f, :m, :r, :n, :t, :s, :ahora, :ahora) RETURNING id""")
-                    .param("p", punto.id()).param("u", quien.id()).param("e", entidad).param("f", f).param("m", motivo).param("r", ruta).param("n", nombre)
-                    .param("t", escrito == null ? null : (long) escrito.contenido().length).param("s", escrito == null ? null : escrito.sha256())
-                    .param("ahora", OffsetDateTime.now(reloj)).query(Long.class).single();
+            registro = tx.execute(t -> {
+                long nuevo = jdbc.sql("""
+                        INSERT INTO visitas_solicitudes (punto_id, solicitante_id, entidad, fecha_solicitud, motivo, archivo_ruta, archivo_nombre,
+                          archivo_tamano, archivo_sha256, registrado, actualizado)
+                        VALUES (:p, :u, :e, :f, :m, :r, :n, :t, :s, :ahora, :ahora) RETURNING id""")
+                        .param("p", punto.id()).param("u", quien.id()).param("e", entidad).param("f", f).param("m", motivo).param("r", rutaEscrito)
+                        .param("n", nombreEscrito).param("t", valido == null ? null : (long) valido.contenido().length)
+                        .param("s", valido == null ? null : valido.sha256()).param("ahora", OffsetDateTime.now(reloj)).query(Long.class).single();
+                return new long[] {nuevo, avisarCoordinadores(nuevo, entidad, punto, f, limite, motivo) ? 1 : 0};
+            });
         } catch (RuntimeException e) {
             if (ruta != null) {
                 almacen.descartar(ruta);
             }
             throw e;
         }
+        long id = registro[0];
+        boolean avisado = registro[1] == 1;
         bitacora.registrar("solicitud_registrada", "Solicitud " + id + " · " + entidad + " · punto " + punto.id(), quien.id(), quien.usuario());
-        LocalDate limite = consulta.plazos().limiteNecesidad(f);
-        boolean avisado = avisarCoordinadores(id, entidad, punto, f, limite, motivo);
         if (!avisado) {
             // El plazo de 5 días hábiles corre: que quede rastro para revisar la bandeja aunque el correo no haya salido
             bitacora.registrar("solicitud_aviso_fallido", "Solicitud " + id + ": el aviso a los coordinadores no salió", quien.id(), quien.usuario());
@@ -172,7 +182,10 @@ public class ServicioSolicitudes {
         return m;
     }
 
-    /** Decisión 9.6: correo al coordinador por cada solicitud nueva (a todos los coordinadores activos). */
+    /**
+     * Decisión 9.6: correo al coordinador por cada solicitud nueva (a todos los coordinadores activos). Aviso informativo: va por la bandeja
+     * de salida (sale en segundos y se reintenta). @return false si no hay a quién avisar
+     */
     private boolean avisarCoordinadores(long id, String entidad, RepositorioVisitas.Punto punto, LocalDate fecha, LocalDate limite, String motivo) {
         List<String> para = jdbc.sql("""
                 SELECT u.correo FROM usuarios u JOIN usuarios_perfiles up ON up.usuario_id = u.id AND up.perfil_id = :p WHERE u.activo""")
@@ -183,9 +196,9 @@ public class ServicioSolicitudes {
         String cuerpo = "Nueva solicitud de visita a necesidad N.º " + id + "\n\nEntidad: " + entidad + "\nPunto: " + punto.nombre() + "\nFecha del escrito: "
                 + Plazos.fechaLarga(fecha) + "\nPlazo máximo para la visita: " + Plazos.fechaLarga(limite) + " (5 días hábiles, Anexo 3 p.14)\n\nMotivo:\n"
                 + (motivo.length() > 600 ? motivo.substring(0, 600) + "…" : motivo) + "\n\nAgéndela en la Suite DIGSA › Solicitudes de visita.";
-        Correo.Resultado r = correo.enviar(new Correo.Mensaje(para, List.of(), "Solicitud de visita a necesidad N.º " + id + " · " + punto.nombre(),
+        bandeja.encolar("solicitud_nueva", "solicitud:" + id, new Correo.Mensaje(para, List.of(), "Solicitud de visita a necesidad N.º " + id + " · " + punto.nombre(),
                 PlantillaCorreo.marco("Solicitud de visita a necesidad", "<p>" + PlantillaCorreo.texto(cuerpo) + "</p>"), List.of()));
-        return r.ok();
+        return true;
     }
 
     /** Decisión 9.4: cada solicitante ve solo sus solicitudes; el coordinador (y el administrador) ve todas. */
@@ -299,7 +312,7 @@ public class ServicioSolicitudes {
 
     /**
      * Aviso a quien solicitó (nunca al OPL): al agendar la visita (decisión 31) o al cancelarla (decisión 9.3). Después de confirmar la
-     * transacción; un fallo del correo no deshace nada y queda en el historial.
+     * transacción. Aviso informativo: va por la bandeja de salida, que lo envía en segundos y lo reintenta; el historial lo registra.
      */
     String avisarSolicitante(long solicitudId, RepositorioVisitas.Visita v, boolean cancelada, String motivo, UsuarioSesion quien) {
         Map<String, Object> s = jdbc.sql("""
@@ -320,12 +333,14 @@ public class ServicioSolicitudes {
                                 + "\n\nLa visita a necesidad se hace sin previo aviso al operador logístico (Anexo 3 p.14): por favor no comparta esta "
                                 + "información con el OPL ni con el punto.")
                 + "\n\nInterventoría DIGSA";
-        Correo.Resultado r = correo.enviar(new Correo.Mensaje(List.of(String.valueOf(s.get("correo"))), List.of(), asunto,
-                PlantillaCorreo.marco(cancelada ? "Visita a necesidad cancelada" : "Visita a necesidad agendada", "<p>" + PlantillaCorreo.texto(cuerpo) + "</p>"),
-                List.of()));
-        visitas.historial(v.id(), quien.id(), quien.usuario(), r.ok() ? "Aviso al solicitante" : "Aviso al solicitante fallido",
-                "Solicitud " + solicitudId + (r.ok() ? "" : ". " + r.error()));
-        return r.ok() ? "Se avisó al solicitante." : "No se pudo avisar al solicitante; avísele por otro medio.";
+        tx.executeWithoutResult(t -> {
+            long cid = bandeja.encolar(cancelada ? "solicitud_cancelada" : "solicitud_agendada", "solicitud:" + solicitudId,
+                    new Correo.Mensaje(List.of(String.valueOf(s.get("correo"))), List.of(), asunto,
+                            PlantillaCorreo.marco(cancelada ? "Visita a necesidad cancelada" : "Visita a necesidad agendada", "<p>" + PlantillaCorreo.texto(cuerpo) + "</p>"),
+                            List.of()));
+            visitas.historial(v.id(), quien.id(), quien.usuario(), "Aviso al solicitante", "Solicitud " + solicitudId + " · correo " + cid + " en la bandeja de salida");
+        });
+        return "Se avisó al solicitante (el correo sale en unos segundos).";
     }
 
     static String nombreArchivo(String original) {

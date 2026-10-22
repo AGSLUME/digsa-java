@@ -93,6 +93,20 @@ digsa:
     dominios-permitidos: ${DIGSA_DOMINIOS_REPORTES:}
   archivos:
     carpeta: ${DIGSA_ARCHIVOS_CARPETA:almacen/archivos}
+  # SMS de las alertas críticas (GMI P77 b): archivo (solo local) | ninguno (local y pruebas) | el proveedor que se contrate.
+  # En producción sin proveedor la aplicación no arranca.
+  sms:
+    modo: ${DIGSA_SMS_MODO:ninguno}
+  # Bandeja de salida: el envío es inmediato al confirmar; esto es el respaldo (reintentos, colgados, otras réplicas)
+  salida:
+    intervalo-ms: ${DIGSA_SALIDA_INTERVALO_MS:15000}
+    hilos: 2
+  # Verificación de salud de la base y el almacén (alerta almacen_no_disponible)
+  salud:
+    intervalo-ms: ${DIGSA_SALUD_INTERVALO_MS:30000}
+  exportacion:
+    limite-minutos: ${DIGSA_EXPORTACION_LIMITE_MINUTOS:10}   # tiempo máximo de la generación del ZIP (AGS-75 / GMI P74)
+    vigencia-horas: ${DIGSA_EXPORTACION_VIGENCIA_HORAS:24}   # luego la limpieza borra el ZIP (datos personales, Ley 1581)
 
 logging:
   level:

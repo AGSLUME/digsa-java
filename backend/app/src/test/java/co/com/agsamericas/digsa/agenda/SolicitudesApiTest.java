@@ -81,7 +81,8 @@ class SolicitudesApiTest extends PruebaIntegracion {
         Respuesta r = solicitar(n, ejc, hoy(0), "Quejas de usuarios por medicamentos pendientes.", Map.of("escrito.pdf", PDF));
         assertThat(r.estado()).as(r.texto()).isEqualTo(201);
         assertThat(r.json().path("mensaje").asText()).contains("5 días hábiles");
-        assertThat(ultimoCorreoA(coord + "@example.com").asunto()).startsWith("Solicitud de visita a necesidad N.º " + r.json().path("id").asLong());
+        // Aviso informativo por la bandeja de salida: sale en otro hilo al confirmar
+        esperarCorreoA(coord + "@example.com", "Solicitud de visita a necesidad N.º " + r.json().path("id").asLong());
 
         assertThat(solicitar(n, arc, hoy(0), "Fuera de mi alcance de fuerza", Map.of()).mensaje()).contains("punto activo de su alcance");
         assertThat(solicitar(n, ejc, hoy(1), "Fecha futura no permitida", Map.of()).mensaje()).contains("no puede ser futura");
@@ -161,7 +162,7 @@ class SolicitudesApiTest extends PruebaIntegracion {
         assertThat(v.get("tipo")).isEqualTo("necesidad");
         assertThat(((Number) v.get("punto_id")).longValue()).isEqualTo(ejc);
         assertThat(v.get("fecha_solicitud").toString()).isEqualTo(hoy(0));
-        assertThat(ultimoCorreoA(s + "@example.com").asunto()).startsWith("Visita a necesidad agendada");
+        esperarCorreoA(s + "@example.com", "Visita a necesidad agendada");
         assertThat(jdbc.sql("SELECT estado FROM visitas_solicitudes WHERE id = :id").param("id", id).query(String.class).single()).isEqualTo("programada");
         assertThat(coord.post("/api/agenda", visitaDe(id, otro, qf)).mensaje()).contains("ya no está pendiente");
 
@@ -169,7 +170,7 @@ class SolicitudesApiTest extends PruebaIntegracion {
         assertThat(c.estado()).as(c.texto()).isEqualTo(200);
         assertThat(c.json().path("mensaje").asText()).contains("volvió a pendiente");
         assertThat(jdbc.sql("SELECT estado FROM visitas_solicitudes WHERE id = :id").param("id", id).query(String.class).single()).isEqualTo("pendiente");
-        assertThat(ultimoCorreoA(s + "@example.com").asunto()).startsWith("Visita a necesidad cancelada");
+        esperarCorreoA(s + "@example.com", "Visita a necesidad cancelada");
         assertThat(coord.get("/api/agenda/" + visita).json().path("historial").toString()).contains("Solicitud liberada", "Aviso al solicitante");
         assertThat(coord.post("/api/agenda", visitaDe(id, otro, qf)).estado()).as("se puede reprogramar").isEqualTo(201);
     }

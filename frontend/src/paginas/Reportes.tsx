@@ -44,11 +44,25 @@ function hoy(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Parámetros de la consulta del reporte (solo los filtros con valor). */
+/** Orden de las pestañas: la distribución auditor–punto (solo coordinación y DIGSA) va al final. */
+const ORDEN_TIPOS = ['detalle', 'lugar', 'proceso', 'distribucion'];
+
+export function ordenTipos(tipos: Record<string, string>): [string, string][] {
+  const pos = (k: string) => (ORDEN_TIPOS.includes(k) ? ORDEN_TIPOS.indexOf(k) : ORDEN_TIPOS.length);
+  return Object.entries(tipos).sort(([a], [b]) => pos(a) - pos(b));
+}
+
+/** La distribución auditor–punto solo se filtra por el periodo: el lugar, la fuerza, la unidad y el estado no aplican. */
+export function soloPeriodo(tipo: string): boolean {
+  return tipo === 'distribucion';
+}
+
+/** Parámetros de la consulta del reporte (solo los filtros con valor que aplican al tipo). */
 export function parametros(f: Filtros, tipo: string): URLSearchParams {
   const p = new URLSearchParams();
   if (f.desde) p.set('desde', f.desde);
   if (f.hasta) p.set('hasta', f.hasta);
+  if (soloPeriodo(tipo)) return p;
   if (f.puntoId) p.set('punto_id', f.puntoId);
   if (f.fuerza) p.set('fuerza', f.fuerza);
   if (f.unidad) p.set('unidad', f.unidad);
@@ -68,7 +82,15 @@ function celda(v: string | number | null): string {
 export function Reportes() {
   const opciones = useQuery({ queryKey: ['reportes', 'opciones'], queryFn: () => api<Opciones>('/api/reportes') });
   const [tipo, setTipo] = useState('detalle');
-  const [f, setF] = useState<Filtros>({ desde: `${new Date().getFullYear()}-01-01`, hasta: hoy(), puntoId: '', fuerza: '', unidad: '', estado: '', componente: '' });
+  const [f, setF] = useState<Filtros>({
+    desde: `${new Date().getFullYear()}-01-01`,
+    hasta: hoy(),
+    puntoId: '',
+    fuerza: '',
+    unidad: '',
+    estado: '',
+    componente: '',
+  });
   const [aplicado, setAplicado] = useState<{ tipo: string; f: Filtros } | null>(null);
   const [para, setPara] = useState('');
   const [formatoEnvio, setFormatoEnvio] = useState('xlsx');
@@ -116,35 +138,43 @@ export function Reportes() {
       <Title order={3}>Reportes de visitas</Title>
       <Tabs value={tipo} onChange={(v) => setTipo(v ?? 'detalle')}>
         <Tabs.List>
-          {Object.entries(o.tipos)
-            .sort(([a], [b]) => ['detalle', 'lugar', 'proceso'].indexOf(a) - ['detalle', 'lugar', 'proceso'].indexOf(b))
-            .map(([k, v]) => (
-              <Tabs.Tab key={k} value={k}>
-                {v}
-              </Tabs.Tab>
-            ))}
+          {ordenTipos(o.tipos).map(([k, v]) => (
+            <Tabs.Tab key={k} value={k}>
+              {v}
+            </Tabs.Tab>
+          ))}
         </Tabs.List>
       </Tabs>
       <Card withBorder data-testid="filtros-reporte">
         <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }}>
           <TextInput label="Desde" type="date" value={f.desde} onChange={(e) => setF({ ...f, desde: e.currentTarget.value })} />
           <TextInput label="Hasta" type="date" value={f.hasta} onChange={(e) => setF({ ...f, hasta: e.currentTarget.value })} />
-          <Select label="Lugar" searchable clearable data={puntos} value={f.puntoId || null} onChange={(v) => setF({ ...f, puntoId: v ?? '' })} />
-          <Select
-            label="Fuerza"
-            clearable
-            data={o.fuerzas.map((x) => ({ value: x.codigo, label: x.nombre }))}
-            value={f.fuerza || null}
-            onChange={(v) => setF({ ...f, fuerza: v ?? '' })}
-          />
-          <Select label="Unidad" clearable data={['ESM', 'FA', 'NC']} value={f.unidad || null} onChange={(v) => setF({ ...f, unidad: v ?? '' })} />
-          <Select
-            label="Estado"
-            clearable
-            data={Object.entries(o.estados).map(([value, label]) => ({ value, label }))}
-            value={f.estado || null}
-            onChange={(v) => setF({ ...f, estado: v ?? '' })}
-          />
+          {!soloPeriodo(tipo) && (
+            <>
+              <Select label="Lugar" searchable clearable data={puntos} value={f.puntoId || null} onChange={(v) => setF({ ...f, puntoId: v ?? '' })} />
+              <Select
+                label="Fuerza"
+                clearable
+                data={o.fuerzas.map((x) => ({ value: x.codigo, label: x.nombre }))}
+                value={f.fuerza || null}
+                onChange={(v) => setF({ ...f, fuerza: v ?? '' })}
+              />
+              <Select
+                label="Unidad"
+                clearable
+                data={['ESM', 'FA', 'NC']}
+                value={f.unidad || null}
+                onChange={(v) => setF({ ...f, unidad: v ?? '' })}
+              />
+              <Select
+                label="Estado"
+                clearable
+                data={Object.entries(o.estados).map(([value, label]) => ({ value, label }))}
+                value={f.estado || null}
+                onChange={(v) => setF({ ...f, estado: v ?? '' })}
+              />
+            </>
+          )}
           {tipo === 'proceso' && (
             <Select
               label="Componente"
@@ -155,6 +185,13 @@ export function Reportes() {
             />
           )}
         </SimpleGrid>
+        {soloPeriodo(tipo) && (
+          <Text size="sm" c="dimmed" mt="sm" data-testid="ayuda-distribucion">
+            Por auditor activo: los puntos que tiene asignados o que visita en el periodo, la distancia en línea recta de su municipio base al
+            municipio de acceso del punto (coordenadas del DANE) y sus visitas agendadas y cerradas. Justifica el reparto de la propuesta de agenda
+            por cercanía y carga.
+          </Text>
+        )}
         <Group mt="md">
           <Button onClick={() => setAplicado({ tipo, f: { ...f } })}>Generar reporte</Button>
         </Group>
@@ -208,8 +245,19 @@ export function Reportes() {
             </Table>
           </ScrollArea>
           <Group mt="md" align="flex-end" wrap="wrap">
-            <TextInput label="Enviar a" type="email" placeholder="correo@sanidad.mil.co" value={para} onChange={(e) => setPara(e.currentTarget.value)} />
-            <Select label="Formato" data={FORMATOS.map((x) => ({ value: x.valor, label: x.etiqueta }))} value={formatoEnvio} onChange={(v) => setFormatoEnvio(v ?? 'xlsx')} />
+            <TextInput
+              label="Enviar a"
+              type="email"
+              placeholder="correo@sanidad.mil.co"
+              value={para}
+              onChange={(e) => setPara(e.currentTarget.value)}
+            />
+            <Select
+              label="Formato"
+              data={FORMATOS.map((x) => ({ value: x.valor, label: x.etiqueta }))}
+              value={formatoEnvio}
+              onChange={(v) => setFormatoEnvio(v ?? 'xlsx')}
+            />
             <Button loading={enviar.isPending} disabled={!para} onClick={() => enviar.mutate()}>
               Enviar por correo
             </Button>

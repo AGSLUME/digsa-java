@@ -462,7 +462,7 @@ Implementado según `docs/especificaciones/propuesta-agenda`, con las decisiones
 | 24.3 | **Primer día posible** | Regla de la agenda: el día D sirve si su límite de notificación (hábil anterior a D − 15) no ha pasado. Antes era hoy + 15 días calendario |
 | 24.4 | **Datos iniciales:** ningún ESM trae auditor asignado, ningún auditor trae municipio base y no hay puntos de nivel central | La propuesta funciona igual, pero mide todo «sin ubicación» hasta que se carguen esos datos en Puntos y auditores |
 | 24.5 | **Avisos de las ciudades principales y de los ESM sin auditor asignado:** son nuevos (fuente de verdad), el PHP no los tenía | Se muestran en la cobertura como avisos; no impiden proponer |
-| 24.6 | **Fila «En proceso…»:** una confirmación que se cae a mitad deja esa fila marcada | Se programa en su propia transacción. Si quedó «En proceso…», hay que revisarla en la agenda (queda pendiente un reintento automático) |
+| 24.6 | **Confirmación cortada a mitad** | Cada fila se programa en su propia transacción (tomar, volver a comprobar, programar sin notificar) y la notificación sale después. Si algo falla, la fila queda sin resultado y «Continuar la confirmación» la retoma; si falla solo la notificación, la visita queda programada con el botón «Notificar» de la agenda |
 | 24.7 | **Fin de la línea base:** el PHP suma 3 meses inclusive (15-ene → 15-abr) | Se dejó como el PHP |
 
 ### Revisión de los ajustes (2026-10-22)

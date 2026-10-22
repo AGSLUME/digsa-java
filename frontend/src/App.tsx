@@ -17,6 +17,7 @@ import { MisVisitas } from './paginas/MisVisitas';
 import { Opl, OplVisita } from './paginas/Opl';
 import { OplResponder } from './paginas/OplResponder';
 import { Prorrogas } from './paginas/Prorrogas';
+import { Propuesta } from './paginas/Propuesta';
 import { Seguimiento } from './paginas/Seguimiento';
 import { Usuarios } from './paginas/Usuarios';
 import { VisitaDetalle } from './paginas/VisitaDetalle';
@@ -111,6 +112,7 @@ export function App() {
           <Route path="/catalogos" element={<Protegida ruta="catalogos"><Catalogos /></Protegida>} />
           <Route path="/maestros" element={<Protegida ruta="maestros"><Maestros /></Protegida>} />
           <Route path="/agenda" element={<Protegida ruta="agenda"><Agenda /></Protegida>} />
+          <Route path="/propuesta" element={<Protegida ruta="propuesta"><Propuesta /></Protegida>} />
           <Route path="/agenda/visita/:id" element={<Protegida ruta="agenda"><VisitaDetalle key="agenda" origen="agenda" /></Protegida>} />
           <Route path="/seguimiento" element={<Protegida ruta="agenda"><Seguimiento /></Protegida>} />
           <Route path="/mis-visitas" element={<Protegida ruta="mis-visitas"><MisVisitas /></Protegida>} />

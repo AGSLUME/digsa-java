@@ -40,12 +40,26 @@ export function unico(prefijo: string): string {
 
 /** Sin desplazamiento horizontal de la página. */
 export async function sinDesplazamientoHorizontal(page: Page): Promise<void> {
-  const r = await page.evaluate(() => ({ ancho: document.documentElement.scrollWidth, visible: document.documentElement.clientWidth }));
-  expect(r.ancho, `scrollWidth ${r.ancho} > clientWidth ${r.visible}`).toBeLessThanOrEqual(r.visible);
+  // Se reintenta unos segundos: justo después de cambiar el tamaño de la ventana el menú lateral sigue en su transición y desborda
+  const medir = () => page.evaluate(() => ({ ancho: document.documentElement.scrollWidth, visible: document.documentElement.clientWidth }));
+  await expect
+    .poll(
+      async () => {
+        const r = await medir();
+        return r.ancho - r.visible;
+      },
+      { timeout: 5000 },
+    )
+    .toBeLessThanOrEqual(0);
 }
 
 /** Llamada a la API desde la página (misma cookie de sesión y token CSRF), para preparar datos sin pasar por la pantalla. */
-export async function api<T = Record<string, unknown>>(page: Page, metodo: string, ruta: string, cuerpo?: unknown): Promise<{ estado: number; datos: T }> {
+export async function api<T = Record<string, unknown>>(
+  page: Page,
+  metodo: string,
+  ruta: string,
+  cuerpo?: unknown,
+): Promise<{ estado: number; datos: T }> {
   return page.evaluate(
     async ({ metodo, ruta, cuerpo }) => {
       const t = /(?:^|; )XSRF-TOKEN=([^;]+)/.exec(document.cookie)?.[1];

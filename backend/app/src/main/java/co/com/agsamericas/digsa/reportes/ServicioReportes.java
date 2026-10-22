@@ -29,7 +29,10 @@ public class ServicioReportes {
     public static final Map<String, String> TIPOS = Map.of(
             "detalle", "Detalle de visitas",
             "lugar", "Consolidado de visitas por lugar",
-            "proceso", "Consolidado de visitas por proceso (componente)");
+            "proceso", "Consolidado de visitas por proceso (componente)",
+            "distribucion", "Distribución auditor–punto");
+    /** La distribución auditor–punto la ven la coordinación y la DIGSA (decisión 13.3): nombra a los auditores. */
+    static final String DISTRIBUCION = "distribucion";
     static final int MAX_DIAS = 3 * 366;
 
     public record Filtros(String desde, String hasta, Long puntoId, String municipio, String fuerza, String unidad, String estado, String componente) {
@@ -50,7 +53,7 @@ public class ServicioReportes {
      */
     public Reporte generar(String tipo, Filtros f, Alcance alcance, String usuario, boolean verEquipo) {
         String titulo = TIPOS.get(tipo);
-        if (titulo == null) {
+        if (titulo == null || (DISTRIBUCION.equals(tipo) && !(alcance instanceof Alcance.Todo))) {
             throw ErrorNegocio.noEncontrado("El reporte no existe.");
         }
         LocalDate hoy = LocalDate.now(reloj.withZone(Fechas.BOGOTA));
@@ -103,10 +106,60 @@ public class ServicioReportes {
         boolean consulta = !verEquipo;
         ZonedDateTime generado = ZonedDateTime.now(reloj.withZone(Fechas.BOGOTA));
         return switch (tipo) {
+            // La distribución solo filtra por periodo: el encabezado no muestra filtros que no aplica
+            case DISTRIBUCION -> distribucion(titulo, desde, hasta, new LinkedHashMap<>(Map.of("Periodo", desde + " a " + hasta)), generado, usuario);
             case "detalle" -> detalle(titulo, where.toString(), params, filtros, consulta, generado, usuario);
             case "lugar" -> porLugar(titulo, where.toString(), params, filtros, generado, usuario);
             default -> porProceso(titulo, where.toString(), params, filtros, f.componente(), generado, usuario);
         };
+    }
+
+    /**
+     * Distribución auditor–punto (decisión 2026-10-20 13.3): por auditor activo, los puntos que tiene asignados o que visita en el
+     * periodo, con la distancia en línea recta de su municipio base al municipio de acceso del punto y sus visitas agendadas y cerradas.
+     * Justifica ante la DIGSA el reparto por cercanía y carga de la propuesta de agenda.
+     */
+    private Reporte distribucion(String titulo, LocalDate desde, LocalDate hasta, Map<String, String> filtros, ZonedDateTime generado, String usuario) {
+        Map<String, double[]> coords = new java.util.HashMap<>();
+        jdbc.sql("SELECT codigo, latitud, longitud FROM par_municipios WHERE latitud IS NOT NULL AND longitud IS NOT NULL").query((rs, n) -> {
+            coords.put(rs.getString(1).strip(), new double[] {rs.getDouble(2), rs.getDouble(3)});
+            return null;
+        }).list();
+        List<String> columnas = List.of("Auditor", "Rol", "Municipio base", "Punto", "Unidad", "Modalidad", "Municipio del punto", "Asignado al punto",
+                "Distancia (km)", "Agendadas", "Cerradas");
+        List<List<Object>> filas = jdbc.sql("""
+                SELECT u.nombre, coalesce(a.rol, 'otro') AS rol, mb.nombre AS base, a.municipio_base, p.nombre AS punto, p.unidad, p.modalidad, mp.nombre AS mpunto,
+                       coalesce(p.llega_desde, p.municipio) AS acceso, (p.auditor_asignado = u.id) AS asignado,
+                       count(v.id) FILTER (WHERE v.estado IN ('programada', 'notificada', 'reprogramada', 'ejecucion')) AS agendadas,
+                       count(v.id) FILTER (WHERE v.estado = 'cerrada') AS cerradas
+                FROM usuarios u JOIN auditores a ON a.usuario_id = u.id LEFT JOIN par_municipios mb ON mb.codigo = a.municipio_base
+                JOIN puntos p ON p.activo AND (p.auditor_asignado = u.id OR EXISTS (SELECT 1 FROM visitas v2 JOIN visitas_auditores x2 ON x2.visita_id = v2.id
+                                                                     WHERE v2.punto_id = p.id AND x2.usuario_id = u.id AND v2.fecha BETWEEN :desde AND :hasta))
+                LEFT JOIN par_municipios mp ON mp.codigo = p.municipio
+                LEFT JOIN visitas v ON v.punto_id = p.id AND v.fecha BETWEEN :desde AND :hasta
+                  AND EXISTS (SELECT 1 FROM visitas_auditores x WHERE x.visita_id = v.id AND x.usuario_id = u.id)
+                WHERE u.activo
+                GROUP BY u.id, u.nombre, a.rol, mb.nombre, a.municipio_base, p.id, p.nombre, p.unidad, p.modalidad, mp.nombre, p.llega_desde, p.municipio, p.auditor_asignado
+                ORDER BY u.nombre, p.nombre""").param("desde", desde).param("hasta", hasta).query((rs, n) -> {
+            String base = rs.getString("municipio_base");
+            String acceso = rs.getString("acceso");
+            double[] b = base == null ? null : coords.get(base.strip());
+            double[] o = acceso == null ? null : coords.get(acceso.strip());
+            List<Object> fila = new ArrayList<>();
+            fila.add(rs.getString("nombre"));
+            fila.add(co.com.agsamericas.digsa.reglas.Reparto.ROLES.getOrDefault(rs.getString("rol"), "Otro"));
+            fila.add(rs.getString("base"));
+            fila.add(rs.getString("punto"));
+            fila.add(rs.getString("unidad"));
+            fila.add(rs.getString("modalidad"));
+            fila.add(rs.getString("mpunto"));
+            fila.add(rs.getBoolean("asignado") ? "Sí" : "No");
+            fila.add(b == null || o == null ? null : Math.round(co.com.agsamericas.digsa.reglas.PropuestaAgenda.distanciaKm(b, o)));
+            fila.add(rs.getInt("agendadas"));
+            fila.add(rs.getInt("cerradas"));
+            return fila;
+        }).list();
+        return new Reporte(titulo, generado, usuario, filtros, columnas, filas);
     }
 
     private Reporte detalle(String titulo, String where, Map<String, Object> params, Map<String, String> filtros, boolean consulta,
@@ -234,7 +287,11 @@ public class ServicioReportes {
             q = q.param("x", valor);
         }
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("tipos", TIPOS);
+        Map<String, String> tipos = new java.util.TreeMap<>(TIPOS);
+        if (!(alcance instanceof Alcance.Todo)) {
+            tipos.remove(DISTRIBUCION);
+        }
+        m.put("tipos", tipos);
         m.put("formatos", List.of("xlsx", "csv", "pdf", "txt"));
         m.put("puntos", q.query().listOfRows());
         m.put("fuerzas", jdbc.sql("SELECT codigo, nombre FROM par_fuerzas WHERE activo ORDER BY orden").query().listOfRows());

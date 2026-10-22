@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parametros } from './Reportes';
+import { ordenTipos, parametros } from './Reportes';
 
 describe('parametros del reporte', () => {
   const vacio = { desde: '2026-01-01', hasta: '2026-11-30', puntoId: '', fuerza: '', unidad: '', estado: '', componente: '' };
@@ -12,5 +12,13 @@ describe('parametros del reporte', () => {
   it('el componente solo aplica al consolidado por proceso', () => {
     expect(parametros({ ...vacio, componente: 'C08' }, 'detalle').has('componente')).toBe(false);
     expect(parametros({ ...vacio, componente: 'C08' }, 'proceso').get('componente')).toBe('C08');
+  });
+
+  it('la distribución auditor–punto solo lleva el periodo y va en la última pestaña', () => {
+    expect(parametros({ ...vacio, puntoId: '7', fuerza: 'EJC', unidad: 'ESM', estado: 'cerrada' }, 'distribucion').toString()).toBe(
+      'desde=2026-01-01&hasta=2026-11-30',
+    );
+    const tipos = { distribucion: 'Distribución auditor–punto', proceso: 'Por proceso', detalle: 'Detalle', lugar: 'Por lugar' };
+    expect(ordenTipos(tipos).map(([k]) => k)).toEqual(['detalle', 'lugar', 'proceso', 'distribucion']);
   });
 });

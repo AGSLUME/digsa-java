@@ -357,6 +357,11 @@ public class ServicioAgenda {
 
     /** Notificación inmediata del seguimiento recién creado (camino A, como la notificación previa); fuera de la transacción del cierre. */
     public ServicioNotificacion.Resultado notificarSeguimiento(long id, UsuarioSesion quien) {
+        return notificarAlProgramar(id, quien);
+    }
+
+    /** Envío automático al programar (camino A), para quien programa fuera de {@link #programar} con notificación diferida. */
+    public ServicioNotificacion.Resultado notificarAlProgramar(long id, UsuarioSesion quien) {
         return notificacion.notificarAutomatico(id, ServicioNotificacion.AL_PROGRAMAR, null, quien);
     }
 

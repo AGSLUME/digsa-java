@@ -57,6 +57,8 @@ public final class Bitacora {
             Map.entry("opl_aceptacion_automatica", Operacion.ACTUALIZACION), Map.entry("plan_vencido", Operacion.ACTUALIZACION),
             Map.entry("prorroga_aprobada_coordinador", Operacion.ACTUALIZACION), Map.entry("prorroga_aprobada_digsa", Operacion.ACTUALIZACION),
             Map.entry("prorroga_rechazada", Operacion.ACTUALIZACION),
+            Map.entry("propuesta_generada", Operacion.INSERCION), Map.entry("propuesta_confirmada", Operacion.INSERCION),
+            Map.entry("propuesta_descartada", Operacion.ACTUALIZACION),
             Map.entry("reporte_digsa", Operacion.INSERCION), Map.entry("reporte_digsa_fallido", Operacion.INSERCION),
             Map.entry("usuario_creado", Operacion.INSERCION), Map.entry("admin_creado", Operacion.INSERCION),
             Map.entry("catalogo_creado", Operacion.INSERCION),

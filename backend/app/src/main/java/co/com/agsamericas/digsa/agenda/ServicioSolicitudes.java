@@ -143,24 +143,33 @@ public class ServicioSolicitudes {
                 throw new ErrorNegocio(HttpStatus.INTERNAL_SERVER_ERROR, "No se pudo guardar el escrito. Intente de nuevo.");
             }
         }
-        long id;
+        LocalDate limite = consulta.plazos().limiteNecesidad(f);
+        // La solicitud y su aviso al coordinador en la bandeja de salida: o quedan los dos o ninguno (y el escrito se descarta). Antes iban
+        // sin transacción: si el aviso fallaba, la solicitud quedaba registrada detrás de un 500 y el usuario la repetía.
+        final String rutaEscrito = ruta;
+        final String nombreEscrito = nombre;
+        final ValidadorArchivos.Valido valido = escrito;
+        long[] registro;
         try {
-            id = jdbc.sql("""
-                    INSERT INTO visitas_solicitudes (punto_id, solicitante_id, entidad, fecha_solicitud, motivo, archivo_ruta, archivo_nombre,
-                      archivo_tamano, archivo_sha256, registrado, actualizado)
-                    VALUES (:p, :u, :e, :f, :m, :r, :n, :t, :s, :ahora, :ahora) RETURNING id""")
-                    .param("p", punto.id()).param("u", quien.id()).param("e", entidad).param("f", f).param("m", motivo).param("r", ruta).param("n", nombre)
-                    .param("t", escrito == null ? null : (long) escrito.contenido().length).param("s", escrito == null ? null : escrito.sha256())
-                    .param("ahora", OffsetDateTime.now(reloj)).query(Long.class).single();
+            registro = tx.execute(t -> {
+                long nuevo = jdbc.sql("""
+                        INSERT INTO visitas_solicitudes (punto_id, solicitante_id, entidad, fecha_solicitud, motivo, archivo_ruta, archivo_nombre,
+                          archivo_tamano, archivo_sha256, registrado, actualizado)
+                        VALUES (:p, :u, :e, :f, :m, :r, :n, :t, :s, :ahora, :ahora) RETURNING id""")
+                        .param("p", punto.id()).param("u", quien.id()).param("e", entidad).param("f", f).param("m", motivo).param("r", rutaEscrito)
+                        .param("n", nombreEscrito).param("t", valido == null ? null : (long) valido.contenido().length)
+                        .param("s", valido == null ? null : valido.sha256()).param("ahora", OffsetDateTime.now(reloj)).query(Long.class).single();
+                return new long[] {nuevo, avisarCoordinadores(nuevo, entidad, punto, f, limite, motivo) ? 1 : 0};
+            });
         } catch (RuntimeException e) {
             if (ruta != null) {
                 almacen.descartar(ruta);
             }
             throw e;
         }
+        long id = registro[0];
+        boolean avisado = registro[1] == 1;
         bitacora.registrar("solicitud_registrada", "Solicitud " + id + " · " + entidad + " · punto " + punto.id(), quien.id(), quien.usuario());
-        LocalDate limite = consulta.plazos().limiteNecesidad(f);
-        boolean avisado = avisarCoordinadores(id, entidad, punto, f, limite, motivo);
         if (!avisado) {
             // El plazo de 5 días hábiles corre: que quede rastro para revisar la bandeja aunque el correo no haya salido
             bitacora.registrar("solicitud_aviso_fallido", "Solicitud " + id + ": el aviso a los coordinadores no salió", quien.id(), quien.usuario());

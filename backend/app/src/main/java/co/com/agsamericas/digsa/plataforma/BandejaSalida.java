@@ -5,10 +5,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Bandeja de salida (duda 20.6; spec exportacion-alertas, «Bandeja de salida con reintentos»): los avisos que no esperan respuesta en
@@ -38,17 +40,24 @@ public class BandejaSalida {
         this.json = json;
     }
 
+    /** Destinatarios máximos de una fila de correos_salida (CHECK de la columna para, V17). */
+    public static final int MAX_DESTINATARIOS = 100;
+
     /** Aviso informativo. @return el id en la bandeja */
+    @Transactional
     public long encolar(String origen, String referencia, Correo.Mensaje m) {
         return encolar(origen, referencia, m, List.of(), null, false);
     }
 
     /**
-     * Encola un correo. Los adjuntos con bytes del mensaje no se admiten (la bandeja guarda rutas del almacén).
+     * Encola un correo. Los adjuntos con bytes del mensaje no se admiten (la bandeja guarda rutas del almacén). Con más de
+     * {@link #MAX_DESTINATARIOS} destinatarios queda en varias filas, todas en una transacción (o todas o ninguna).
      *
+     * @return el id de la (primera) fila en la bandeja
      * @param alertaId evento de alerta que lo origina, o null
      * @param critico  aviso de una alerta crítica: si agota los intentos se publica {@link CorreoAgotado}
      */
+    @Transactional
     public long encolar(String origen, String referencia, Correo.Mensaje m, List<Adjunto> adjuntos, Long alertaId, boolean critico) {
         if (!m.adjuntos().isEmpty()) {
             throw new IllegalArgumentException("La bandeja de salida guarda los adjuntos como rutas del almacén, no como bytes");
@@ -63,15 +72,23 @@ public class BandejaSalida {
             throw new IllegalStateException(e);
         }
         OffsetDateTime ahora = OffsetDateTime.now(reloj);
-        long id = jdbc.sql("""
-                INSERT INTO correos_salida (origen, referencia, alerta_id, critico, para, copia, asunto, html, adjuntos, proximo, creado)
-                VALUES (:o, :r, :a, :c, :para, :copia, :asunto, :html, CAST(:adj AS jsonb), :ahora, :ahora) RETURNING id""")
-                .param("o", Bitacora.cortar(origen, 60)).param("r", referencia == null ? null : Bitacora.cortar(referencia, 120)).param("a", alertaId)
-                .param("c", critico).param("para", m.para().toArray(String[]::new)).param("copia", m.copia().toArray(String[]::new))
-                .param("asunto", Bitacora.cortar(m.asunto(), 300)).param("html", m.html() == null ? "" : m.html()).param("adj", adj).param("ahora", ahora)
-                .query(Long.class).single();
-        eventos.publishEvent(new SalidaEncolada("correo", id));
-        return id;
+        List<String> para = m.para().stream().distinct().toList();
+        // Una fila admite hasta MAX_DESTINATARIOS (CHECK de correos_salida.para): más destinatarios van en varias filas, las copias en la
+        // primera. Sin esto, con más de 100 coordinadores activos el aviso de una solicitud tumbaba el registro con un 500 (fase 10).
+        List<Long> ids = new ArrayList<>();
+        for (int desde = 0; desde < para.size(); desde += MAX_DESTINATARIOS) {
+            List<String> lote = para.subList(desde, Math.min(para.size(), desde + MAX_DESTINATARIOS));
+            List<String> copia = desde == 0 ? m.copia() : List.of();
+            ids.add(jdbc.sql("""
+                    INSERT INTO correos_salida (origen, referencia, alerta_id, critico, para, copia, asunto, html, adjuntos, proximo, creado)
+                    VALUES (:o, :r, :a, :c, :para, :copia, :asunto, :html, CAST(:adj AS jsonb), :ahora, :ahora) RETURNING id""")
+                    .param("o", Bitacora.cortar(origen, 60)).param("r", referencia == null ? null : Bitacora.cortar(referencia, 120)).param("a", alertaId)
+                    .param("c", critico).param("para", lote.toArray(String[]::new)).param("copia", copia.toArray(String[]::new))
+                    .param("asunto", Bitacora.cortar(m.asunto(), 300)).param("html", m.html() == null ? "" : m.html()).param("adj", adj).param("ahora", ahora)
+                    .query(Long.class).single());
+        }
+        ids.forEach(id -> eventos.publishEvent(new SalidaEncolada("correo", id)));
+        return ids.get(0);
     }
 
     /** Encola un SMS de una alerta. El teléfono va enmascarado: el despachador toma el número vigente del usuario al enviar. */

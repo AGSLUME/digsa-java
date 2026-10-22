@@ -75,7 +75,15 @@ public final class Bitacora {
             // Exportación completa y soportes del OPL (fase 10)
             Map.entry("exportacion_solicitada", Operacion.INSERCION), Map.entry("exportacion_generada", Operacion.INSERCION),
             Map.entry("exportacion_fallida", Operacion.INSERCION), Map.entry("exportacion_vencida", Operacion.ELIMINACION),
-            Map.entry("exportacion_completa", Operacion.CONSULTA), Map.entry("soportes_opl_descargados", Operacion.CONSULTA));
+            Map.entry("exportacion_completa", Operacion.CONSULTA), Map.entry("soportes_opl_descargados", Operacion.CONSULTA),
+            // --- Presupuesto (rama presupuesto, docs/especificaciones/presupuesto) ---
+            Map.entry("presupuesto_vigencia", Operacion.ACTUALIZACION), Map.entry("presupuesto_modalidad", Operacion.ACTUALIZACION),
+            Map.entry("presupuesto_movimiento", Operacion.INSERCION), Map.entry("presupuesto_carga_simulada", Operacion.CONSULTA),
+            Map.entry("presupuesto_carga_aplicada", Operacion.INSERCION), Map.entry("presupuesto_ejecucion_carga", Operacion.INSERCION),
+            Map.entry("presupuesto_ejecucion_manual", Operacion.INSERCION), Map.entry("presupuesto_proyeccion_carga", Operacion.INSERCION),
+            Map.entry("presupuesto_umbral", Operacion.INSERCION), Map.entry("presupuesto_desviacion", Operacion.INSERCION),
+            Map.entry("presupuesto_notificacion_fallida", Operacion.INSERCION), Map.entry("presupuesto_centralizador", Operacion.ACTUALIZACION));
+            // --- fin presupuesto ---
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

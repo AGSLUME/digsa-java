@@ -46,7 +46,12 @@ public final class Exportacion {
             // V18 · las solicitudes de exportación (quién exportó y cuándo)
             "exportaciones",
             // V17 · alertas de la fase 10: bandeja de correo, SMS y alertas críticas
-            "correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos");
+            "correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos",
+            // --- Presupuesto (rama presupuesto): V40 ---
+            "presupuesto_vigencias", "presupuesto_modalidades", "presupuesto_lineas", "presupuesto_saldos", "presupuesto_soportes",
+            "presupuesto_lotes", "presupuesto_movimientos", "presupuesto_movimientos_lineas", "presupuesto_ejecucion", "presupuesto_proyeccion",
+            "presupuesto_consecutivos", "presupuesto_notificaciones", "presupuesto_umbrales", "presupuesto_desviaciones");
+            // --- fin presupuesto ---
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
     public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes");

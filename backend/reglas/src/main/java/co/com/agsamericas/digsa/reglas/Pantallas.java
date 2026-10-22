@@ -27,6 +27,10 @@ public enum Pantallas {
     CATALOGOS("catalogos", "Catálogos", "Configuración", Set.of(Perfil.COORDINADOR)),
     /** Catálogo de alertas (lo edita el administrador) y eventos con la latencia de la bandeja de salida (fase 10; GMI P75 y P77 b). */
     ALERTAS("alertas", "Alertas", "Configuración", Set.of(Perfil.COORDINADOR)),
+    // --- Presupuesto (rama presupuesto; Anexo 5 §4.6): consulta en el alcance de cada perfil; registran Coordinador y Administrador ---
+    PRESUPUESTO("presupuesto", "Presupuesto", "Presupuesto",
+            union(Set.of(Perfil.COORDINADOR, Perfil.ANALISTA), Alcance.PERFILES_CONSULTA)),
+    // --- fin presupuesto ---
     USUARIOS("usuarios", "Usuarios", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
     EXPORTACION("exportacion", "Exportación de datos", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
     LOGS("logs", "Logs del sistema", "Configuración", Set.of(Perfil.ADMINISTRADOR)),

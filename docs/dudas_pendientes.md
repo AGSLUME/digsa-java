@@ -509,3 +509,35 @@ Implementado según `docs/especificaciones/riesgo-tablero`, con la decisión 14 
 | 25.6 | **Acciones vencidas:** se miden con la fecha fin original del 5W2H, sin la prórroga aprobada | Duda abierta del spec. Se dejó así |
 | 25.7 | **Plan vencido en el dashboard:** ahora usa el mismo criterio del riesgo (no cuenta la visita que ya tiene un seguimiento cerrado) | Hecho. Pendiente: que el plan en «reportado a la DIGSA» se cierre cuando el seguimiento deja todo completado |
 | 25.8 | **Prueba intermitente `IngresoYSesionApiTest.csrf`:** en una corrida completa la última fila de la bitácora fue la del ingreso y no la del 419 | Pasa sola y pasó en las otras corridas completas. Sin cambio de código; si se repite, ordenar la bitácora de la prueba por id |
+
+## Presupuesto (rama `presupuesto`, 2026-10-22)
+
+Especificación: `docs/especificaciones/presupuesto/spec.md` (Anexo 5 §4.6, Anexo 2 L739 y L741, casos M7 de la prueba en sitio).
+
+**Resueltas por el usuario el 2026-10-22:** vigencia anual con vista «Contrato»; umbrales sobre lo facturado (parámetro); la ejecución del mes reemplaza con versiones; notificación por ESM × modalidad al buzón de la Sanidad de la Fuerza y al de la DIGSA, más la alerta del catálogo.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| P.6 | **Mapa satélite → centralizador:** ¿quién lo entrega? | Columna `puntos.centralizador_id` editable; la ejecución de un satélite sin centralizador se rechaza |
+| P.7 | **Alcance del Analista:** en esta rama `Alcance.de` le da `Ninguno` | Consulta nacional de solo lectura en presupuesto; se alinea con la rama de identidad al integrar |
+| P.8 | **Quién registra novedades y ejecución** | Coordinador y Administrador; la DIGSA entrega la información y consulta |
+| P.9 | **Qué es un «reajuste»** | Ajuste con signo o porcentaje sobre un ámbito, sin neto cero, con soporte obligatorio |
+| P.10 | **Disminución por debajo de lo ejecutado** | Se rechaza; la adición y la ejecución nunca se bloquean |
+| P.11 | **Tolerancias de la desviación** (10 % exceso, 20 % subejecución) | Parámetros editables |
+| P.12 | **Re-notificar un umbral tras una adición** | No: un aviso por vigencia, línea y umbral |
+| P.13 | **Modalidades:** el Anexo 5 trae 3 y el OPL factura por 5 (anexo OPL §38) | Catálogo editable; activas las 3 del Anexo 5 |
+| P.14 | **Método de proyección** | Lineal, o la cargada por la DIGSA si existe |
+| P.15 | **«Precio techo global de consumo mensual»** (Anexo 2 L1126) | Fuera del módulo |
+| P.16 | **Fuentes que faltan:** «anexo técnico financiero, módulo presupuesto» (Anexo 2 L741), contrato del OPL y formato del archivo de ejecución de la DIGSA | Formato de carga propio (CSV «;» UTF-8 o Excel) documentado en la pantalla |
+
+
+### Revisión de los agentes de la F1 de presupuesto (2026-10-22)
+
+Sin P1. Corregidos: FK compuestas para que un movimiento no cruce vigencias; `evento_id` en los umbrales; desviaciones con `linea_id` y `fuerza` (con FK) en vez de una referencia de texto; miles mal agrupados en los montos; comillas sin cerrar, encabezados desconocidos o repetidos y topes de memoria en el CSV; línea sin saldo que resta (falla cerrado); proyección lineal sin meses negativos; empate del reajuste por % hacia la línea de menor id; base y tolerancias que ya no caen al defecto sin aviso.
+
+| # | Pendiente (P2/P3 sin corregir) | Qué se hizo mientras tanto |
+|---|---|---|
+| P.17 | Vigencia cerrada, periodo dentro de la vigencia y fuerza de la línea = fuerza del ESM solo se garantizan en la aplicación (sin triggers; duda 4.1 de TI) | Validación en el servicio con pruebas de API |
+| P.18 | `GRANT USAGE ON ALL SEQUENCES` y el `RETURN` sin aviso del bloque de permisos siguen el patrón de V16 y V17 | Igual que las demás migraciones |
+| P.19 | `presupuesto_notificaciones.para` repite los destinatarios de `correos_salida` | Se deja por trazabilidad de la notificación formal; `par_fuerzas.correos` debe tener solo buzones institucionales (Ley 1581) |
+| P.20 | La desviación se muestra con 2 decimales y se compara exacta: +10,004 % se ve «10,00 %» y ya es exceso | Así lo pide la spec («se comparan sin redondear») |

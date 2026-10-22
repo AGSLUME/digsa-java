@@ -104,6 +104,9 @@ digsa:
   # Verificación de salud de la base y el almacén (alerta almacen_no_disponible)
   salud:
     intervalo-ms: ${DIGSA_SALUD_INTERVALO_MS:60000}
+  exportacion:
+    limite-minutos: ${DIGSA_EXPORTACION_LIMITE_MINUTOS:10}   # tiempo máximo de la generación del ZIP (AGS-75 / GMI P74)
+    vigencia-horas: ${DIGSA_EXPORTACION_VIGENCIA_HORAS:24}   # luego la limpieza borra el ZIP (datos personales, Ley 1581)
 
 logging:
   level:

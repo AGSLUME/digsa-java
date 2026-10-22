@@ -43,6 +43,8 @@ export interface VisitaConHallazgos {
   siguiente: { id: number; numero: string; fecha: string; estado: string } | null;
   situacion: SituacionPlan;
   abreChecklist: boolean;
+  /** El servidor indica si este usuario descarga el ZIP de soportes del OPL (DIGSA, Sanidad y administrador; duda 22.12). */
+  descargaSoportesOpl?: boolean;
 }
 
 export interface PrestadorConHallazgos {

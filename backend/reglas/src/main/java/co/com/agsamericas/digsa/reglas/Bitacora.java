@@ -71,7 +71,11 @@ public final class Bitacora {
             Map.entry("clave_olvido", Operacion.ACTUALIZACION), Map.entry("catalogo_editado", Operacion.ACTUALIZACION),
             Map.entry("catalogo_eliminado", Operacion.ELIMINACION),
             Map.entry("reporte_enviado", Operacion.CONSULTA), Map.entry("reporte_descargado", Operacion.CONSULTA),
-            Map.entry("acceso_denegado", Operacion.CONSULTA));
+            Map.entry("acceso_denegado", Operacion.CONSULTA),
+            // Exportación completa y soportes del OPL (fase 10)
+            Map.entry("exportacion_solicitada", Operacion.INSERCION), Map.entry("exportacion_generada", Operacion.INSERCION),
+            Map.entry("exportacion_fallida", Operacion.INSERCION), Map.entry("exportacion_vencida", Operacion.ELIMINACION),
+            Map.entry("exportacion_completa", Operacion.CONSULTA), Map.entry("soportes_opl_descargados", Operacion.CONSULTA));
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

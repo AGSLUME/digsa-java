@@ -65,9 +65,13 @@ public class RepositorioUsuarios {
                 .query(Long.class).single() > 0;
     }
 
-    /** Suma un intento fallido de forma atómica: reinicia el contador si el bloqueo ya venció y bloquea al llegar a 5. */
-    public void registrarFallo(long id, Instant ahora, int maximo, int minutosBloqueo) {
-        jdbc.sql("""
+    /**
+     * Suma un intento fallido de forma atómica: reinicia el contador si el bloqueo ya venció y bloquea al llegar a 5.
+     *
+     * @return true si este intento bloqueó la cuenta (cuenta para la alerta de bloqueo masivo)
+     */
+    public boolean registrarFallo(long id, Instant ahora, int maximo, int minutosBloqueo) {
+        return jdbc.sql("""
                 UPDATE usuarios SET
                   intentos = CASE WHEN bloqueado_hasta IS NOT NULL AND bloqueado_hasta <= :ahora THEN 1 ELSE intentos + 1 END,
                   bloqueado_hasta = CASE
@@ -76,9 +80,10 @@ public class RepositorioUsuarios {
                     WHEN bloqueado_hasta IS NOT NULL AND bloqueado_hasta <= :ahora THEN NULL
                     ELSE bloqueado_hasta END,
                   actualizado = :ahora
-                WHERE id = :id AND (bloqueado_hasta IS NULL OR bloqueado_hasta <= :ahora)""")
+                WHERE id = :id AND (bloqueado_hasta IS NULL OR bloqueado_hasta <= :ahora)
+                RETURNING bloqueado_hasta IS NOT NULL AND bloqueado_hasta > :ahora""")
                 .param("ahora", odt(ahora)).param("maximo", maximo).param("hasta", odt(ahora.plusSeconds(minutosBloqueo * 60L)))
-                .param("id", id).update();
+                .param("id", id).query(Boolean.class).optional().orElse(false);
     }
 
     public void reiniciarIntentos(long id, Instant ahora) {

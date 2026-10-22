@@ -10,8 +10,13 @@ import org.junit.jupiter.api.Test;
 class ValidacionArranqueYCaptchaTest {
 
     private static ConfiguracionDigsa cfg(String url, String entorno, String modo, String remitente, String dominios, String secreta) {
+        // En producción, con un proveedor de SMS (sin él no arranca: ver sms())
+        return cfg(url, entorno, modo, remitente, dominios, secreta, "local".equals(entorno) ? "archivo" : "proveedor");
+    }
+
+    private static ConfiguracionDigsa cfg(String url, String entorno, String modo, String remitente, String dominios, String secreta, String sms) {
         return new ConfiguracionDigsa(url, entorno, "10", 30, new ConfiguracionDigsa.Correo(modo, remitente, "Suite DIGSA", null),
-                new ConfiguracionDigsa.Captcha("sitio", secreta), new ConfiguracionDigsa.Reportes(null, dominios), null);
+                new ConfiguracionDigsa.Captcha("sitio", secreta), new ConfiguracionDigsa.Reportes(null, dominios), null, new ConfiguracionDigsa.Sms(sms));
     }
 
     @Test
@@ -38,6 +43,24 @@ class ValidacionArranqueYCaptchaTest {
         assertThat(ValidacionArranque.problemas(cfg("https://digsa.example.com/", "local", "archivo", null, null, null), null))
                 .singleElement().asString().contains("localhost");
         assertThat(ValidacionArranque.problemas(cfg("http://127.0.0.1:8080/", "local", "archivo", null, null, null), null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("SMS: a archivo solo en local; sin proveedor no arranca en producción; en pruebas se admite «ninguno»")
+    void sms() {
+        assertThat(ValidacionArranque.problemas(cfg("https://digsa.example.com/", "produccion", "smtp", "no-responder@example.com", "example.com", "s",
+                "ninguno"), "smtp.example.com")).singleElement().asString().contains("proveedor de SMS");
+        assertThat(ValidacionArranque.problemas(cfg("https://digsa.example.com/", "produccion", "smtp", "no-responder@example.com", "example.com", "s",
+                null), "smtp.example.com")).singleElement().asString().contains("DIGSA_SMS_MODO");
+        assertThat(ValidacionArranque.problemas(cfg("https://digsa.example.com/", "pruebas", "smtp", "no-responder@example.com", "example.com", "s",
+                "archivo"), "smtp.example.com")).singleElement().asString().contains("solo se permite en local");
+        assertThat(ValidacionArranque.problemas(cfg("https://digsa.example.com/", "pruebas", "smtp", "no-responder@example.com", "example.com", "s",
+                "ninguno"), "smtp.example.com")).isEmpty();
+        ConfiguracionSms config = new ConfiguracionSms();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> config.sms(cfg("https://digsa.example.com/", "pruebas", "smtp", "a@example.com",
+                "example.com", "s", "archivo"), null, java.time.Clock.systemUTC())).hasMessageContaining("solo se permite con digsa.entorno=local");
+        assertThat(config.sms(cfg("http://localhost/", "local", "archivo", null, null, null, "ninguno"), null, java.time.Clock.systemUTC()))
+                .isInstanceOf(SmsNinguno.class);
     }
 
     @Test

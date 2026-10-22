@@ -12,15 +12,29 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param entorno        local | pruebas | produccion; el captcha sin clave y el correo a archivo solo se admiten en local
  * @param sesionMinutos  inactividad (Anexo 5, 3.2): 10 por defecto, de 1 a 480
  * @param claveVigenciaDias días de vigencia de la contraseña (30 por defecto)
+ * @param sms            canal de SMS de las alertas críticas (digsa.sms.modo: archivo solo en local, ninguno fuera de producción)
  */
 @ConfigurationProperties(prefix = "digsa")
 public record ConfiguracionDigsa(String url, String entorno, String sesionMinutos, Integer claveVigenciaDias, Correo correo,
-                                 Captcha captcha, Reportes reportes, Archivos archivos) {
+                                 Captcha captcha, Reportes reportes, Archivos archivos, Sms sms) {
 
     public record Correo(String modo, String remitente, String nombreRemitente, String carpeta) {
     }
 
     public record Captcha(String claveSitio, String claveSecreta) {
+    }
+
+    /** @param modo archivo | ninguno | el proveedor que se contrate (spec exportacion-alertas, «SMS por un puerto con adaptadores») */
+    public record Sms(String modo) {
+    }
+
+    /** Modo del SMS en minúsculas; «ninguno» si no se configuró. */
+    public String modoSms() {
+        return sms == null || sms.modo() == null || sms.modo().isBlank() ? "ninguno" : sms.modo().strip().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    public boolean esProduccion() {
+        return entorno == null || "produccion".equalsIgnoreCase(entorno);
     }
 
     /** @param dominiosPermitidos dominios a los que se pueden enviar reportes, separados por coma; vacío = cualquiera (solo local) */

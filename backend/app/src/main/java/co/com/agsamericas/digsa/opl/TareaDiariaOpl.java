@@ -1,12 +1,14 @@
 package co.com.agsamericas.digsa.opl;
 
 import co.com.agsamericas.digsa.agenda.RepositorioVisitas;
+import co.com.agsamericas.digsa.alertas.ServicioAlertas;
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
 import co.com.agsamericas.digsa.ejecucion.EnlaceOpl;
 import co.com.agsamericas.digsa.ejecucion.ServicioArchivos;
 import co.com.agsamericas.digsa.plataforma.Correo;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
+import co.com.agsamericas.digsa.reglas.Alertas;
 import co.com.agsamericas.digsa.reglas.Bitacora;
 import co.com.agsamericas.digsa.reglas.Correos;
 import co.com.agsamericas.digsa.reglas.Fechas;
@@ -39,6 +41,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * líder con consecutivo RD-aaaa-nnnn; si salió, el plan queda «reportado a DIGSA». Si falla, sigue «vencido» y se reintenta al día
  * siguiente. La aplicación nunca inicia la multa.</li>
  * </ol>
+ * Fase 10: el plan que vence dispara la alerta operativa «plan_opl_vencido» (en la misma transacción) y la corrida que termina con
+ * fallos, la crítica «tarea_diaria_fallida» (correo y SMS).
  */
 @Component
 public class TareaDiariaOpl {
@@ -61,9 +65,11 @@ public class TareaDiariaOpl {
     private final RegistroBitacora bitacora;
     private final TransactionTemplate tx;
     private final ObjectMapper json;
+    private final ServicioAlertas alertas;
 
     public TareaDiariaOpl(ServicioOpl opl, JdbcClient jdbc, DataSource ds, RepositorioVisitas visitas, ServicioCatalogos catalogos, Correo correo,
-                          RegistroBitacora bitacora, TransactionTemplate tx, ObjectMapper json) {
+                          RegistroBitacora bitacora, TransactionTemplate tx, ObjectMapper json, ServicioAlertas alertas) {
+        this.alertas = alertas;
         this.opl = opl;
         this.jdbc = jdbc;
         this.ds = ds;
@@ -91,14 +97,28 @@ public class TareaDiariaOpl {
             if (!candado(c, "SELECT pg_try_advisory_lock(?)")) {
                 return new Resumen(false, 0, 0, 0, 0);
             }
+            Resumen r;
             try {
-                return pasos();
+                r = pasos();
+            } catch (RuntimeException e) {
+                alertaFallida("La tarea diaria del OPL se interrumpió por un error; revise el registro del servidor.");
+                throw e;
             } finally {
                 candado(c, "SELECT pg_advisory_unlock(?)");
             }
+            if (r.fallidos() > 0) {
+                alertaFallida("La tarea diaria del OPL terminó con " + r.fallidos() + " reporte(s) a la DIGSA o aviso(s) sin enviar (" + r.planesVencidos()
+                        + " plan(es) vencido(s), " + r.reportados() + " reportado(s)); se reintenta en la próxima corrida.");
+            }
+            return r;
         } catch (SQLException e) {
             throw new IllegalStateException("No se pudo tomar el candado de la tarea diaria del OPL", e);
         }
+    }
+
+    /** Alerta crítica «tarea_diaria_fallida»: una por día (la clave lleva la fecha); repetir la corrida no repite el aviso antes de una hora. */
+    private void alertaFallida(String detalle) {
+        alertas.disparar(Alertas.TAREA_DIARIA_FALLIDA, "opl:" + opl.ahora().atZoneSameInstant(Fechas.BOGOTA).toLocalDate(), detalle);
     }
 
     private static boolean candado(Connection c, String sql) throws SQLException {
@@ -304,6 +324,9 @@ public class TareaDiariaOpl {
                         .update();
                 visitas.historial(a.visitaId(), null, "sistema", "Plan de mejoramiento vencido", "No se firmó en los " + EnlaceOpl.DIAS_PLAN + " días hábiles");
                 bitacora.registrar("plan_vencido", "Visita " + a.numero() + ": plan de mejoramiento vencido", null, "sistema");
+                // Aviso operativo a la coordinación en la misma transacción: si el cambio se revierte, no sale
+                alertas.disparar(Alertas.PLAN_OPL_VENCIDO, "acta:" + a.actaId(), "Visita " + a.numero() + " · " + a.punto()
+                        + ": el plan de mejoramiento del OPL venció sin firma (" + EnlaceOpl.DIAS_PLAN + " días hábiles). Sale el reporte formal a la DIGSA.");
             }
             return jdbc.sql("SELECT id FROM reportes_digsa WHERE acta_id = :a AND motivo = 'plan_no_presentado'").param("a", a.actaId()).query(Long.class)
                     .optional().orElseGet(() -> crearReporte(a, vigentes, "plan_no_presentado",

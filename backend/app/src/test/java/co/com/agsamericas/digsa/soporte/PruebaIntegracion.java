@@ -89,6 +89,50 @@ public abstract class PruebaIntegracion {
         return ((CorreoArchivo) correo).ultimos();
     }
 
+    /**
+     * Espera (sondeo cada 20 ms, máximo 5 s) un correo que cumpla la condición: los avisos de la bandeja de salida salen en otro hilo
+     * unos milisegundos después de confirmar la transacción.
+     */
+    protected Correo.Mensaje esperarCorreo(java.util.function.Predicate<Correo.Mensaje> condicion) {
+        long limite = System.nanoTime() + java.time.Duration.ofSeconds(5).toNanos();
+        while (true) {
+            java.util.Optional<Correo.Mensaje> m = correos().reversed().stream().filter(condicion).findFirst();
+            if (m.isPresent()) {
+                return m.get();
+            }
+            if (System.nanoTime() > limite) {
+                throw new AssertionError("No llegó el correo esperado en 5 s");
+            }
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+        }
+    }
+
+    /** Espera (sondeo cada 20 ms, máximo 5 s) a que se cumpla la condición; p. ej. el estado de una fila de la bandeja. */
+    protected void esperar(java.util.function.BooleanSupplier condicion, String que) {
+        long limite = System.nanoTime() + java.time.Duration.ofSeconds(5).toNanos();
+        while (!condicion.getAsBoolean()) {
+            if (System.nanoTime() > limite) {
+                throw new AssertionError("No se cumplió en 5 s: " + que);
+            }
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+        }
+    }
+
+    /** Espera el correo a la dirección cuyo asunto empieza por el texto (aviso de la bandeja de salida). */
+    protected Correo.Mensaje esperarCorreoA(String direccion, String inicioAsunto) {
+        return esperarCorreo(m -> m.para().contains(direccion) && m.asunto().startsWith(inicioAsunto));
+    }
+
     protected Correo.Mensaje ultimoCorreoA(String direccion) {
         return correos().reversed().stream().filter(m -> m.para().contains(direccion)).findFirst()
                 .orElseThrow(() -> new AssertionError("No hay correo para " + direccion));

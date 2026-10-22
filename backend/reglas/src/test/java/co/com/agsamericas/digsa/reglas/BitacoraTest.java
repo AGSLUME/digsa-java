@@ -74,6 +74,10 @@ class BitacoraTest {
         assertThat(Bitacora.operacionDeTipo("usuario_creado")).isEqualTo(Operacion.INSERCION);
         assertThat(Bitacora.operacionDeTipo("catalogo_eliminado")).isEqualTo(Operacion.ELIMINACION);
         assertThat(Bitacora.operacionDeTipo("acceso_denegado")).isEqualTo(Operacion.CONSULTA);
+        // Fase 10: alertas y bandeja de salida
+        assertThat(Bitacora.operacionDeTipo("alerta_critica")).isEqualTo(Operacion.INSERCION);
+        assertThat(Bitacora.operacionDeTipo("correo_fallido")).isEqualTo(Operacion.INSERCION);
+        assertThat(Bitacora.operacionDeTipo("alerta_catalogo_editado")).isEqualTo(Operacion.ACTUALIZACION);
         assertThat(Bitacora.operacionDeTipo("tipo_que_no_existe")).isEqualTo(Operacion.ACTUALIZACION);
     }
 

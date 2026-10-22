@@ -25,6 +25,8 @@ public enum Pantallas {
     REPORTES("reportes", "Reportes de visitas", "Visitas", union(Set.of(Perfil.COORDINADOR), Alcance.PERFILES_CONSULTA)),
     MAESTROS("maestros", "Puntos y auditores", "Configuración", Set.of(Perfil.COORDINADOR)),
     CATALOGOS("catalogos", "Catálogos", "Configuración", Set.of(Perfil.COORDINADOR)),
+    /** Catálogo de alertas (lo edita el administrador) y eventos con la latencia de la bandeja de salida (fase 10; GMI P75 y P77 b). */
+    ALERTAS("alertas", "Alertas", "Configuración", Set.of(Perfil.COORDINADOR)),
     USUARIOS("usuarios", "Usuarios", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
     EXPORTACION("exportacion", "Exportación de datos", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
     LOGS("logs", "Logs del sistema", "Configuración", Set.of(Perfil.ADMINISTRADOR)),

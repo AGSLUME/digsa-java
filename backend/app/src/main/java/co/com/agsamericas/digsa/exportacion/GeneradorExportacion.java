@@ -85,13 +85,9 @@ class GeneradorExportacion {
         db.sql("SET LOCAL statement_timeout = " + restanteMs).update();
 
         Map<String, List<Columna>> esquema = esquema(db);
-        List<String> omitidas = new ArrayList<>();
         for (String t : Exportacion.TABLAS) {
             if (!esquema.containsKey(t)) {
-                if (!Exportacion.TABLAS_ALERTAS.contains(t)) {
-                    throw new IllegalStateException("La tabla " + t + " de la lista de exportación no existe");
-                }
-                omitidas.add(t);
+                throw new IllegalStateException("La tabla " + t + " de la lista de exportación no existe");
             }
         }
 
@@ -104,10 +100,8 @@ class GeneradorExportacion {
             IndiceSoportes indice;
             try (EscritorZip zip = new EscritorZip(new BufferedOutputStream(huellaZip, 1 << 16), plazo)) {
                 for (String t : Exportacion.TABLAS) {
-                    if (esquema.containsKey(t)) {
-                        tablas.add(tabla(db, zip, t, esquema.get(t), plazo));
-                        trasTabla.accept(t);
-                    }
+                    tablas.add(tabla(db, zip, t, esquema.get(t), plazo));
+                    trasTabla.accept(t);
                 }
                 zip.carpeta("soportes/");
                 try (Writer w = Files.newBufferedWriter(temporal, StandardCharsets.UTF_8)) {
@@ -119,7 +113,7 @@ class GeneradorExportacion {
                     zip.copiar(in, "soportes/indice.csv", true);
                 }
                 zip.texto("LEEME.txt", Exportacion.leeme(new Exportacion.Leeme(generadoPor, ahora, tablas, indice.total(), indice.distintas(),
-                        indice.noEncontrados(), omitidas)));
+                        indice.noEncontrados())));
             }
             long filas = tablas.stream().mapToLong(TablaExportada::filas).sum();
             return new Resultado(tablas.size(), filas, indice.total(), indice.distintas(), indice.noEncontrados(), contador.bytes,

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Agenda } from './paginas/Agenda';
+import { Alertas } from './paginas/Alertas';
 import { Calendario } from './paginas/Calendario';
 import { Catalogos } from './paginas/Catalogos';
 import { Checklist } from './paginas/Checklist';
@@ -107,6 +108,7 @@ export function App() {
         <Route element={<Plantilla alSalir={salir} />}>
           <Route path="/" element={<Inicio />} />
           <Route path="/usuarios" element={<Protegida ruta="usuarios"><Usuarios /></Protegida>} />
+          <Route path="/alertas" element={<Protegida ruta="alertas"><Alertas /></Protegida>} />
           <Route path="/logs" element={<Protegida ruta="logs"><Logs /></Protegida>} />
           <Route path="/exportacion" element={<Protegida ruta="exportacion"><Exportacion /></Protegida>} />
           <Route path="/reportes" element={<Protegida ruta="reportes"><Reportes /></Protegida>} />

@@ -95,7 +95,10 @@ class SoportesOplApiTest extends PruebaIntegracion {
         String indice = new String(zip.get("indice.csv"), StandardCharsets.UTF_8);
         assertThat(indice).startsWith("﻿visita;").contains(ejc.numero()).contains(";coincide;").contains(";huella distinta;")
                 .doesNotContain("de la armada");
-        assertThat(bitacoraDe(idDe(sanidad))).anyMatch(b -> b.startsWith("consulta|soportes_opl_descargados|") && b.contains("2 soportes"));
+        // La fila de la petición se escribe al terminar la respuesta en flujo (después de que el cliente ya leyó el ZIP)
+        long idSanidad = idDe(sanidad);
+        esperar(() -> bitacoraDe(idSanidad).stream().anyMatch(b -> b.startsWith("consulta|soportes_opl_descargados|") && b.contains("2 soportes")),
+                "bitácora de la descarga");
 
         String esm = crearUsuario("esmopl", Perfil.ESM);
         jdbc.sql("UPDATE usuarios SET alcance_punto = :p WHERE usuario = :u").param("p", ejc.punto()).param("u", esm).update();

@@ -45,14 +45,8 @@ public final class Exportacion {
             "propuestas_agenda", "propuestas_agenda_items", "propuestas_agenda_items_otros", "riesgo_incidencias",
             // V18 · las solicitudes de exportación (quién exportó y cuándo)
             "exportaciones",
-            // V17 · alertas de la fase 10 (otro frente): bandeja de correo, SMS y alertas críticas
+            // V17 · alertas de la fase 10: bandeja de correo, SMS y alertas críticas
             "correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos");
-
-    /**
-     * Tablas de las alertas de la fase 10 (migración V17, otro frente de trabajo). Mientras esa migración no exista, la exportación
-     * las omite y la prueba contra information_schema las tolera; son las únicas que se toleran.
-     */
-    public static final Set<String> TABLAS_ALERTAS = Set.of("correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos");
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
     public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes");
@@ -245,10 +239,9 @@ public final class Exportacion {
      * Datos del LEEME.
      *
      * @param generadoPor nombre y usuario de quien la pidió, p. ej. «Admin (admin)»
-     * @param omitidas    tablas de la lista que aún no existen en la base (solo las de las alertas de la fase 10)
      */
     public record Leeme(String generadoPor, OffsetDateTime generado, List<TablaExportada> tablas, long soportes, long huellasDistintas,
-                        long noEncontrados, Collection<String> omitidas) {
+                        long noEncontrados) {
     }
 
     /** LEEME.txt del ZIP (UTF-8, \r\n). */
@@ -294,9 +287,6 @@ public final class Exportacion {
             total += t.filas();
         }
         linea(sb, "Total: " + l.tablas().size() + " tablas, " + total + " filas");
-        if (l.omitidas() != null && !l.omitidas().isEmpty()) {
-            linea(sb, "Aún no existen en la base (fase 10): " + String.join(", ", l.omitidas()));
-        }
         linea(sb, "");
         linea(sb, "Soportes: " + l.soportes() + " (huella distinta: " + l.huellasDistintas() + "; no encontrados: " + l.noEncontrados() + ")");
         return sb.toString();

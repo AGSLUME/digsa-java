@@ -6,6 +6,14 @@ import co.com.agsamericas.digsa.plataforma.BandejaSalida;
 import co.com.agsamericas.digsa.plataforma.Correo;
 import co.com.agsamericas.digsa.plataforma.CorreoArchivo;
 import co.com.agsamericas.digsa.plataforma.DespachadorSalida;
+import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
+import co.com.agsamericas.digsa.plataforma.Almacen;
+import co.com.agsamericas.digsa.plataforma.Sms;
+import co.com.agsamericas.digsa.reglas.Perfil;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.context.ApplicationEventPublisher;
 import co.com.agsamericas.digsa.reglas.Alertas;
 import co.com.agsamericas.digsa.soporte.PruebaIntegracion;
 import java.time.Duration;
@@ -34,6 +42,57 @@ class BandejaSalidaTest extends PruebaIntegracion {
     DespachadorSalida despachador;
     @Autowired
     TransactionTemplate tx;
+    @Autowired
+    Sms sms;
+    @Autowired
+    Almacen almacen;
+    @Autowired
+    RegistroBitacora bitacora;
+    @Autowired
+    ApplicationEventPublisher eventos;
+    @Autowired
+    ObjectMapper json;
+
+    /** Correo que tarda en cada envío (SMTP lento) y cuenta cuántas veces sale cada asunto. */
+    static final class CorreoLento implements Correo {
+        final Correo real;
+        final long ms;
+        final Map<String, Integer> salidas = new ConcurrentHashMap<>();
+
+        CorreoLento(Correo real, long ms) {
+            this.real = real;
+            this.ms = ms;
+        }
+
+        @Override
+        public Resultado enviar(Mensaje m) {
+            try {
+                Thread.sleep(ms);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            salidas.merge(m.asunto(), 1, Integer::sum);
+            return real.enviar(m);
+        }
+
+        @Override
+        public boolean real() {
+            return false;
+        }
+    }
+
+    /** Otro despachador (otra réplica) con su propio correo y su propio umbral de colgado. */
+    private DespachadorSalida otro(Correo c, Duration colgado) {
+        return new DespachadorSalida(jdbc, c, sms, almacen, reloj, bitacora, eventos, json, 2, colgado);
+    }
+
+    /** Correo pendiente directo en la tabla, sin despertar al despachador inmediato. */
+    private long pendiente(String asunto, boolean critico, OffsetDateTime proximo) {
+        return jdbc.sql("""
+                INSERT INTO correos_salida (origen, critico, para, asunto, html, proximo, creado)
+                VALUES ('prueba', :c, ARRAY['lento@example.com'], :a, '<p>x</p>', :p, :p) RETURNING id""")
+                .param("c", critico).param("a", asunto).param("p", proximo).query(Long.class).single();
+    }
 
     private static Correo.Mensaje mensaje(String para, String asunto) {
         return Correo.Mensaje.simple(para, asunto, "<p>Aviso de prueba</p>");
@@ -128,7 +187,7 @@ class BandejaSalidaTest extends PruebaIntegracion {
 
     @Test
     @DisplayName("aviso crítico agotado → alerta correo_agotado; el aviso de correo_agotado que se agota no dispara otra (sin bucle)")
-    void criticoAgotadoSinBucle() {
+    void criticoAgotadoSinBucle() throws Exception {
         long id = bandeja.encolar("alerta:tarea_diaria_fallida", null, mensaje("z" + CorreoArchivo.DOMINIO_RECHAZO, unico("Critico ")), List.of(), null, true);
         agotar(id);
         esperar(() -> jdbc.sql("SELECT count(*) FROM alertas_eventos WHERE tipo = 'correo_agotado' AND clave = :c").param("c", "correo:" + id)
@@ -136,17 +195,27 @@ class BandejaSalidaTest extends PruebaIntegracion {
 
         long bucle = bandeja.encolar("alerta:correo_agotado", null, mensaje("w" + CorreoArchivo.DOMINIO_RECHAZO, unico("Bucle ")), List.of(), null, true);
         agotar(bucle);
+        Thread.sleep(300); // margen para un oyente que (indebidamente) disparara otra alerta en otro hilo
         assertThat(jdbc.sql("SELECT count(*) FROM alertas_eventos WHERE tipo = 'correo_agotado' AND clave = :c").param("c", "correo:" + bucle)
                 .query(Long.class).single()).isZero();
     }
 
+    /**
+     * Lleva el correo a «fallido». El despachador inmediato puede estar enviando el mismo correo en otro hilo: se espera a que lo suelte
+     * y se repite (acotado) hasta que quede fallido, sin depender de quién hizo cada intento.
+     */
     private void agotar(long id) {
-        esperar(() -> intentos(id) >= 1, "primer intento");
-        for (int i = 0; i < Alertas.MAX_INTENTOS && !"fallido".equals(estado(id)); i++) {
+        esperar(() -> intentos(id) >= 1 && !"enviando".equals(estado(id)), "primer intento");
+        for (int i = 0; i < 4 * Alertas.MAX_INTENTOS && !"fallido".equals(estado(id)); i++) {
             reloj.adelantar(Duration.ofHours(3));
-            despachador.vaciar();
+            despachador.vaciarCorreos();
+            esperar(() -> !"enviando".equals(estado(id)), "el intento en curso terminó");
         }
         assertThat(estado(id)).isEqualTo("fallido");
+        assertThat(intentos(id)).isEqualTo(Alertas.MAX_INTENTOS);
+        // La bitácora y el evento CorreoAgotado se escriben justo después de marcarlo fallido, en el hilo que lo marcó
+        esperar(() -> jdbc.sql("SELECT count(*) FROM log_transacciones WHERE tipo = 'correo_fallido' AND descripcion LIKE :d")
+                .param("d", "Correo " + id + " (%").query(Long.class).single() == 1, "correo_fallido en la bitácora");
     }
 
     @Test
@@ -184,17 +253,156 @@ class BandejaSalidaTest extends PruebaIntegracion {
     }
 
     @Test
-    @DisplayName("un envío colgado en «enviando» más de 2 minutos vuelve a la cola y sale")
+    @DisplayName("un envío colgado en «enviando» más del umbral de colgado vuelve a la cola y sale")
     void colgadoSeRecupera() {
         String asunto = unico("Colgado ");
         OffsetDateTime ahora = OffsetDateTime.now(reloj);
         long id = jdbc.sql("""
                 INSERT INTO correos_salida (origen, para, asunto, html, estado, intentos, proximo, tomado, creado)
                 VALUES ('prueba', ARRAY['colgado@example.com'], :a, '<p>x</p>', 'enviando', 1, :t, :tomado, :t) RETURNING id""")
-                .param("a", asunto).param("t", ahora).param("tomado", ahora.minusMinutes(3)).query(Long.class).single();
+                .param("a", asunto).param("t", ahora).param("tomado", ahora.minus(despachador.colgado()).minusMinutes(1)).query(Long.class).single();
         assertThat(despachador.recuperarColgados()).isGreaterThanOrEqualTo(1);
         despachador.vaciar();
         assertThat(estado(id)).isEqualTo("enviado");
         assertThat(intentos(id)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("SMTP lento con correos en fila: cada uno se toma justo antes de enviarlo y no se da por colgado; sale UNA sola vez")
+    void envioLentoSaleUnaSolaVez() throws Exception {
+        CorreoLento lento = new CorreoLento(correo, 600);
+        // Colgado a 1,5 s: con la toma por lotes de antes, el 4.º correo esperaba 2,4 s en «enviando» y otra réplica lo reenviaba
+        DespachadorSalida a = otro(lento, Duration.ofMillis(1500));
+        DespachadorSalida b = otro(lento, Duration.ofMillis(1500));
+        String prefijo = unico("Lento ");
+        OffsetDateTime ahora = OffsetDateTime.now(reloj);
+        List<Long> ids = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            ids.add(pendiente(prefijo + " #" + i, false, ahora));
+        }
+        AtomicBoolean termino = new AtomicBoolean();
+        ExecutorService hilos = Executors.newFixedThreadPool(2);
+        try {
+            Future<Integer> envios = hilos.submit(() -> {
+                try {
+                    return a.vaciarCorreos();
+                } finally {
+                    termino.set(true);
+                }
+            });
+            // La otra réplica corre su respaldo sin parar mientras tanto: recupera colgados y envía lo que encuentre
+            Future<?> respaldo = hilos.submit(() -> {
+                while (!termino.get()) {
+                    b.recuperarColgados();
+                    b.vaciarCorreos();
+                    Thread.sleep(100);
+                }
+                return null;
+            });
+            envios.get();
+            respaldo.get();
+        } finally {
+            hilos.shutdownNow();
+            a.detener();
+            b.detener();
+        }
+        for (int i = 0; i < 4; i++) {
+            assertThat(lento.salidas.get(prefijo + " #" + i)).as("correo #" + i).isEqualTo(1);
+            assertThat(estado(ids.get(i))).isEqualTo("enviado");
+            assertThat(intentos(ids.get(i))).isEqualTo(1);
+        }
+    }
+
+    @Test
+    @DisplayName("colgado con los intentos agotados → «fallido» (sin pasar de 5 ni violar el CHECK), correo_fallido y correo_agotado")
+    void colgadoAgotadoQuedaFallido() {
+        OffsetDateTime ahora = OffsetDateTime.now(reloj);
+        long id = jdbc.sql("""
+                INSERT INTO correos_salida (origen, critico, para, asunto, html, estado, intentos, proximo, tomado, creado)
+                VALUES ('alerta:tarea_diaria_fallida', true, ARRAY['colgado@example.com'], :a, '<p>x</p>', 'enviando', :i, :t, :tomado, :t) RETURNING id""")
+                .param("a", unico("Colgado agotado ")).param("i", Alertas.MAX_INTENTOS).param("t", ahora)
+                .param("tomado", ahora.minus(despachador.colgado()).minusMinutes(1)).query(Long.class).single();
+        for (int k = 0; k < 3; k++) {
+            despachador.recuperarColgados();
+            despachador.vaciarCorreos();
+        }
+        assertThat(estado(id)).isEqualTo("fallido");
+        assertThat(intentos(id)).isEqualTo(Alertas.MAX_INTENTOS);
+        assertThat(jdbc.sql("SELECT error FROM correos_salida WHERE id = :id").param("id", id).query(String.class).single()).contains("colgado");
+        assertThat(jdbc.sql("SELECT count(*) FROM log_transacciones WHERE tipo = 'correo_fallido' AND descripcion LIKE :d").param("d", "Correo " + id + " (%")
+                .query(Long.class).single()).isEqualTo(1);
+        assertThat(jdbc.sql("SELECT count(*) FROM alertas_eventos WHERE tipo = 'correo_agotado' AND clave = :c").param("c", "correo:" + id)
+                .query(Long.class).single()).isEqualTo(1);
+        assertThat(despachador.colgado()).as("por encima del peor envío por SMTP (10 + 30 + 60 s)").isGreaterThan(Duration.ofSeconds(100));
+    }
+
+    @Test
+    @DisplayName("un SMTP lento no retrasa el SMS crítico: el SMS va por su propio hilo")
+    void smsNoEsperaAlSmtpLento() {
+        CorreoLento lento = new CorreoLento(correo, 4000);
+        DespachadorSalida d = otro(lento, Duration.ofMinutes(5));
+        try {
+            long correoId = pendiente(unico("SMTP lento "), true, OffsetDateTime.now(reloj));
+            d.despertarCorreos();
+            esperar(() -> "enviando".equals(estado(correoId)), "el correo lento está saliendo");
+
+            String u = crearUsuario("smsrapido", Perfil.ADMINISTRADOR);
+            jdbc.sql("UPDATE usuarios SET telefono = '+573000000009' WHERE usuario = :u").param("u", u).update();
+            OffsetDateTime ahora = OffsetDateTime.now(reloj);
+            long alerta = jdbc.sql("""
+                    INSERT INTO alertas_eventos (tipo, clave, detalle, abierta, creado, ultimo, cerrada_en)
+                    VALUES ('tarea_diaria_fallida', :c, 'prueba de canal', false, :t, :t, :t) RETURNING id""")
+                    .param("c", unico("sms-rapido:")).param("t", ahora).query(Long.class).single();
+            long smsId = jdbc.sql("""
+                    INSERT INTO sms_salida (alerta_id, usuario_id, telefono, texto, proximo, creado) VALUES (:a, :u, '+573*******09', 'Alerta critica DIGSA: prueba', :t, :t)
+                    RETURNING id""").param("a", alerta).param("u", idDe(u)).param("t", ahora).query(Long.class).single();
+            long t0 = System.nanoTime();
+            d.despertarSms();
+            esperar(() -> "enviado".equals(jdbc.sql("SELECT estado FROM sms_salida WHERE id = :id").param("id", smsId).query(String.class).single()), "SMS enviado");
+            long ms = Duration.ofNanos(System.nanoTime() - t0).toMillis();
+            System.out.println("[latencia] SMS con un SMTP de 4 s ocupado: " + ms + " ms");
+            assertThat(ms).as("el SMS no espera los 4 s del correo").isLessThan(2000);
+            assertThat(estado(correoId)).as("el correo lento sigue saliendo").isEqualTo("enviando");
+            esperar(() -> "enviado".equals(estado(correoId)), "el correo lento terminó");
+        } finally {
+            d.detener();
+        }
+    }
+
+    @Test
+    @DisplayName("prioridad: el correo de una alerta crítica sale antes que los avisos informativos vencidos antes")
+    void criticoPrimero() {
+        OffsetDateTime ahora = OffsetDateTime.now(reloj);
+        String info = unico("Informativo ");
+        String critico = unico("Critico primero ");
+        pendiente(info, false, ahora.minusMinutes(5));
+        pendiente(critico, true, ahora);
+        int antes = correos().size();
+        despachador.vaciarCorreos();
+        List<String> orden = correos().subList(antes, correos().size()).stream().map(Correo.Mensaje::asunto).filter(a -> a.equals(info) || a.equals(critico))
+                .toList();
+        assertThat(orden).containsExactly(critico, info);
+    }
+
+    @Test
+    @DisplayName("purga: los enviados de más de bandeja_retencion_dias (90) se borran; lo pendiente y lo reciente se conservan")
+    void purga() {
+        OffsetDateTime ahora = OffsetDateTime.now(reloj);
+        OffsetDateTime viejo = ahora.minusDays(100);
+        long enviadoViejo = jdbc.sql("""
+                INSERT INTO correos_salida (origen, para, asunto, html, estado, intentos, proximo, creado, enviado)
+                VALUES ('prueba', ARRAY['purga@example.com'], 'viejo', '<p>x</p>', 'enviado', 1, :t, :t, :t) RETURNING id""").param("t", viejo).query(Long.class).single();
+        long pendienteViejo = jdbc.sql("""
+                INSERT INTO correos_salida (origen, para, asunto, html, proximo, creado)
+                VALUES ('prueba', ARRAY['purga@example.com'], 'pendiente viejo', '<p>x</p>', :p, :t) RETURNING id""")
+                .param("p", ahora.plusYears(1)).param("t", viejo).query(Long.class).single();
+        long enviadoReciente = jdbc.sql("""
+                INSERT INTO correos_salida (origen, para, asunto, html, estado, intentos, proximo, creado, enviado)
+                VALUES ('prueba', ARRAY['purga@example.com'], 'reciente', '<p>x</p>', 'enviado', 1, :t, :t, :t) RETURNING id""")
+                .param("t", ahora.minusDays(10)).query(Long.class).single();
+        assertThat(despachador.purgar()).isGreaterThanOrEqualTo(1);
+        assertThat(jdbc.sql("SELECT id FROM correos_salida WHERE id IN (:a, :b, :c) ORDER BY id").param("a", enviadoViejo).param("b", pendienteViejo)
+                .param("c", enviadoReciente).query(Long.class).list()).containsExactly(pendienteViejo, enviadoReciente);
+        jdbc.sql("UPDATE correos_salida SET estado = 'fallido' WHERE id = :id").param("id", pendienteViejo).update();
     }
 }

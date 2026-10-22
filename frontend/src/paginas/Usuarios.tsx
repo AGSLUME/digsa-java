@@ -1,7 +1,8 @@
-import { Alert, Badge, Button, Checkbox, Group, Modal, PasswordInput, ScrollArea, Select, Stack, Switch, Table, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Badge, Button, Checkbox, Group, Modal, PasswordInput, ScrollArea, Select, SimpleGrid, Stack, Switch, Table, Text, TextInput, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
+import { errorTelefono } from '../shared/alertas';
 import { api, ErrorApi } from '../shared/api';
 
 interface Perfil {
@@ -46,6 +47,9 @@ const VACIO = {
   nombre: '',
   documento: '',
   telefono: '',
+  /** El teléfono ya guardado: se conserva aunque no sea un móvil (usuarios anteriores a la validación). */
+  telefonoGuardado: null as string | null,
+  telefonoTocado: false,
   usuario: '',
   correo: '',
   perfiles: [] as number[],
@@ -122,6 +126,9 @@ export function Usuarios() {
   const esSanidad = form?.perfiles.includes(SANIDAD);
   const esEsm = form?.perfiles.includes(ESM);
   const esOplRegional = form?.perfiles.includes(OPL_REGIONAL);
+  // Error del teléfono en el campo: el del servidor si lo menciona; si no, la misma regla del backend (reglas/Alertas) al salir del campo
+  const errorDelTelefono =
+    (error && /tel[eé]fono/i.test(error) ? error : null) ?? (form?.telefonoTocado ? errorTelefono(form.telefono, form.telefonoGuardado) : null);
 
   return (
     <Stack>
@@ -196,6 +203,8 @@ export function Usuarios() {
                           nombre: u.nombre,
                           documento: u.documento ?? '',
                           telefono: u.telefono ?? '',
+                          telefonoGuardado: u.telefono,
+                          telefonoTocado: false,
                           usuario: u.usuario,
                           correo: u.correo,
                           perfiles: u.perfiles,
@@ -257,10 +266,25 @@ export function Usuarios() {
                 onChange={(e) => setForm({ ...form, usuario: e.currentTarget.value.toLowerCase() })}
               />
               <TextInput label="Correo" type="email" required value={form.correo} onChange={(e) => setForm({ ...form, correo: e.currentTarget.value })} />
-              <Group grow>
+              <SimpleGrid cols={{ base: 1, sm: 2 }}>
                 <TextInput label="Documento" value={form.documento} onChange={(e) => setForm({ ...form, documento: e.currentTarget.value })} />
-                <TextInput label="Teléfono" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.currentTarget.value })} />
-              </Group>
+                <TextInput
+                  label="Teléfono móvil"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="off"
+                  placeholder="+57 3xx xxx xxxx"
+                  description="Móvil colombiano (+57 y 10 dígitos que empiezan por 3). Recibe por SMS las alertas críticas si su perfil es destinatario."
+                  value={form.telefono}
+                  error={errorDelTelefono}
+                  data-testid="campo-telefono"
+                  onChange={(e) => {
+                    if (error && /tel[eé]fono/i.test(error)) setError(null);
+                    setForm({ ...form, telefono: e.currentTarget.value });
+                  }}
+                  onBlur={() => setForm({ ...form, telefonoTocado: true })}
+                />
+              </SimpleGrid>
               <Checkbox.Group label="Perfiles" value={form.perfiles.map(String)} onChange={(v) => setForm({ ...form, perfiles: v.map(Number) })}>
                 <Stack gap={6} mt={6}>
                   {perfiles.map((p) => (

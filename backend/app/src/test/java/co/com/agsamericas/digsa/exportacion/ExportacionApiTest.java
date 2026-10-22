@@ -132,7 +132,7 @@ class ExportacionApiTest extends PruebaIntegracion {
     // ---------- Pruebas ----------
 
     @Test
-    @DisplayName("invariante: la lista de tablas es la de information_schema (solo se toleran las 4 de alertas aún sin migrar)")
+    @DisplayName("invariante: la lista de tablas es la de information_schema, ni una más ni una menos")
     void tablasContraElEsquema() {
         Set<String> base = new HashSet<>(jdbc.sql("""
                 SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'""")
@@ -145,7 +145,7 @@ class ExportacionApiTest extends PruebaIntegracion {
         assertThat(sobran).as("tablas de la base que no están en Exportacion.TABLAS").isEmpty();
         Set<String> faltan = new HashSet<>(Exportacion.TABLAS);
         faltan.removeAll(base);
-        assertThat(Exportacion.TABLAS_ALERTAS).as("solo se toleran sin migrar las tablas de las alertas").containsAll(faltan);
+        assertThat(faltan).as("tablas de Exportacion.TABLAS que no existen en la base").isEmpty();
 
         // Ninguna columna exportada es binaria ni huella, token o contraseña
         List<String> sospechosas = new ArrayList<>();

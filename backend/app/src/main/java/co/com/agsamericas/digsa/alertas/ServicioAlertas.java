@@ -241,10 +241,11 @@ public class ServicioAlertas {
             ultimoAviso = instante(f.get("ultimo_aviso"));
             ultimoSms = instante(f.get("ultimo_sms"));
         } else {
-            // Operativa: un aviso por clave; nace cerrada
+            // Operativa: un aviso por clave, atómico (índice único parcial): de dos disparos a la vez solo uno inserta; nace cerrada
             Optional<Long> nuevo = jdbc.sql("""
-                    INSERT INTO alertas_eventos (tipo, clave, detalle, abierta, creado, ultimo, cerrada_en)
-                    SELECT :t, :c, :d, false, :ahora, :ahora, :ahora WHERE NOT EXISTS (SELECT 1 FROM alertas_eventos WHERE tipo = :t AND clave = :c)
+                    INSERT INTO alertas_eventos (tipo, clave, detalle, abierta, creado, ultimo, cerrada_en, aviso_unico)
+                    VALUES (:t, :c, :d, false, :ahora, :ahora, :ahora, true)
+                    ON CONFLICT (tipo, clave) WHERE aviso_unico DO NOTHING
                     RETURNING id""")
                     .param("t", tipo).param("c", cl).param("d", det).param("ahora", ahora).query(Long.class).optional();
             if (nuevo.isEmpty()) {

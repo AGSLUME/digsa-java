@@ -23,7 +23,7 @@ class ExportacionTest {
     void tablas() {
         assertThat(new HashSet<>(Exportacion.TABLAS)).hasSameSizeAs(Exportacion.TABLAS);
         assertThat(Exportacion.TABLAS).doesNotContainAnyElementsOf(Exportacion.TECNICAS)
-                .containsAll(Exportacion.TABLAS_ALERTAS).contains("log_transacciones", "visitas", "exportaciones", "riesgo_incidencias");
+                .contains("correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos").contains("log_transacciones", "visitas", "exportaciones", "riesgo_incidencias");
         assertThat(Exportacion.TABLAS).doesNotContain("log_transacciones_defecto");
         assertThat(Exportacion.TABLAS).containsAll(Exportacion.EXCLUIDAS.keySet());
     }
@@ -123,13 +123,12 @@ class ExportacionTest {
     @DisplayName("LEEME: quién, columnas excluidas, soportes, tablas y filas con su huella")
     void leeme() {
         String l = Exportacion.leeme(new Exportacion.Leeme("Admin (admin)", OffsetDateTime.of(2026, 10, 22, 15, 0, 0, 0, ZoneOffset.ofHours(-5)),
-                List.of(new TablaExportada("usuarios", 3, "1".repeat(64)), new TablaExportada("visitas", 10, "2".repeat(64))), 4, 1, 2,
-                List.of("sms_salida")));
+                List.of(new TablaExportada("usuarios", 3, "1".repeat(64)), new TablaExportada("visitas", 10, "2".repeat(64))), 4, 1, 2));
         assertThat(l).startsWith("Suite DIGSA · Exportación completa de los datos\r\n").contains("Admin (admin)").contains("2026-10-22 15:00:00")
                 .contains("UTF-8 con BOM, separado por punto y coma, coma decimal").contains("usuarios: clave_hash, sesion_huella, token_hash, token_vence")
                 .contains("opl_accesos: token_hash").contains("soportes/indice.csv").contains("acta_ronda_<n>.pdf").contains("Tablas y filas")
                 .contains("visitas 10 · " + "2".repeat(64)).contains("usuarios 3").contains("Total: 2 tablas, 13 filas")
-                .contains("Soportes: 4 (huella distinta: 1; no encontrados: 2)").contains("Ley 1581").contains("sms_salida");
+                .contains("Soportes: 4 (huella distinta: 1; no encontrados: 2)").contains("Ley 1581").doesNotContain("Aún no existen");
         assertThat(l.replace("\r\n", "")).doesNotContain("\n");
     }
 }

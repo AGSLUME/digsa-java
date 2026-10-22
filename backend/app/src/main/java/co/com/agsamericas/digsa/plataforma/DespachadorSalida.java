@@ -15,6 +15,8 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -23,8 +25,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -35,31 +39,30 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * Envía lo que hay en la bandeja de salida (correos y SMS) con la menor latencia posible (GMI P75: alertas «en tiempo real o cuasi
  * real»):
  * <ol>
- * <li><b>Inmediato:</b> al confirmarse la transacción que encoló ({@link SalidaEncolada}, AFTER_COMMIT) se despierta un hilo de un
- * ejecutor propio, pequeño y acotado, que envía en el acto. Los despertares se agrupan: una ráfaga de avisos no llena la cola.</li>
- * <li><b>Respaldo:</b> cada {@code digsa.salida.intervalo-ms} (15 s) toma lo vencido (reintentos, lo que encoló otra réplica o un
- * despertar que se perdió) y recupera los envíos colgados en «enviando» más de 2 minutos (réplica caída a mitad de un envío).</li>
+ * <li><b>Inmediato:</b> al confirmarse la transacción que encoló ({@link SalidaEncolada}, AFTER_COMMIT) se despierta el ejecutor de
+ * su canal, que envía en el acto. Los SMS tienen su propio hilo: un SMTP lento nunca retrasa el SMS de una alerta crítica. Los
+ * despertares se agrupan: una ráfaga de avisos no llena la cola.</li>
+ * <li><b>Respaldo:</b> cada {@code digsa.salida.intervalo-ms} (15 s) recupera los envíos colgados en «enviando» (réplica caída a mitad
+ * de un envío) y despierta los dos canales para lo vencido (reintentos, lo que encoló otra réplica o un despertar que se perdió).</li>
  * </ol>
- * Cada fila se toma con {@code FOR UPDATE SKIP LOCKED} en una sentencia corta que la marca «enviando» y suma el intento: dos
- * despachadores (hilos o réplicas) nunca toman la misma. El envío ocurre FUERA de toda transacción (el SMTP no retiene una conexión
- * ni un candado) y el resultado se guarda solo si la fila sigue siendo de este intento. Reintentos a 1, 5, 30 min y 2 h; al quinto
- * intento fallido queda «fallido», con {@code correo_fallido} en la bitácora y, si era el aviso de una alerta crítica,
- * {@link CorreoAgotado}.
+ * Cada fila se toma DE A UNA, justo antes de enviarla, con {@code FOR UPDATE SKIP LOCKED} en una sentencia corta que la marca
+ * «enviando», fija {@code tomado} y suma el intento: dos despachadores (hilos o réplicas) nunca toman la misma, y una fila no envejece
+ * en «enviando» esperando a que salgan otras. Los correos de las alertas críticas se toman primero. El envío ocurre FUERA de toda
+ * transacción y el resultado se guarda solo si la fila sigue siendo de este intento. Un envío se da por colgado solo pasado
+ * {@link #colgado()}, por encima del peor tiempo de un envío según los tiempos máximos del SMTP; si ya agotó los intentos queda
+ * «fallido» como cualquier agotado (nunca pasa de 5 intentos). Reintentos a 1, 5, 30 min y 2 h; al quinto intento fallido queda
+ * «fallido», con {@code correo_fallido} en la bitácora y, si era el aviso de una alerta crítica, {@link CorreoAgotado}. Los envíos
+ * terminados se purgan pasados {@code bandeja_retencion_dias} (90).
  */
 @Component
 public class DespachadorSalida {
 
     private static final Logger LOG = LoggerFactory.getLogger(DespachadorSalida.class);
-    /** Un envío en «enviando» más de esto se da por colgado (el SMTP corta a los 30 s de lectura y 60 s de escritura). */
-    static final Duration COLGADO = Duration.ofMinutes(2);
-    /** Filas por toma: pocas, para que dos réplicas se repartan una ráfaga. */
-    static final int LOTE = 10;
-    /** Vueltas máximas de un vaciado (10 × 50 = 500 envíos); lo que quede lo toma el respaldo. */
-    private static final int MAX_VUELTAS = 50;
-
-    /** Resultado de una vuelta: cuántos se tomaron y cuántos salieron. */
-    public record Vuelta(int tomados, int enviados) {
-    }
+    /** Mínimo para dar un envío por colgado. */
+    static final Duration COLGADO_MINIMO = Duration.ofMinutes(2);
+    /** Envíos máximos de un vaciado; lo que quede lo toma el respaldo. */
+    private static final int MAX_ENVIOS = 500;
+    static final int RETENCION_DEFECTO = 90;
 
     private final JdbcClient jdbc;
     private final Correo correo;
@@ -69,12 +72,22 @@ public class DespachadorSalida {
     private final RegistroBitacora bitacora;
     private final ApplicationEventPublisher eventos;
     private final ObjectMapper json;
-    /** Ejecutor propio (no el de la aplicación): 2 hilos y una cola corta; si se llena, el respaldo cubre lo que no entró. */
-    private final ThreadPoolExecutor hilos;
-    private final AtomicBoolean despertarPendiente = new AtomicBoolean();
+    /** Tiempo en «enviando» a partir del cual un envío se da por colgado. */
+    private final Duration colgado;
+    /** Ejecutores propios (no el de la aplicación), con colas cortas: si se llenan, el respaldo cubre lo que no entró. */
+    private final ThreadPoolExecutor hilosCorreo;
+    private final ThreadPoolExecutor hilosSms;
+    private final AtomicBoolean despertarCorreos = new AtomicBoolean();
+    private final AtomicBoolean despertarSms = new AtomicBoolean();
+
+    @Autowired
+    public DespachadorSalida(JdbcClient jdbc, Correo correo, Sms sms, Almacen almacen, Clock reloj, RegistroBitacora bitacora,
+                             ApplicationEventPublisher eventos, ObjectMapper json, Environment entorno, @Value("${digsa.salida.hilos:2}") int hilos) {
+        this(jdbc, correo, sms, almacen, reloj, bitacora, eventos, json, hilos, colgado(entorno));
+    }
 
     public DespachadorSalida(JdbcClient jdbc, Correo correo, Sms sms, Almacen almacen, Clock reloj, RegistroBitacora bitacora,
-                             ApplicationEventPublisher eventos, ObjectMapper json, @Value("${digsa.salida.hilos:2}") int hilos) {
+                             ApplicationEventPublisher eventos, ObjectMapper json, int hilos, Duration colgado) {
         this.jdbc = jdbc;
         this.correo = correo;
         this.sms = sms;
@@ -83,86 +96,197 @@ public class DespachadorSalida {
         this.bitacora = bitacora;
         this.eventos = eventos;
         this.json = json;
-        int n = Math.max(1, Math.min(hilos, 4));
+        this.colgado = colgado;
+        this.hilosCorreo = ejecutor("digsa-salida-correo-", Math.max(1, Math.min(hilos, 4)));
+        this.hilosSms = ejecutor("digsa-salida-sms-", 1);
+    }
+
+    /**
+     * Colgado: {@code digsa.salida.colgado-ms} si se fijó; si no, el doble del peor envío por SMTP (conexión + lectura + escritura de
+     * spring.mail: 10 + 30 + 60 s → 200 s), nunca menos de 2 minutos.
+     */
+    static Duration colgado(Environment e) {
+        Long fijo = e.getProperty("digsa.salida.colgado-ms", Long.class);
+        if (fijo != null && fijo > 0) {
+            return Duration.ofMillis(fijo);
+        }
+        long peor = e.getProperty("spring.mail.properties.mail.smtp.connectiontimeout", Long.class, 10_000L)
+                + e.getProperty("spring.mail.properties.mail.smtp.timeout", Long.class, 30_000L)
+                + e.getProperty("spring.mail.properties.mail.smtp.writetimeout", Long.class, 60_000L);
+        Duration d = Duration.ofMillis(2 * peor);
+        return d.compareTo(COLGADO_MINIMO) < 0 ? COLGADO_MINIMO : d;
+    }
+
+    public Duration colgado() {
+        return colgado;
+    }
+
+    private static ThreadPoolExecutor ejecutor(String nombre, int n) {
         AtomicInteger secuencia = new AtomicInteger();
-        this.hilos = new ThreadPoolExecutor(n, n, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(4), r -> {
-            Thread t = new Thread(r, "digsa-salida-" + secuencia.incrementAndGet());
+        ThreadPoolExecutor e = new ThreadPoolExecutor(n, n, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(4), r -> {
+            Thread t = new Thread(r, nombre + secuencia.incrementAndGet());
             t.setDaemon(true);
             return t;
         }, new ThreadPoolExecutor.AbortPolicy());
-        this.hilos.allowCoreThreadTimeOut(true);
+        e.allowCoreThreadTimeOut(true);
+        return e;
     }
 
     @PreDestroy
-    void detener() {
-        hilos.shutdown();
+    public void detener() {
+        hilosCorreo.shutdown();
+        hilosSms.shutdown();
     }
 
-    /** Lo encolado ya está confirmado: a enviarlo. Sin transacción (autocommit) también se ejecuta, de inmediato. */
+    /** Lo encolado ya está confirmado: a enviarlo por su canal. Sin transacción (autocommit) también se ejecuta, de inmediato. */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void alEncolar(SalidaEncolada e) {
-        despertar();
+        if ("sms".equals(e.canal())) {
+            despertarSms();
+        } else {
+            despertarCorreos();
+        }
     }
 
-    /** Pide un vaciado en otro hilo. Varios despertares seguidos se agrupan en uno; nunca bloquea a quien llama. */
+    /** Despierta los dos canales. */
     public void despertar() {
-        if (!despertarPendiente.compareAndSet(false, true)) {
+        despertarSms();
+        despertarCorreos();
+    }
+
+    /** Pide un vaciado de los correos en su ejecutor. Varios despertares seguidos se agrupan en uno; nunca bloquea a quien llama. */
+    public void despertarCorreos() {
+        despertar(despertarCorreos, hilosCorreo, this::vaciarCorreos);
+    }
+
+    /** Pide un vaciado de los SMS en su hilo propio. */
+    public void despertarSms() {
+        despertar(despertarSms, hilosSms, this::vaciarSms);
+    }
+
+    private static void despertar(AtomicBoolean pendiente, ThreadPoolExecutor hilos, Runnable vaciado) {
+        if (!pendiente.compareAndSet(false, true)) {
             return; // ya hay un vaciado en cola que verá también estas filas
         }
         try {
             hilos.execute(() -> {
-                despertarPendiente.set(false); // lo que llegue desde aquí pide otro vaciado
-                vaciar();
+                pendiente.set(false); // lo que llegue desde aquí pide otro vaciado
+                vaciado.run();
             });
         } catch (RejectedExecutionException e) {
-            despertarPendiente.set(false);
+            pendiente.set(false);
             LOG.debug("[salida] Ejecutor lleno: el respaldo enviará lo pendiente");
         }
     }
 
-    /** Respaldo periódico: recupera los colgados y envía lo vencido (seguro con varias réplicas). */
+    /** Respaldo periódico: recupera los colgados y despierta los dos canales (seguro con varias réplicas). */
     @Scheduled(fixedDelayString = "${digsa.salida.intervalo-ms:15000}", initialDelayString = "${digsa.salida.inicio-ms:15000}")
     public void respaldo() {
         try {
             recuperarColgados();
-            vaciar();
+            despertar(); // cada canal en su ejecutor: un SMTP lento no frena los SMS
         } catch (RuntimeException e) {
             LOG.error("[salida] Falló la vuelta de respaldo de la bandeja de salida", e);
         }
     }
 
-    /** Envía hasta que no quede nada vencido (o hasta {@link #MAX_VUELTAS}). @return cuántos salieron */
+    /** Purga diaria de los envíos terminados más viejos que {@code bandeja_retencion_dias}. */
+    @Scheduled(cron = "${digsa.salida.purga-cron:0 40 3 * * *}", zone = "America/Bogota")
+    public void purgaProgramada() {
+        try {
+            purgar();
+        } catch (RuntimeException e) {
+            LOG.error("[salida] Falló la purga de la bandeja de salida", e);
+        }
+    }
+
+    /**
+     * Borra los correos (enviados, parciales o fallidos) y los SMS (enviados, omitidos o fallidos) creados hace más de
+     * {@code bandeja_retencion_dias} días (90; 0 = no purgar). Lo pendiente nunca se borra. @return filas borradas
+     */
+    public int purgar() {
+        int dias = jdbc.sql("SELECT valor FROM par_parametros WHERE clave = 'bandeja_retencion_dias'").query(String.class).optional()
+                .map(String::strip).filter(v -> v.matches("^[0-9]{1,5}$")).map(Integer::parseInt).orElse(RETENCION_DEFECTO);
+        if (dias <= 0) {
+            return 0;
+        }
+        OffsetDateTime limite = OffsetDateTime.now(reloj).minusDays(dias);
+        int n = jdbc.sql("DELETE FROM correos_salida WHERE estado IN ('enviado', 'parcial', 'fallido') AND creado < :l").param("l", limite).update()
+                + jdbc.sql("DELETE FROM sms_salida WHERE estado IN ('enviado', 'omitido', 'fallido') AND creado < :l").param("l", limite).update();
+        if (n > 0) {
+            LOG.info("[salida] Purgados {} envíos de más de {} días", n, dias);
+        }
+        return n;
+    }
+
+    /** Envía todo lo vencido de los dos canales (SMS primero). @return cuántos salieron */
     public int vaciar() {
+        return vaciarSms() + vaciarCorreos();
+    }
+
+    /** Toma y envía correos de a uno hasta que no quede nada vencido. @return cuántos salieron */
+    public int vaciarCorreos() {
         int enviados = 0;
-        for (int i = 0; i < MAX_VUELTAS; i++) {
-            Vuelta v = vuelta();
-            enviados += v.enviados();
-            if (v.tomados() == 0) {
+        for (int i = 0; i < MAX_ENVIOS; i++) {
+            Optional<FilaCorreo> f = tomarCorreo();
+            if (f.isEmpty()) {
                 break;
+            }
+            if (enviarCorreo(f.get())) {
+                enviados++;
             }
         }
         return enviados;
     }
 
-    /** Una toma de SMS y otra de correos. Los SMS primero: son el canal inmediato de las críticas y no esperan a un SMTP lento. */
-    public Vuelta vuelta() {
-        Vuelta s = sms();
-        Vuelta c = correos();
-        return new Vuelta(c.tomados() + s.tomados(), c.enviados() + s.enviados());
+    /** Toma y envía SMS de a uno hasta que no quede nada vencido. @return cuántos salieron */
+    public int vaciarSms() {
+        int enviados = 0;
+        for (int i = 0; i < MAX_ENVIOS; i++) {
+            Optional<FilaSms> f = tomarSms();
+            if (f.isEmpty()) {
+                break;
+            }
+            if (enviarSms(f.get())) {
+                enviados++;
+            }
+        }
+        return enviados;
     }
 
-    /** Los «enviando» de un despachador que murió a mitad del envío vuelven a «pendiente» (el intento ya contó). */
+    /**
+     * Los «enviando» de un despachador que murió a mitad del envío: si aún tienen intentos vuelven a «pendiente» (el intento ya contó);
+     * si los agotaron quedan «fallido» con su bitácora (y {@link CorreoAgotado} si el correo era crítico). @return filas tocadas
+     */
     public int recuperarColgados() {
         OffsetDateTime ahora = OffsetDateTime.now(reloj);
-        int n = 0;
+        OffsetDateTime limite = ahora.minus(colgado);
+        String error = "Sin respuesta del envío en " + colgado.toSeconds() + " s (envío colgado)";
+        int fallidos = 0;
+        for (Map<String, Object> f : jdbc.sql("""
+                UPDATE correos_salida SET estado = 'fallido', error = :e, proximo = :ahora
+                WHERE estado = 'enviando' AND tomado < :limite AND intentos >= :max RETURNING id, origen, critico, intentos""")
+                .param("e", error).param("ahora", ahora).param("limite", limite).param("max", Alertas.MAX_INTENTOS).query().listOfRows()) {
+            fallidos++;
+            correoAgotado(((Number) f.get("id")).longValue(), (String) f.get("origen"), Boolean.TRUE.equals(f.get("critico")),
+                    ((Number) f.get("intentos")).intValue(), error);
+        }
+        for (Map<String, Object> f : jdbc.sql("""
+                UPDATE sms_salida SET estado = 'fallido', error = :e, proximo = :ahora
+                WHERE estado = 'enviando' AND tomado < :limite AND intentos >= :max RETURNING id, alerta_id, intentos""")
+                .param("e", error).param("ahora", ahora).param("limite", limite).param("max", Alertas.MAX_INTENTOS).query().listOfRows()) {
+            fallidos++;
+            smsAgotado(((Number) f.get("id")).longValue(), ((Number) f.get("alerta_id")).longValue(), ((Number) f.get("intentos")).intValue(), error);
+        }
+        int devueltos = 0;
         for (String tabla : List.of("correos_salida", "sms_salida")) {
-            n += jdbc.sql("UPDATE " + tabla + " SET estado = 'pendiente', proximo = :ahora WHERE estado = 'enviando' AND tomado < :limite")
-                    .param("ahora", ahora).param("limite", ahora.minus(COLGADO)).update();
+            devueltos += jdbc.sql("UPDATE " + tabla + " SET estado = 'pendiente', proximo = :ahora, error = :e WHERE estado = 'enviando' AND tomado < :limite AND intentos < :max")
+                    .param("ahora", ahora).param("e", error).param("limite", limite).param("max", Alertas.MAX_INTENTOS).update();
         }
-        if (n > 0) {
-            LOG.warn("[salida] {} envío(s) colgados en «enviando» vuelven a la cola", n);
+        if (fallidos + devueltos > 0) {
+            LOG.warn("[salida] Envíos colgados en «enviando»: {} vuelven a la cola y {} quedan fallidos", devueltos, fallidos);
         }
-        return n;
+        return fallidos + devueltos;
     }
 
     // ---------- Correos ----------
@@ -171,26 +295,19 @@ public class DespachadorSalida {
                               String adjuntos, int intentos) {
     }
 
-    private Vuelta correos() {
+    /** Toma UN correo vencido (los de alertas críticas primero), justo antes de enviarlo: una sentencia en autocommit. */
+    private Optional<FilaCorreo> tomarCorreo() {
         OffsetDateTime ahora = OffsetDateTime.now(reloj);
-        // Una sola sentencia (autocommit): toma, marca y suma el intento; SKIP LOCKED salta lo que otro despachador está tomando
-        List<FilaCorreo> filas = jdbc.sql("""
+        return jdbc.sql("""
                 UPDATE correos_salida c SET estado = 'enviando', intentos = c.intentos + 1, tomado = :ahora
-                FROM (SELECT id FROM correos_salida WHERE estado = 'pendiente' AND proximo <= :ahora ORDER BY proximo, id LIMIT :n
+                FROM (SELECT id FROM correos_salida WHERE estado = 'pendiente' AND proximo <= :ahora ORDER BY critico DESC, proximo, id LIMIT 1
                       FOR UPDATE SKIP LOCKED) x
                 WHERE c.id = x.id
                 RETURNING c.id, c.origen, c.critico, c.para, c.copia, c.asunto, c.html, c.adjuntos::text AS adjuntos, c.intentos""")
-                .param("ahora", ahora).param("n", LOTE)
+                .param("ahora", ahora)
                 .query((rs, i) -> new FilaCorreo(rs.getLong("id"), rs.getString("origen"), rs.getBoolean("critico"), lista(rs, "para"), lista(rs, "copia"),
                         rs.getString("asunto"), rs.getString("html"), rs.getString("adjuntos"), rs.getInt("intentos")))
-                .list();
-        int enviados = 0;
-        for (FilaCorreo f : filas) {
-            if (enviarCorreo(f)) {
-                enviados++;
-            }
-        }
-        return new Vuelta(filas.size(), enviados);
+                .optional();
     }
 
     private boolean enviarCorreo(FilaCorreo f) {
@@ -212,11 +329,7 @@ public class DespachadorSalida {
         String error = Bitacora.cortar(Bitacora.sinCorreos(r.error() == null ? "error desconocido" : r.error()), 500);
         if (Alertas.agotado(f.intentos())) {
             if (guardar("correos_salida", f.id(), f.intentos(), "fallido", null, ahora, error)) {
-                bitacora.escribir(Bitacora.Operacion.INSERCION, "correo_fallido", "salida", "Correo " + f.id() + " (" + f.origen() + ") sin enviar tras "
-                        + f.intentos() + " intentos: " + error, null, "sistema", null);
-                if (f.critico()) {
-                    eventos.publishEvent(new CorreoAgotado(f.id(), f.origen()));
-                }
+                correoAgotado(f.id(), f.origen(), f.critico(), f.intentos(), error);
             }
             return false;
         }
@@ -224,6 +337,15 @@ public class DespachadorSalida {
                 .param("p", ahora.plus(Alertas.esperaReintento(f.intentos()))).param("e", error).param("id", f.id()).param("i", f.intentos()).update();
         LOG.warn("[salida] Correo {} ({}) intento {} fallido: {}", f.id(), f.origen(), f.intentos(), error);
         return false;
+    }
+
+    /** Fallo definitivo de un correo: bitácora y, si era el aviso de una alerta crítica, {@link CorreoAgotado}. */
+    private void correoAgotado(long id, String origen, boolean critico, int intentos, String error) {
+        bitacora.escribir(Bitacora.Operacion.INSERCION, "correo_fallido", "salida", "Correo " + id + " (" + origen + ") sin enviar tras "
+                + intentos + " intentos: " + error, null, "sistema", null);
+        if (critico) {
+            eventos.publishEvent(new CorreoAgotado(id, origen));
+        }
     }
 
     private List<Correo.Adjunto> adjuntos(String jsonAdjuntos) {
@@ -250,26 +372,19 @@ public class DespachadorSalida {
     private record FilaSms(long id, long alertaId, String telefono, String texto, int intentos) {
     }
 
-    private Vuelta sms() {
+    /** Toma UN SMS vencido con el número vigente del usuario activo (la fila solo guarda la máscara). */
+    private Optional<FilaSms> tomarSms() {
         OffsetDateTime ahora = OffsetDateTime.now(reloj);
-        List<FilaSms> filas = jdbc.sql("""
+        return jdbc.sql("""
                 UPDATE sms_salida s SET estado = 'enviando', intentos = s.intentos + 1, tomado = :ahora
                 FROM (SELECT p.id, CASE WHEN u.activo THEN u.telefono END AS telefono FROM sms_salida p JOIN usuarios u ON u.id = p.usuario_id
-                      WHERE p.estado = 'pendiente' AND p.proximo <= :ahora ORDER BY p.proximo, p.id LIMIT :n FOR UPDATE OF p SKIP LOCKED) x
+                      WHERE p.estado = 'pendiente' AND p.proximo <= :ahora ORDER BY p.proximo, p.id LIMIT 1 FOR UPDATE OF p SKIP LOCKED) x
                 WHERE s.id = x.id
                 RETURNING s.id, s.alerta_id, x.telefono, s.texto, s.intentos""")
-                .param("ahora", ahora).param("n", LOTE)
-                // El número vigente del usuario activo en E.164 (la fila solo guarda la máscara); null si ya no tiene uno válido
+                .param("ahora", ahora)
                 .query((rs, i) -> new FilaSms(rs.getLong("id"), rs.getLong("alerta_id"), Alertas.normalizarTelefono(rs.getString("telefono")).orElse(null),
                         rs.getString("texto"), rs.getInt("intentos")))
-                .list();
-        int enviados = 0;
-        for (FilaSms f : filas) {
-            if (enviarSms(f)) {
-                enviados++;
-            }
-        }
-        return new Vuelta(filas.size(), enviados);
+                .optional();
     }
 
     private boolean enviarSms(FilaSms f) {
@@ -294,14 +409,18 @@ public class DespachadorSalida {
         if (r.definitivo() || Alertas.agotado(f.intentos())) {
             String estado = r.definitivo() ? "omitido" : "fallido";
             if (guardar("sms_salida", f.id(), f.intentos(), estado, null, ahora, error) && "fallido".equals(estado)) {
-                bitacora.escribir(Bitacora.Operacion.INSERCION, "sms_fallido", "salida", "SMS " + f.id() + " de la alerta " + f.alertaId() + " sin enviar tras "
-                        + f.intentos() + " intentos: " + error, null, "sistema", null);
+                smsAgotado(f.id(), f.alertaId(), f.intentos(), error);
             }
             return false;
         }
         jdbc.sql("UPDATE sms_salida SET estado = 'pendiente', proximo = :p, error = :e WHERE id = :id AND estado = 'enviando' AND intentos = :i")
                 .param("p", ahora.plus(Alertas.esperaReintento(f.intentos()))).param("e", error).param("id", f.id()).param("i", f.intentos()).update();
         return false;
+    }
+
+    private void smsAgotado(long id, long alertaId, int intentos, String error) {
+        bitacora.escribir(Bitacora.Operacion.INSERCION, "sms_fallido", "salida", "SMS " + id + " de la alerta " + alertaId + " sin enviar tras "
+                + intentos + " intentos: " + error, null, "sistema", null);
     }
 
     // ---------- Comunes ----------

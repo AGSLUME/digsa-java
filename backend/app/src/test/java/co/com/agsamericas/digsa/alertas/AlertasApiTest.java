@@ -162,6 +162,11 @@ class AlertasApiTest extends PruebaIntegracion {
         }
 
         @Override
+        public java.io.OutputStream escribir(String ruta) throws IOException {
+            throw new IOException("disco no disponible");
+        }
+
+        @Override
         public void descartar(String ruta) {
         }
     };
@@ -271,6 +276,9 @@ class AlertasApiTest extends PruebaIntegracion {
         assertThat(adm.put("/api/alertas/catalogo", Map.of("tipo", "plan_opl_vencido", "perfiles", List.of(), "usuarios", List.of())).mensaje())
                 .contains("al menos un destinatario");
         assertThat(adm.put("/api/alertas/catalogo", Map.of("tipo", "plan_opl_vencido", "usuarios", List.of(999_999_999L))).mensaje()).contains("no existe");
+        long opl = idDe(crearUsuario("alertaopl", Perfil.OPL_NACIONAL));
+        assertThat(adm.put("/api/alertas/catalogo", Map.of("tipo", "plan_opl_vencido", "usuarios", List.of(opl))).mensaje())
+                .as("un usuario solo del OPL no recibe alertas").contains("perfil interno");
         assertThat(adm.put("/api/alertas/catalogo", Map.of("tipo", "no_existe")).estado()).isEqualTo(404);
         Respuesta ok = adm.put("/api/alertas/catalogo", Map.of("tipo", "plan_opl_vencido", "perfiles", List.of("COORDINADOR", "DIGSA"), "usuarios", List.of()));
         assertThat(ok.estado()).as(ok.texto()).isEqualTo(200);
@@ -300,9 +308,44 @@ class AlertasApiTest extends PruebaIntegracion {
         assertThat(e.path("latenciaCorreoMs").asLong()).isBetween(0L, 3000L);
         System.out.println("[latencia] API de eventos: correo " + e.path("latenciaCorreoMs").asLong() + " ms, SMS " + e.path("latenciaSmsMs").asLong() + " ms");
         assertThat(lista.path("bandeja24h").has("latenciaP95Ms")).isTrue();
+        assertThat(lista.path("bandejaSms24h").has("latenciaP50Ms")).isTrue();
+        assertThat(lista.path("bandejaSms24h").path("latenciaP95Ms").isNull()).as("hay SMS enviados en las últimas 24 h").isFalse();
         assertThat(coord.post("/api/alertas/eventos/" + ev + "/cerrar", null).estado()).isEqualTo(200);
         assertThat(coord.post("/api/alertas/eventos/" + ev + "/cerrar", null).estado()).as("ya cerrada").isEqualTo(422);
         assertThat(entrar(crearUsuario("alertaaud", Perfil.AUDITOR)).get("/api/alertas/eventos").estado()).isEqualTo(403);
+    }
+
+    @Test
+    @DisplayName("operativa: dos disparos a la vez con la misma clave → un solo evento y un solo correo")
+    void operativaConcurrenteUnSoloAviso() throws Exception {
+        long a = idDe(crearUsuario("alertaconc", Perfil.COORDINADOR));
+        soloPara(Alertas.PLAN_OPL_VENCIDO, a);
+        String clave = unico("acta:conc-");
+        java.util.concurrent.CountDownLatch salida = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService dos = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            List<java.util.concurrent.Future<ServicioAlertas.Disparo>> r = new java.util.ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                r.add(dos.submit(() -> {
+                    salida.await();
+                    return alertas.disparar(Alertas.PLAN_OPL_VENCIDO, clave, "Visita de prueba: plan vencido");
+                }));
+            }
+            salida.countDown();
+            long avisados = 0;
+            for (var f : r) {
+                avisados += f.get().avisado() ? 1 : 0;
+            }
+            assertThat(avisados).isEqualTo(1);
+        } finally {
+            dos.shutdownNow();
+        }
+        assertThat(jdbc.sql("SELECT count(*) FROM alertas_eventos WHERE tipo = 'plan_opl_vencido' AND clave = :c").param("c", clave).query(Long.class).single())
+                .isEqualTo(1);
+        assertThat(jdbc.sql("""
+                SELECT count(*) FROM correos_salida c JOIN alertas_eventos e ON e.id = c.alerta_id WHERE e.tipo = 'plan_opl_vencido' AND e.clave = :c""")
+                .param("c", clave).query(Long.class).single()).isEqualTo(1);
+        assertThat(alertas.disparar(Alertas.PLAN_OPL_VENCIDO, clave, "otra vez").avisado()).as("ni después").isFalse();
     }
 
     @Test

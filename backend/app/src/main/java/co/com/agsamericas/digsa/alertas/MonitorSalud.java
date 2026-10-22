@@ -15,7 +15,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Verificación de salud cada minuto (alerta «almacen_no_disponible», GMI P77 b: disponibilidad e integridad): la base responde a un
+ * Verificación de salud cada 30 s (digsa.salud.intervalo-ms) (alerta «almacen_no_disponible», GMI P77 b: disponibilidad e integridad): la base responde a un
  * {@code SELECT 1} y el almacén escribe, lee y borra un archivo de prueba. Si algo falla se dispara la alerta crítica; al recuperarse,
  * se cierra sola. Si lo que falla es la base, no hay dónde encolar: se avisa directo por los puertos de correo y SMS a los últimos
  * destinatarios conocidos y, al volver, queda la constancia en los eventos. También cierra el bloqueo masivo cuando cede.
@@ -44,7 +44,7 @@ public class MonitorSalud {
         this.reloj = reloj;
     }
 
-    @Scheduled(fixedDelayString = "${digsa.salud.intervalo-ms:60000}", initialDelayString = "${digsa.salud.inicio-ms:30000}")
+    @Scheduled(fixedDelayString = "${digsa.salud.intervalo-ms:30000}", initialDelayString = "${digsa.salud.inicio-ms:30000}")
     public void programada() {
         try {
             verificar();

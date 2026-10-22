@@ -43,14 +43,14 @@ public class ControladorAlertas {
     }
 
     @GetMapping("/eventos")
-    @PreAuthorize("hasAnyAuthority('PERFIL_ADMINISTRADOR', 'PERFIL_COORDINADOR')")
+    @PreAuthorize("@permisos.pantalla('ALERTAS')")
     @Accion(modulo = "alertas", accion = "eventos", operacion = Declarada.CONSULTA)
     public Map<String, Object> eventos(@RequestParam(defaultValue = "false") boolean abiertas, @RequestParam(defaultValue = "100") int limite) {
         return servicio.eventos(abiertas, limite);
     }
 
     @PostMapping("/eventos/{id}/cerrar")
-    @PreAuthorize("hasAnyAuthority('PERFIL_ADMINISTRADOR', 'PERFIL_COORDINADOR')")
+    @PreAuthorize("@permisos.pantalla('ALERTAS')")
     @Accion(modulo = "alertas", accion = "cerrar", operacion = Declarada.ACTUALIZACION)
     public Map<String, Object> cerrar(@PathVariable long id) {
         return servicio.cerrar(id, UsuarioSesion.actual().orElseThrow());

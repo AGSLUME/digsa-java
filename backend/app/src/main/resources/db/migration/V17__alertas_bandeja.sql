@@ -34,9 +34,13 @@ CREATE TABLE alertas_eventos (
     ultimo_sms   timestamptz,                                           -- último SMS encolado (no más de uno por hora)
     cerrada_en   timestamptz,
     cerrada_por  bigint REFERENCES usuarios (id) ON DELETE RESTRICT,
-    CHECK (abierta = (cerrada_en IS NULL))
+    aviso_unico  boolean NOT NULL DEFAULT false,                        -- operativa: un solo aviso por (tipo, clave), atómico
+    CHECK (abierta = (cerrada_en IS NULL)),
+    CHECK (NOT (aviso_unico AND abierta))
 );
 CREATE UNIQUE INDEX ux_alertas_eventos_abierta ON alertas_eventos (tipo, clave) WHERE abierta;
+-- Las operativas avisan una vez por clave: dos disparos a la vez no avisan dos veces (INSERT … ON CONFLICT DO NOTHING)
+CREATE UNIQUE INDEX ux_alertas_eventos_unico ON alertas_eventos (tipo, clave) WHERE aviso_unico;
 CREATE INDEX ix_alertas_eventos_tipo_clave ON alertas_eventos (tipo, clave);
 CREATE INDEX ix_alertas_eventos_creado ON alertas_eventos (creado DESC);
 CREATE INDEX ix_alertas_eventos_cerrada_por ON alertas_eventos (cerrada_por);
@@ -64,8 +68,8 @@ CREATE TABLE correos_salida (
     enviado    timestamptz,
     CHECK ((estado IN ('enviado', 'parcial')) = (enviado IS NOT NULL))
 );
--- Solo los pendientes: el índice queda pequeño aunque la tabla crezca con los enviados
-CREATE INDEX ix_correos_salida_pendientes ON correos_salida (proximo) WHERE estado = 'pendiente';
+-- Solo los pendientes (el índice queda pequeño aunque la tabla crezca con los enviados), en el orden de la toma: los críticos primero
+CREATE INDEX ix_correos_salida_pendientes ON correos_salida (critico DESC, proximo, id) WHERE estado = 'pendiente';
 CREATE INDEX ix_correos_salida_enviando ON correos_salida (tomado) WHERE estado = 'enviando';
 CREATE INDEX ix_correos_salida_alerta ON correos_salida (alerta_id) WHERE alerta_id IS NOT NULL;
 CREATE INDEX ix_correos_salida_creado ON correos_salida (creado DESC);
@@ -104,6 +108,8 @@ INSERT INTO alertas_criticas (tipo, nombre, descripcion, critica, sms, perfiles)
 ON CONFLICT (tipo) DO NOTHING;
 
 INSERT INTO par_parametros (clave, valor, descripcion, fuente, editable) VALUES
+  ('bandeja_retencion_dias', '90', 'Bandeja de salida: días que se conservan los correos y SMS ya enviados, fallidos u omitidos antes de purgarlos (0 = no purgar)',
+   'Spec exportacion-alertas (bandeja de salida)', true),
   ('alertas_bloqueo_cuentas', '5', 'Alertas: cuentas bloqueadas por intentos en una hora que disparan la alerta de bloqueo masivo (0 = desactivada)',
    'Spec exportacion-alertas; GMI P77 b', true)
 ON CONFLICT (clave) DO NOTHING;
@@ -117,6 +123,8 @@ BEGIN
     END IF;
     -- El catálogo lo crea la migración; la aplicación solo lo edita
     EXECUTE format('GRANT SELECT, UPDATE ON alertas_criticas TO %I', app);
-    EXECUTE format('GRANT SELECT, INSERT, UPDATE ON alertas_eventos, correos_salida, sms_salida TO %I', app);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE ON alertas_eventos TO %I', app);
+    -- DELETE solo para la purga de los envíos terminados (bandeja_retencion_dias)
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON correos_salida, sms_salida TO %I', app);
     EXECUTE format('GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO %I', app);
 END $$;

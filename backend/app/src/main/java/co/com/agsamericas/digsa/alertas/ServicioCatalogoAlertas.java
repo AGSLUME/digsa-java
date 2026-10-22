@@ -104,6 +104,16 @@ public class ServicioCatalogoAlertas {
             if (activos != usuarios.size()) {
                 throw ErrorNegocio.validacion("Algún usuario elegido no existe o está inactivo.");
             }
+            // Como con los perfiles: solo usuarios internos (con algún perfil que puede recibir alertas), nunca uno solo del OPL o del ESM
+            long internos = jdbc.sql("""
+                    SELECT count(*) FROM usuarios u WHERE u.id = ANY(:u)
+                      AND EXISTS (SELECT 1 FROM usuarios_perfiles up WHERE up.usuario_id = u.id AND up.perfil_id = ANY(:p))""")
+                    .param("u", usuarios.toArray(Long[]::new))
+                    .param("p", ServicioAlertas.PERFILES_DESTINO.stream().map(p -> p.id()).toArray(Integer[]::new)).query(Long.class).single();
+            if (internos != usuarios.size()) {
+                throw ErrorNegocio.validacion("Algún usuario elegido no tiene un perfil interno que pueda recibir alertas ("
+                        + String.join(", ", validos) + ").");
+            }
         }
         if (activa && perfiles.isEmpty() && usuarios.isEmpty()) {
             throw ErrorNegocio.validacion("Una alerta activa necesita al menos un destinatario (perfil o usuario).");
@@ -156,7 +166,16 @@ public class ServicioCatalogoAlertas {
                   round(percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM enviado - creado) * 1000) FILTER (WHERE enviado IS NOT NULL AND creado >= :desde)) AS latencia_p95_ms
                 FROM correos_salida WHERE estado IN ('pendiente', 'enviando') OR creado >= :desde""")
                 .param("desde", OffsetDateTime.now(reloj).minusHours(24)).query().singleRow();
-        return Map.of("eventos", eventos, "bandeja24h", legible(bandeja));
+        Map<String, Object> bandejaSms = jdbc.sql("""
+                SELECT count(*) FILTER (WHERE estado = 'pendiente') AS pendientes, count(*) FILTER (WHERE estado = 'enviando') AS enviando,
+                  count(*) FILTER (WHERE estado = 'fallido' AND creado >= :desde) AS fallidos_24h,
+                  count(*) FILTER (WHERE estado = 'omitido' AND creado >= :desde) AS omitidos_24h,
+                  round(percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM enviado - creado) * 1000) FILTER (WHERE enviado IS NOT NULL AND creado >= :desde)) AS latencia_p50_ms,
+                  round(percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM enviado - creado) * 1000) FILTER (WHERE enviado IS NOT NULL AND creado >= :desde)) AS latencia_p95_ms
+                FROM sms_salida WHERE estado IN ('pendiente', 'enviando') OR creado >= :desde""")
+                .param("desde", OffsetDateTime.now(reloj).minusHours(24)).query().singleRow();
+        // bandeja24h son los correos (sin cambiar); bandejaSms24h, lo mismo para los SMS
+        return Map.of("eventos", eventos, "bandeja24h", legible(bandeja), "bandejaSms24h", legible(bandejaSms));
     }
 
     private static Map<String, Object> legible(Map<String, Object> fila) {

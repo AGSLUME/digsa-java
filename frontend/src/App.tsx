@@ -7,10 +7,12 @@ import { Calendario } from './paginas/Calendario';
 import { Catalogos } from './paginas/Catalogos';
 import { Checklist } from './paginas/Checklist';
 import { DefinirClave, OlvideClave } from './paginas/Claves';
+import { Dashboard } from './paginas/Dashboard';
 import { Hallazgos } from './paginas/Hallazgos';
 import { Ingreso } from './paginas/Ingreso';
 import { Logs } from './paginas/Logs';
 import { Reportes } from './paginas/Reportes';
+import { Riesgo } from './paginas/Riesgo';
 import { Solicitudes } from './paginas/Solicitudes';
 import { Maestros } from './paginas/Maestros';
 import { MisVisitas } from './paginas/MisVisitas';
@@ -106,6 +108,8 @@ export function App() {
           <Route path="/usuarios" element={<Protegida ruta="usuarios"><Usuarios /></Protegida>} />
           <Route path="/logs" element={<Protegida ruta="logs"><Logs /></Protegida>} />
           <Route path="/reportes" element={<Protegida ruta="reportes"><Reportes /></Protegida>} />
+          <Route path="/riesgo" element={<Protegida ruta="riesgo"><Riesgo /></Protegida>} />
+          <Route path="/dashboard" element={<Protegida ruta="dashboard"><Dashboard /></Protegida>} />
           <Route path="/solicitudes" element={<Protegida ruta="solicitudes"><Solicitudes /></Protegida>} />
           <Route path="/prorrogas" element={<Protegida ruta="prorrogas"><Prorrogas /></Protegida>} />
           <Route path="/hallazgos" element={<Protegida ruta="hallazgos"><Hallazgos /></Protegida>} />

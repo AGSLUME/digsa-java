@@ -7,12 +7,14 @@ import {
   esProrroga,
   faltantesPlan,
   fechaValida,
+  inmediataEfectiva,
   justificacionValida,
   planCambiado,
   respuestasCambiadas,
   sinHallazgo,
   tamanoLegible,
   textoONulo,
+  valorItem,
   type ComponenteChecklist,
   type EdicionPlan,
   type DatosPlan,
@@ -61,7 +63,7 @@ describe('formulario del checklist', () => {
       'HB-03': { calificacion: 'NC', hallazgo: 'Nevera sin registro', enTramite: false },
       'HB-04': { calificacion: 'C', hallazgo: '', enTramite: false },
     });
-    expect(r).toEqual([{ item: 'HB-03', calificacion: 'NC', hallazgo: 'Nevera sin registro', enTramite: false }]);
+    expect(r).toEqual([{ item: 'HB-03', calificacion: 'NC', hallazgo: 'Nevera sin registro', enTramite: false, inmediata: false }]);
   });
 
   it('al dejar de ser "No cumple" el hallazgo se borra; vaciar la calificación también cuenta como cambio', () => {
@@ -70,10 +72,10 @@ describe('formulario del checklist', () => {
       'HB-02': { calificacion: 'C', hallazgo: 'Sin rótulo', enTramite: false },
     });
     expect(r).toEqual([
-      { item: 'HB-01', calificacion: null, hallazgo: null, enTramite: false },
-      { item: 'HB-02', calificacion: 'C', hallazgo: null, enTramite: false },
+      { item: 'HB-01', calificacion: null, hallazgo: null, enTramite: false, inmediata: false },
+      { item: 'HB-02', calificacion: 'C', hallazgo: null, enTramite: false, inmediata: false },
     ]);
-    expect(sinHallazgo([{ item: 'HB-03', calificacion: 'NC', hallazgo: null, enTramite: false }])).toEqual(['HB-03']);
+    expect(sinHallazgo([{ item: 'HB-03', calificacion: 'NC', hallazgo: null, enTramite: false, inmediata: false }])).toEqual(['HB-03']);
   });
 
   it('cuenta con las ediciones locales aplicadas', () => {
@@ -98,7 +100,7 @@ describe('formulario del checklist', () => {
     // Lo guardado sin editar no se envía; desmarcar la casilla sí
     expect(respuestasCambiadas(c00, { 'C00-01': { calificacion: 'NC', hallazgo: 'Sin distintivo', enTramite: true } })).toEqual([]);
     expect(respuestasCambiadas(c00, { 'C00-01': { calificacion: 'NC', hallazgo: 'Sin distintivo', enTramite: false } })).toEqual([
-      { item: 'C00-01', calificacion: 'NC', hallazgo: 'Sin distintivo', enTramite: false },
+      { item: 'C00-01', calificacion: 'NC', hallazgo: 'Sin distintivo', enTramite: false, inmediata: false },
     ]);
     // Marcada en un ítem que la admite; en uno que no la admite nunca se envía
     expect(
@@ -107,15 +109,62 @@ describe('formulario del checklist', () => {
         'HB-09': { calificacion: 'NC', hallazgo: 'Nevera', enTramite: true },
       }),
     ).toEqual([
-      { item: 'C00-02', calificacion: 'NC', hallazgo: 'Habilitación vencida', enTramite: true },
-      { item: 'HB-09', calificacion: 'NC', hallazgo: 'Nevera', enTramite: false },
+      { item: 'C00-02', calificacion: 'NC', hallazgo: 'Habilitación vencida', enTramite: true, inmediata: false },
+      { item: 'HB-09', calificacion: 'NC', hallazgo: 'Nevera', enTramite: false, inmediata: false },
     ]);
     // Fuera de «No cumple» la casilla se desmarca; al volver a «No cumple» sigue desmarcada
     const marcada = { calificacion: 'NC' as const, hallazgo: 'Sin distintivo', enTramite: true };
-    expect(conCalificacion(marcada, 'C')).toEqual({ calificacion: 'C', hallazgo: 'Sin distintivo', enTramite: false });
+    expect(conCalificacion(marcada, 'C')).toEqual({ calificacion: 'C', hallazgo: 'Sin distintivo', enTramite: false, inmediata: false });
     expect(conCalificacion(marcada, null).enTramite).toBe(false);
     expect(conCalificacion(marcada, 'NC').enTramite).toBe(true);
     expect(conCalificacion(conCalificacion(marcada, 'NA'), 'NC').enTramite).toBe(false);
+  });
+
+  it('intervención inmediata (fase 9): solo en «No cumple», en ítems y obligaciones; marcarla o quitarla es un cambio', () => {
+    const comps: ComponenteChecklist[] = [
+      {
+        codigo: 'OBL',
+        nombre: 'Obligaciones',
+        escalaPropia: false,
+        items: [
+          item('HB-10', { calificacion: 'NC', hallazgo: 'Medicamento vencido', inmediata: true }),
+          item('OB-01', { obligacion: true, clave: 'ob:OB-01' }),
+          item('HB-11', { calificacion: 'NC', hallazgo: 'Sin cadena de frío' }),
+        ],
+      },
+    ];
+    // Lo guardado sin editar no se envía; la marca se lee de lo guardado
+    expect(valorItem(comps[0]!.items[0]!, {}).inmediata).toBe(true);
+    expect(
+      respuestasCambiadas(comps, { 'HB-10': { calificacion: 'NC', hallazgo: 'Medicamento vencido', enTramite: false, inmediata: true } }),
+    ).toEqual([]);
+    // Quitarla es un cambio
+    expect(
+      respuestasCambiadas(comps, { 'HB-10': { calificacion: 'NC', hallazgo: 'Medicamento vencido', enTramite: false, inmediata: false } }),
+    ).toEqual([{ item: 'HB-10', calificacion: 'NC', hallazgo: 'Medicamento vencido', enTramite: false, inmediata: false }]);
+    // Marcarla en una obligación o en otro ítem «No cumple» se envía (no exige admiteTramite)
+    expect(
+      respuestasCambiadas(comps, {
+        'OB-01': { calificacion: 'NC', hallazgo: 'Entrega incompleta', enTramite: false, inmediata: true },
+        'HB-11': { calificacion: 'NC', hallazgo: 'Sin cadena de frío', enTramite: false, inmediata: true },
+      }),
+    ).toEqual([
+      { item: 'OB-01', calificacion: 'NC', hallazgo: 'Entrega incompleta', enTramite: false, inmediata: true },
+      { item: 'HB-11', calificacion: 'NC', hallazgo: 'Sin cadena de frío', enTramite: false, inmediata: true },
+    ]);
+    // Una edición con la marca y otra calificación nunca la envía
+    expect(respuestasCambiadas(comps, { 'HB-11': { calificacion: 'C', hallazgo: '', enTramite: false, inmediata: true } })).toEqual([
+      { item: 'HB-11', calificacion: 'C', hallazgo: null, enTramite: false, inmediata: false },
+    ]);
+    // Fuera de «No cumple» se desmarca y al volver sigue desmarcada
+    const marcada = { calificacion: 'NC' as const, hallazgo: 'Medicamento vencido', enTramite: false, inmediata: true };
+    expect(conCalificacion(marcada, 'NC').inmediata).toBe(true);
+    expect(conCalificacion(marcada, 'C').inmediata).toBe(false);
+    expect(conCalificacion(marcada, null).inmediata).toBe(false);
+    expect(conCalificacion(conCalificacion(marcada, 'NA'), 'NC').inmediata).toBe(false);
+    expect(inmediataEfectiva(marcada)).toBe(true);
+    expect(inmediataEfectiva({ ...marcada, calificacion: 'C' })).toBe(false);
+    expect(inmediataEfectiva({ calificacion: 'NC', hallazgo: 'x', enTramite: false })).toBe(false);
   });
 
   it('formatea textos, tamaños y cumplimiento', () => {

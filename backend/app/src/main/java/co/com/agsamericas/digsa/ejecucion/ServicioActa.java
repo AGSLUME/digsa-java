@@ -251,9 +251,9 @@ public class ServicioActa {
         for (Map<String, Object> h : hallazgos) {
             Map<String, Object> fila = filas.get((String) h.get("clave"));
             jdbc.sql("""
-                    INSERT INTO visitas_hallazgos (visita_id, acta_id, clave, codigo, origen, texto, hallazgo, fin, estado_plan, en_tramite)
-                    VALUES (:v, :a, :c, :cod, :o, :t, :h, :fin, :e, :tram)""")
-                    .param("tram", Boolean.TRUE.equals(h.get("enTramite")))
+                    INSERT INTO visitas_hallazgos (visita_id, acta_id, clave, codigo, origen, texto, hallazgo, fin, estado_plan, en_tramite, inmediata)
+                    VALUES (:v, :a, :c, :cod, :o, :t, :h, :fin, :e, :tram, :inm)""")
+                    .param("tram", Boolean.TRUE.equals(h.get("enTramite"))).param("inm", Boolean.TRUE.equals(h.get("inmediata")))
                     .param("v", v.id()).param("a", actaId).param("c", h.get("clave")).param("cod", h.get("codigo")).param("o", h.get("origen"))
                     .param("t", h.get("texto")).param("h", h.get("hallazgo"))
                     .param("fin", fila == null || fila.get("fin") == null ? null : java.time.LocalDate.parse((String) fila.get("fin")))

@@ -489,3 +489,23 @@ Quedan pendientes, sin bloquear (fase 11):
 - aviso junto al campo cuando falta la hora;
 - `aria-describedby` en «Firmar el plan»;
 - ocultar el aviso de la ronda cuando ya no faltan firmas.
+
+## Fase 9 · Riesgo y tablero (2026-10-22)
+
+Implementado según `docs/especificaciones/riesgo-tablero`, con la decisión 14 y las del 2026-10-20 (14.1 y 14.3):
+- **Dashboard de riesgo:** solo ESM de dispensación. Puntaje 0–100 con 5 factores: incumplimiento, recurrencia, intervención inmediata, planes y acciones vencidos, e incidencias de la DIGSA (reemplaza «días sin visita»). Agregado por país y por fuerza, con su factor principal.
+- **Pesos y umbrales:** los cambia la coordinación desde el mismo tablero, deben sumar 100 y quedan en la bitácora. En Catálogos se ven pero no se editan.
+- **Incidencias de la DIGSA:** las registran y cierran la coordinación y la DIGSA. Suman mientras estén abiertas y sean del último año.
+- **Marca «Requiere intervención inmediata del OPL»:** se pone en el ítem u obligación calificado «No cumple» y llega al hallazgo del acta.
+- **Dashboard de visitas:** indicadores por estado, tipo, fuerza, unidad y auditor (este último solo para la coordinación), línea base, resultados y exportación.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 25.1 | **Pesos iniciales 30/20/15/20/15 y umbrales 60/30:** son propuesta AGS, pendiente de aprobación de la DIGSA (14.1) | Se usan así, con el aviso «Propuesta AGS, pendiente de aprobación DIGSA» en el tablero |
+| 25.2 | **Redondeo del puntaje:** el spec y el PHP redondean cada factor a entero; Java suma con 2 decimales y redondea el total | Con los pesos iniciales da lo mismo; con pesos editados puede cambiar 1 punto en el borde de un nivel |
+| 25.3 | **Faltan en el dashboard:** «sin calificar» por categoría, obligaciones como categoría, «Vacíos de mayor riesgo con No cumple» y el prestador «Sin prestador» (el nivel central cuenta como operador logístico); la exportación no lleva habilitación, componentes ni prestador | La pantalla muestra lo que ya calcula el servicio. Queda para la fase 11 |
+| 25.4 | **Tabla de riesgo en celular (360 px):** el spec pide sin desplazamiento horizontal | La tabla se desplaza dentro de su recuadro (la página no). Queda una vista de tarjetas por ESM para la fase 11 |
+| 25.5 | **Incidencias visibles para Sanidad y ESM:** ven la descripción y la fuente | Se dejó visible en su alcance (fuerza o punto). Confirmar |
+| 25.6 | **Acciones vencidas:** se miden con la fecha fin original del 5W2H, sin la prórroga aprobada | Duda abierta del spec. Se dejó así |
+| 25.7 | **Plan vencido en el dashboard:** ahora usa el mismo criterio del riesgo (no cuenta la visita que ya tiene un seguimiento cerrado) | Hecho. Pendiente: que el plan en «reportado a la DIGSA» se cierre cuando el seguimiento deja todo completado |
+| 25.8 | **Prueba intermitente `IngresoYSesionApiTest.csrf`:** en una corrida completa la última fila de la bitácora fue la del ingreso y no la del 419 | Pasa sola y pasó en las otras corridas completas. Sin cambio de código; si se repite, ordenar la bitácora de la prueba por id |

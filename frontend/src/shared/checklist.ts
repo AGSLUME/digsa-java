@@ -29,6 +29,8 @@ export interface ItemChecklist {
   admiteTramite?: boolean;
   /** Marcado «habilitación en trámite» (solo en «No cumple»; sigue siendo hallazgo). */
   enTramite?: boolean;
+  /** Fase 9: marcado «Requiere intervención inmediata del OPL» (solo en «No cumple»; factor del puntaje de riesgo). */
+  inmediata?: boolean;
   /** «it:<código>» para un ítem, «ob:<código>» para una obligación del contrato (clave del hallazgo y de sus soportes). */
   clave?: string;
   /** Obligación de la minuta del prestador visitado (parte OBL), no un ítem del checklist. */
@@ -227,6 +229,8 @@ export interface Edicion {
   calificacion: Calificacion | null;
   hallazgo: string;
   enTramite: boolean;
+  /** «Requiere intervención inmediata del OPL» (fase 9); sin el campo, desmarcada. */
+  inmediata?: boolean;
 }
 
 export interface RespuestaItem {
@@ -234,7 +238,12 @@ export interface RespuestaItem {
   calificacion: Calificacion | null;
   hallazgo: string | null;
   enTramite: boolean;
+  /** Fase 9: solo verdadera en «No cumple» (el servidor rechaza la marca en otra calificación). */
+  inmediata: boolean;
 }
+
+/** Texto de la casilla de intervención inmediata (fase 9, factor del puntaje de riesgo). */
+export const TEXTO_INMEDIATA = 'Requiere intervención inmediata del OPL';
 
 /** Lo que queda pendiente con la habilitación en trámite (decisión D5; el acta lo dice igual). */
 export const TEXTO_TRAMITE = 'Queda pendiente aportar el distintivo de habilitación o las actas de visita del ente habilitador.';
@@ -267,6 +276,7 @@ export function valorItem(item: ItemChecklist, ediciones: Record<string, Edicion
       calificacion: item.calificacion,
       hallazgo: item.hallazgo ?? '',
       enTramite: item.enTramite ?? false,
+      inmediata: item.inmediata ?? false,
     }
   );
 }
@@ -276,10 +286,15 @@ export function tramiteEfectivo(item: ItemChecklist, e: Edicion): boolean {
   return !!item.admiteTramite && e.calificacion === 'NC' && e.enTramite;
 }
 
-/** Cambio de calificación: fuera de «No cumple» se desmarca la habilitación en trámite. */
+/** «Requiere intervención inmediata del OPL» solo cuenta en «No cumple» (ítem del checklist u obligación del contrato). */
+export function inmediataEfectiva(e: Edicion): boolean {
+  return e.calificacion === 'NC' && !!e.inmediata;
+}
+
+/** Cambio de calificación: fuera de «No cumple» se desmarcan la habilitación en trámite y la intervención inmediata. */
 export function conCalificacion(e: Edicion, calificacion: Calificacion | null): Edicion {
   const nc = calificacion === 'NC';
-  return { ...e, calificacion, enTramite: nc ? e.enTramite : false };
+  return { ...e, calificacion, enTramite: nc ? e.enTramite : false, inmediata: nc ? !!e.inmediata : false };
 }
 
 /** El hallazgo solo se conserva en un "No cumple"; vacío cuenta como sin hallazgo. */
@@ -298,8 +313,14 @@ export function respuestasCambiadas(componentes: ComponenteChecklist[], edicione
       const hallazgo = normalizar(e);
       const guardadoHallazgo = it.calificacion === 'NC' && it.hallazgo && it.hallazgo.trim() ? it.hallazgo.trim() : null;
       const enTramite = tramiteEfectivo(it, e);
-      if (e.calificacion !== it.calificacion || hallazgo !== guardadoHallazgo || enTramite !== (it.enTramite ?? false)) {
-        salida.push({ item: it.codigo, calificacion: e.calificacion, hallazgo, enTramite });
+      const inmediata = inmediataEfectiva(e);
+      if (
+        e.calificacion !== it.calificacion ||
+        hallazgo !== guardadoHallazgo ||
+        enTramite !== (it.enTramite ?? false) ||
+        inmediata !== (it.inmediata ?? false)
+      ) {
+        salida.push({ item: it.codigo, calificacion: e.calificacion, hallazgo, enTramite, inmediata });
       }
     }
   }

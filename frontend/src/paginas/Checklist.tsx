@@ -41,6 +41,7 @@ import {
   ESTADOS_ABIERTOS,
   ETIQUETA_CALIFICACION,
   faltantesPlan,
+  inmediataEfectiva,
   justificacionValida,
   MIN_JUSTIFICACION,
   pideProrroga,
@@ -51,6 +52,7 @@ import {
   sinHallazgo,
   tamanoLegible,
   textoONulo,
+  TEXTO_INMEDIATA,
   TEXTO_TRAMITE,
   valorFila,
   valorItem,
@@ -222,7 +224,8 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
               !env ||
               (e.calificacion ?? null) !== (env.calificacion ?? null) ||
               (e.hallazgo ?? '').trim() !== (env.hallazgo ?? '').trim() ||
-              (e.calificacion === 'NC' && e.enTramite) !== env.enTramite
+              (e.calificacion === 'NC' && e.enTramite) !== env.enTramite ||
+              inmediataEfectiva(e) !== env.inmediata
             );
           }),
         ),
@@ -717,6 +720,27 @@ function Item({ id, it, valor, alEditar }: { id: string; it: ItemChecklist; valo
           />
         </Box>
       )}
+      {valor.calificacion === 'NC' &&
+        (it.editable ? (
+          // Fase 9: factor «intervención inmediata» del puntaje de riesgo; el servidor la quita si la calificación deja de ser «No cumple»
+          <Box mt="xs" data-testid={'marca-inmediata-' + it.codigo}>
+            <Checkbox
+              label={TEXTO_INMEDIATA}
+              color="red"
+              checked={!!valor.inmediata}
+              onChange={(e) => {
+                const inmediata = e.currentTarget.checked;
+                alEditar((x) => ({ ...x, inmediata }));
+              }}
+            />
+          </Box>
+        ) : (
+          valor.inmediata && (
+            <Badge mt="xs" color="red" variant="light" data-testid={'marca-inmediata-' + it.codigo} style={{ whiteSpace: 'normal', height: 'auto' }}>
+              {TEXTO_INMEDIATA}
+            </Badge>
+          )
+        ))}
       <Box mt="xs">
         <Evidencias
           id={id}

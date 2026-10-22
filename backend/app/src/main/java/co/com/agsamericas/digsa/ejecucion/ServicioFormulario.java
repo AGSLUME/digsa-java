@@ -50,8 +50,11 @@ public class ServicioFormulario {
         }
     }
 
-    /** @param enTramite D5: el ítem de habilitación (C00) en «No cumple» con la habilitación en trámite (sigue siendo hallazgo) */
-    public record Respuesta(String item, String calificacion, String hallazgo, Boolean enTramite) {
+    /**
+     * @param enTramite D5: el ítem de habilitación (C00) en «No cumple» con la habilitación en trámite (sigue siendo hallazgo)
+     * @param inmediata fase 9: el hallazgo exige intervención inmediata del OPL (factor del riesgo); solo en «No cumple»
+     */
+    public record Respuesta(String item, String calificacion, String hallazgo, Boolean enTramite, Boolean inmediata) {
     }
 
     /** Componente de las validaciones de habilitación. */
@@ -191,6 +194,14 @@ public class ServicioFormulario {
                 .param("v", visitaId).query(String.class).list());
     }
 
+    /** Ítems y obligaciones marcados de intervención inmediata (los códigos son únicos en la visita). */
+    Set<String> inmediatas(long visitaId) {
+        return new HashSet<>(jdbc.sql("""
+                SELECT i.codigo FROM visitas_respuestas r JOIN chk_items i ON i.id = r.item_id WHERE r.visita_id = :v AND r.inmediata
+                UNION SELECT o.codigo FROM visitas_obligaciones r JOIN obligaciones_contrato o ON o.id = r.obligacion_id WHERE r.visita_id = :v AND r.inmediata""")
+                .param("v", visitaId).query(String.class).list());
+    }
+
     /** Ronda vigente del acta (cada reapertura abre otra, con firmas nuevas: decisión D12). */
     static int ronda(RepositorioVisitas.Visita v) {
         return v.reaperturas() + 1;
@@ -272,6 +283,7 @@ public class ServicioFormulario {
         Map<String, Checklist.Respuesta> resp = respuestas(visitaId);
         Map<String, List<Map<String, Object>>> archivos = archivosPorClave(visitaId);
         Set<String> tramite = enTramite(visitaId);
+        Set<String> inmediatas = inmediatas(visitaId);
         Map<String, Map<String, Object>> anteriores = seguimiento.anteriores(v);
         Map<String, List<Map<String, Object>>> archivosAnteriores = seguimiento.archivosAnteriores(v,
                 items.stream().map(ItemVisita::clave).collect(Collectors.toSet()));
@@ -304,6 +316,7 @@ public class ServicioFormulario {
             it.put("obligacion", i.obligacion());
             it.put("admiteTramite", !i.obligacion() && HABILITACION.equals(i.componente()));
             it.put("enTramite", tramite.contains(i.codigo()));
+            it.put("inmediata", inmediatas.contains(i.codigo()));
             it.put("archivos", archivos.getOrDefault(i.clave(), List.of()));
             if (v.esSeguimiento()) {
                 it.put("anterior", anteriores.get(i.clave()));
@@ -450,6 +463,7 @@ public class ServicioFormulario {
         Map<String, ItemVisita> porCodigo = items(a.visita()).stream().collect(Collectors.toMap(ItemVisita::codigo, i -> i));
         Map<String, Checklist.Respuesta> antes = respuestas(visitaId);
         Set<String> tramiteAntes = enTramite(visitaId);
+        Set<String> inmediataAntes = inmediatas(visitaId);
         List<String> errores = new ArrayList<>();
         List<String> cambiados = new ArrayList<>();
         OffsetDateTime ahora = OffsetDateTime.now(reloj);
@@ -469,6 +483,9 @@ public class ServicioFormulario {
             if (Boolean.TRUE.equals(r.enTramite()) && (i.obligacion() || !HABILITACION.equals(i.componente()) || !"NC".equals(cal))) {
                 errores.add(i.codigo() + ": «habilitación en trámite» se marca solo en una validación de habilitación calificada «No cumple»");
             }
+            if (Boolean.TRUE.equals(r.inmediata()) && !"NC".equals(cal)) {
+                errores.add(i.codigo() + ": «intervención inmediata» se marca solo en un ítem calificado «No cumple»");
+            }
         }
         if (!errores.isEmpty()) {
             throw ErrorNegocio.validacion("No se guardó: " + String.join("; ", errores.subList(0, Math.min(10, errores.size())))
@@ -481,9 +498,10 @@ public class ServicioFormulario {
             Checklist.Respuesta previa = antes.get(i.codigo());
             // Sin el campo se conserva la marca que tenía (un cliente que solo edita el hallazgo no la borra); solo vale en «No cumple»
             boolean tramite = (r.enTramite() == null ? tramiteAntes.contains(i.codigo()) : r.enTramite()) && "NC".equals(cal);
+            boolean inmediata = (r.inmediata() == null ? inmediataAntes.contains(i.codigo()) : r.inmediata()) && "NC".equals(cal);
             boolean igual = (previa == null ? cal == null && hallazgo == null
                     : java.util.Objects.equals(previa.calificacion(), cal) && java.util.Objects.equals(previa.hallazgo(), hallazgo))
-                    && tramite == tramiteAntes.contains(i.codigo());
+                    && tramite == tramiteAntes.contains(i.codigo()) && inmediata == inmediataAntes.contains(i.codigo());
             if (igual) {
                 continue;
             }
@@ -493,22 +511,22 @@ public class ServicioFormulario {
                     jdbc.sql("DELETE FROM visitas_obligaciones WHERE visita_id = :v AND obligacion_id = :o").param("v", visitaId).param("o", i.id()).update();
                 } else {
                     jdbc.sql("""
-                            INSERT INTO visitas_obligaciones (visita_id, obligacion_id, calificacion, hallazgo, usuario_id, actualizado)
-                            VALUES (:v, :o, :c, :h, :u, :ahora)
+                            INSERT INTO visitas_obligaciones (visita_id, obligacion_id, calificacion, hallazgo, inmediata, usuario_id, actualizado)
+                            VALUES (:v, :o, :c, :h, :inm, :u, :ahora)
                             ON CONFLICT (visita_id, obligacion_id) DO UPDATE SET calificacion = EXCLUDED.calificacion, hallazgo = EXCLUDED.hallazgo,
-                              usuario_id = EXCLUDED.usuario_id, actualizado = EXCLUDED.actualizado""")
-                            .param("v", visitaId).param("o", i.id()).param("c", cal).param("h", hallazgo).param("u", quien.id()).param("ahora", ahora)
-                            .update();
+                              inmediata = EXCLUDED.inmediata, usuario_id = EXCLUDED.usuario_id, actualizado = EXCLUDED.actualizado""")
+                            .param("v", visitaId).param("o", i.id()).param("c", cal).param("h", hallazgo).param("inm", inmediata).param("u", quien.id())
+                            .param("ahora", ahora).update();
                 }
             } else if (cal == null && hallazgo == null) {
                 jdbc.sql("DELETE FROM visitas_respuestas WHERE visita_id = :v AND item_id = :i").param("v", visitaId).param("i", i.id()).update();
             } else {
                 jdbc.sql("""
-                        INSERT INTO visitas_respuestas (visita_id, item_id, parte, calificacion, hallazgo, en_tramite, usuario_id, actualizado)
-                        VALUES (:v, :i, :p, :c, :h, :t, :u, :ahora)
+                        INSERT INTO visitas_respuestas (visita_id, item_id, parte, calificacion, hallazgo, en_tramite, inmediata, usuario_id, actualizado)
+                        VALUES (:v, :i, :p, :c, :h, :t, :inm, :u, :ahora)
                         ON CONFLICT (visita_id, item_id) DO UPDATE SET calificacion = EXCLUDED.calificacion, hallazgo = EXCLUDED.hallazgo,
-                          en_tramite = EXCLUDED.en_tramite, usuario_id = EXCLUDED.usuario_id, actualizado = EXCLUDED.actualizado""")
-                        .param("v", visitaId).param("i", i.id()).param("p", i.parte()).param("c", cal).param("h", hallazgo).param("t", tramite)
+                          en_tramite = EXCLUDED.en_tramite, inmediata = EXCLUDED.inmediata, usuario_id = EXCLUDED.usuario_id, actualizado = EXCLUDED.actualizado""")
+                        .param("v", visitaId).param("i", i.id()).param("p", i.parte()).param("c", cal).param("h", hallazgo).param("t", tramite).param("inm", inmediata)
                         .param("u", quien.id()).param("ahora", ahora).update();
             }
         }
@@ -648,6 +666,7 @@ public class ServicioFormulario {
      */
     List<Map<String, Object>> hallazgos(RepositorioVisitas.Visita v, List<ItemVisita> items, Map<String, Checklist.Respuesta> resp) {
         Set<String> tramite = enTramite(v.id());
+        Set<String> inmediatas = inmediatas(v.id());
         List<Map<String, Object>> r = new ArrayList<>();
         for (ItemVisita i : items) {
             Checklist.Respuesta x = resp.get(i.codigo());
@@ -659,6 +678,7 @@ public class ServicioFormulario {
                 h.put("texto", i.punto());
                 h.put("hallazgo", x.hallazgo());
                 h.put("enTramite", tramite.contains(i.codigo()));
+                h.put("inmediata", inmediatas.contains(i.codigo()));
                 r.add(h);
             }
         }

@@ -4,6 +4,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { horaCorta, type ComponenteOpcion, type DetalleVisita, type OpcionesAgenda, type ResultadoVisita } from './agenda';
 import { api, ErrorApi } from './api';
+import { CampoHora24 } from './CampoHora24';
+import { horaValida, MENSAJE_HORA } from './hora';
 
 export const MAX_OTROS = 5;
 const ROL_QF = 'quimico_farmaceutico';
@@ -36,11 +38,7 @@ export function preseleccion(componentes: ComponenteOpcion[], unidad: string | u
 }
 
 /** Partes que se reparten: los componentes elegidos, siempre las obligaciones y los ítems de sistemas si hay ingeniero y aplican. */
-export function partesDelReparto(
-  componentes: ComponenteOpcion[],
-  elegidos: string[],
-  rolesEquipo: string[],
-): { parte: string; nombre: string }[] {
+export function partesDelReparto(componentes: ComponenteOpcion[], elegidos: string[], rolesEquipo: string[]): { parte: string; nombre: string }[] {
   const lista = componentes.filter((c) => elegidos.includes(c.codigo)).map((c) => ({ parte: c.codigo, nombre: c.nombre }));
   lista.push({ parte: 'OBL', nombre: 'Obligaciones de la minuta' });
   const sistemas = componentes.some((c) => elegidos.includes(c.codigo) && c.sistemas > 0);
@@ -125,7 +123,7 @@ function Cuerpo({
   const rolesEquipo = equipoIds.map((id) => auditor(id)?.rol ?? 'otro');
   const aplicables = componentesDe(opciones.componentes, punto?.unidad);
   const partes = partesDelReparto(opciones.componentes, f.componentes, rolesEquipo);
-  const faltaQf = !!punto?.exigeQf &&!rolesEquipo.includes(ROL_QF);
+  const faltaQf = !!punto?.exigeQf && !rolesEquipo.includes(ROL_QF);
 
   const guardar = useMutation({
     mutationFn: (cuerpo: Record<string, unknown>) =>
@@ -165,6 +163,10 @@ function Cuerpo({
     setError(null);
     if (!f.tipo || !f.puntoId || !f.liderId) {
       setError('Elija el tipo de visita, el punto y el auditor líder.');
+      return;
+    }
+    if (f.hora && !horaValida(f.hora)) {
+      setError(MENSAJE_HORA);
       return;
     }
     const validas = new Set(partes.map((p) => p.parte));
@@ -219,7 +221,7 @@ function Cuerpo({
         />
         <SimpleGrid cols={{ base: 1, xs: 2 }}>
           <TextInput label="Fecha" type="date" required value={f.fecha} onChange={(e) => setF({ ...f, fecha: e.currentTarget.value })} />
-          <TextInput label="Hora" type="time" value={f.hora} onChange={(e) => setF({ ...f, hora: e.currentTarget.value })} />
+          <CampoHora24 label="Hora" value={f.hora} onChange={(hora) => setF({ ...f, hora })} />
         </SimpleGrid>
         {f.tipo === 'necesidad' && (
           <TextInput
@@ -274,7 +276,12 @@ function Cuerpo({
               </Text>
             )}
             {aplicables.map((c) => (
-              <Checkbox key={c.codigo} value={c.codigo} label={`${c.codigo} · ${c.nombre} (${c.items} ítems)`} data-testid={'componente-' + c.codigo} />
+              <Checkbox
+                key={c.codigo}
+                value={c.codigo}
+                label={`${c.codigo} · ${c.nombre} (${c.items} ítems)`}
+                data-testid={'componente-' + c.codigo}
+              />
             ))}
           </Stack>
         </Checkbox.Group>
@@ -344,9 +351,16 @@ export function FormularioVisita({
   alGuardar: (r: ResultadoVisita) => void;
 }) {
   return (
-    <Modal opened={abierto} onClose={alCerrar} title={visita ? `Editar visita ${visita.numero}` : solicitud ? `Agendar la solicitud N.º ${solicitud.id}` : 'Programar visita'} size="xl">
+    <Modal
+      opened={abierto}
+      onClose={alCerrar}
+      title={visita ? `Editar visita ${visita.numero}` : solicitud ? `Agendar la solicitud N.º ${solicitud.id}` : 'Programar visita'}
+      size="xl"
+    >
       {abierto && opciones && <Cuerpo opciones={opciones} visita={visita} solicitud={solicitud} alCerrar={alCerrar} alGuardar={alGuardar} />}
-      {abierto && !opciones && (errorOpciones ? <Text c="red">No se pudieron cargar las opciones: {errorOpciones}</Text> : <Text c="dimmed">Cargando las opciones...</Text>)}
+      {abierto &&
+        !opciones &&
+        (errorOpciones ? <Text c="red">No se pudieron cargar las opciones: {errorOpciones}</Text> : <Text c="dimmed">Cargando las opciones...</Text>)}
     </Modal>
   );
 }

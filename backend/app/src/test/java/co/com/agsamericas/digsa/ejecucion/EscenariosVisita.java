@@ -180,6 +180,18 @@ abstract class EscenariosVisita extends PruebaIntegracion {
         return token(e);
     }
 
+    /** Firmas de la ronda vigente (decisión D12: cada ronda del acta se firma de nuevo); con hallazgos, también las del 5W2H. */
+    protected void firmarRonda(Escenario e, boolean conPlan) throws Exception {
+        String base = "/api/visitas/" + e.id();
+        String png = base64(firmaPng());
+        List<String> roles = conPlan ? List.of("auditor", "esm", "w5_auditor", "w5_auditado") : List.of("auditor", "esm");
+        for (String rol : roles) {
+            Respuesta r = e.lider().post(base + "/firmas", Map.of("rol", rol, "nombre", "auditor".equals(rol) || "w5_auditor".equals(rol) ? "Auditor líder" : "Regente del punto",
+                    "imagen", png));
+            assertThat(r.estado()).as(r.texto()).isEqualTo(200);
+        }
+    }
+
     /** Token del enlace del OPL en el último correo del acta de la visita. */
     protected String token(Escenario e) {
         Correo.Mensaje m = correos().reversed().stream().filter(x -> x.asunto().contains(e.numero()) && x.asunto().startsWith("Acta")).findFirst().orElseThrow();

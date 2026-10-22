@@ -339,6 +339,9 @@ public class ServicioAgenda {
         List<RepositorioVisitas.ComponenteChecklist> catalogo = visitas.componentes(version).stream()
                 .filter(c -> c.unidades().contains(origen.unidad())).toList();
         Map<String, Long> reparto = repartir(catalogo, elegidos, origen.unidad(), equipo, null);
+        // Decisión D6: cada parte vuelve al auditor que la calificó en la visita de origen, si sigue en el equipo y puede recibirla
+        visitas.reparto(origen.id()).forEach((parte, usuario) -> equipo.stream().filter(m -> m.id() == usuario).findFirst()
+                .filter(m -> reparto.containsKey(parte) && Reparto.puedeRecibir(parte, m.rol(), equipo)).ifPresent(m -> reparto.put(parte, usuario)));
         String textoAlcance = alcance.length() > MAX_ALCANCE ? alcance.substring(0, MAX_ALCANCE) : alcance;
 
         long nuevo = visitas.crear("plan", origen.puntoId(), fecha, origen.hora(), origen.auditorId(), textoAlcance, null, quien.id());

@@ -251,8 +251,9 @@ public class ServicioActa {
         for (Map<String, Object> h : hallazgos) {
             Map<String, Object> fila = filas.get((String) h.get("clave"));
             jdbc.sql("""
-                    INSERT INTO visitas_hallazgos (visita_id, acta_id, clave, codigo, origen, texto, hallazgo, fin, estado_plan)
-                    VALUES (:v, :a, :c, :cod, :o, :t, :h, :fin, :e)""")
+                    INSERT INTO visitas_hallazgos (visita_id, acta_id, clave, codigo, origen, texto, hallazgo, fin, estado_plan, en_tramite)
+                    VALUES (:v, :a, :c, :cod, :o, :t, :h, :fin, :e, :tram)""")
+                    .param("tram", Boolean.TRUE.equals(h.get("enTramite")))
                     .param("v", v.id()).param("a", actaId).param("c", h.get("clave")).param("cod", h.get("codigo")).param("o", h.get("origen"))
                     .param("t", h.get("texto")).param("h", h.get("hallazgo"))
                     .param("fin", fila == null || fila.get("fin") == null ? null : java.time.LocalDate.parse((String) fila.get("fin")))
@@ -298,11 +299,15 @@ public class ServicioActa {
         List<String[]> personal = jdbc.sql("SELECT entidad, nombre, cargo, documento FROM visitas_personal WHERE visita_id = :v ORDER BY orden, id")
                 .param("v", v.id()).query((rs, n) -> new String[] {rs.getString(1), rs.getString(2), nulo(rs.getString(3)), nulo(rs.getString(4))}).list();
         Map<String, GeneradorActa.Componente> comps = new LinkedHashMap<>();
+        Set<String> tramite = formulario.enTramite(v.id());
         for (ServicioFormulario.ItemVisita i : items) {
             Checklist.Respuesta r = resp.get(i.codigo());
+            String hallazgo = r == null || r.hallazgo() == null ? "" : r.hallazgo();
+            if (tramite.contains(i.codigo())) {
+                hallazgo = (hallazgo.isEmpty() ? "" : hallazgo + " ") + ServicioFormulario.TEXTO_TRAMITE;
+            }
             comps.computeIfAbsent(i.componente(), k -> new GeneradorActa.Componente(i.componente(), i.componenteNombre(), new ArrayList<>()))
-                    .items().add(new String[] {i.codigo(), i.punto(), r == null ? "" : Checklist.NOMBRES.getOrDefault(r.calificacion(), ""),
-                            r == null || r.hallazgo() == null ? "" : r.hallazgo()});
+                    .items().add(new String[] {i.codigo(), i.punto(), r == null ? "" : Checklist.NOMBRES.getOrDefault(r.calificacion(), ""), hallazgo});
         }
         Map<String, String> resumen = new LinkedHashMap<>();
         resumen.put("Cumple", String.valueOf(s.c()));
@@ -314,8 +319,8 @@ public class ServicioActa {
                 SELECT clave, nombre_original, tipo, sha256 FROM archivos WHERE visita_id = :v AND eliminado IS NULL AND clave <> 'acta' ORDER BY id""")
                 .param("v", v.id()).query((rs, n) -> new String[] {rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)}).list();
         List<GeneradorActa.FirmaActa> firmas = jdbc.sql("""
-                SELECT rol, nombre, documento, cargo, imagen FROM visitas_firmas WHERE visita_id = :v
-                ORDER BY CASE rol WHEN 'auditor' THEN 0 WHEN 'esm' THEN 1 ELSE 2 END""").param("v", v.id())
+                SELECT rol, nombre, documento, cargo, imagen FROM visitas_firmas WHERE visita_id = :v AND ronda = :r
+                ORDER BY CASE rol WHEN 'auditor' THEN 0 WHEN 'esm' THEN 1 ELSE 2 END""").param("v", v.id()).param("r", ronda)
                 .query((rs, n) -> new GeneradorActa.FirmaActa(switch (rs.getString(1)) {
                     case "auditor" -> "Auditor líder";
                     case "w5_auditor" -> "Plan de mejoramiento: auditor";

@@ -1,0 +1,12 @@
+.git
+.claude
+.local
+.env
+.env.*
+!.env.example
+**/node_modules
+**/target
+frontend/dist
+e2e
+**/almacen
+docs

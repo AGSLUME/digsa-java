@@ -113,6 +113,9 @@ class OplApiTest extends EscenariosVisita {
         assertThat(q.get("/api/opl-publico/soportes/" + (soporteId + 100000)).estado()).isEqualTo(404);
         assertThat(new String(q.get("/api/opl-publico/acta").cuerpo(), 0, 5)).isEqualTo("%PDF-");
 
+        // Decisión D11: no se firma mientras haya objeciones sin decidir
+        assertThat(q.post("/api/opl-publico/firma", firma()).mensaje()).contains("decida las objeciones");
+
         // Decisión del auditor líder: solo él, una vez, con motivo
         String base = "/api/visitas/" + e.id() + "/opl";
         assertThat(e.lider().get(base).json().path("hallazgos").get(1).path("estado").asText()).isEqualTo("objetado");

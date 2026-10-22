@@ -25,6 +25,10 @@ export interface ItemChecklist {
   admiteNoAplica: boolean;
   calificacion: Calificacion | null;
   hallazgo: string | null;
+  /** Decisión D5: validación de habilitación (C00) que en «No cumple» puede marcarse «habilitación en trámite». */
+  admiteTramite?: boolean;
+  /** Marcado «habilitación en trámite» (solo en «No cumple»; sigue siendo hallazgo). */
+  enTramite?: boolean;
   /** «it:<código>» para un ítem, «ob:<código>» para una obligación del contrato (clave del hallazgo y de sus soportes). */
   clave?: string;
   /** Obligación de la minuta del prestador visitado (parte OBL), no un ítem del checklist. */
@@ -222,13 +226,18 @@ export const MIN_JUSTIFICACION = 10;
 export interface Edicion {
   calificacion: Calificacion | null;
   hallazgo: string;
+  enTramite: boolean;
 }
 
 export interface RespuestaItem {
   item: string;
   calificacion: Calificacion | null;
   hallazgo: string | null;
+  enTramite: boolean;
 }
+
+/** Lo que queda pendiente con la habilitación en trámite (decisión D5; el acta lo dice igual). */
+export const TEXTO_TRAMITE = 'Queda pendiente aportar el distintivo de habilitación o las actas de visita del ente habilitador.';
 
 export const ETIQUETA_CALIFICACION: Record<Calificacion, string> = { C: 'Cumple', NC: 'No cumple', NA: 'No aplica' };
 
@@ -253,7 +262,24 @@ export const ENTIDADES = [
 
 /** Valor efectivo de un ítem: la edición local si la hay, si no lo guardado. */
 export function valorItem(item: ItemChecklist, ediciones: Record<string, Edicion>): Edicion {
-  return ediciones[item.codigo] ?? { calificacion: item.calificacion, hallazgo: item.hallazgo ?? '' };
+  return (
+    ediciones[item.codigo] ?? {
+      calificacion: item.calificacion,
+      hallazgo: item.hallazgo ?? '',
+      enTramite: item.enTramite ?? false,
+    }
+  );
+}
+
+/** «Habilitación en trámite» solo cuenta en un ítem que la admite y está en «No cumple». */
+export function tramiteEfectivo(item: ItemChecklist, e: Edicion): boolean {
+  return !!item.admiteTramite && e.calificacion === 'NC' && e.enTramite;
+}
+
+/** Cambio de calificación: fuera de «No cumple» se desmarca la habilitación en trámite. */
+export function conCalificacion(e: Edicion, calificacion: Calificacion | null): Edicion {
+  const nc = calificacion === 'NC';
+  return { ...e, calificacion, enTramite: nc ? e.enTramite : false };
 }
 
 /** El hallazgo solo se conserva en un "No cumple"; vacío cuenta como sin hallazgo. */
@@ -271,8 +297,9 @@ export function respuestasCambiadas(componentes: ComponenteChecklist[], edicione
       if (!e || !it.editable) continue;
       const hallazgo = normalizar(e);
       const guardadoHallazgo = it.calificacion === 'NC' && it.hallazgo && it.hallazgo.trim() ? it.hallazgo.trim() : null;
-      if (e.calificacion !== it.calificacion || hallazgo !== guardadoHallazgo) {
-        salida.push({ item: it.codigo, calificacion: e.calificacion, hallazgo });
+      const enTramite = tramiteEfectivo(it, e);
+      if (e.calificacion !== it.calificacion || hallazgo !== guardadoHallazgo || enTramite !== (it.enTramite ?? false)) {
+        salida.push({ item: it.codigo, calificacion: e.calificacion, hallazgo, enTramite });
       }
     }
   }
@@ -302,13 +329,6 @@ export function conteo(items: ItemChecklist[], ediciones: Record<string, Edicion
     else r.pendientes++;
   }
   return r;
-}
-
-/** Fecha y hora del servidor ("2026-11-03T08:30:00" o "2026-11-03 08:30") al valor de un control datetime-local. */
-export function aFechaHoraLocal(v: string | null | undefined): string {
-  if (!v) return '';
-  const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(v.trim());
-  return m ? `${m[1]}T${m[2]}` : '';
 }
 
 /** Texto vacío a null para enviar al servidor. */

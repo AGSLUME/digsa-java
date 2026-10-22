@@ -46,6 +46,23 @@ La base local trae los datos iniciales editables (V7): 4 fuerzas, los tipos de d
 
 En local, el correo se guarda en archivo y no sale. Para poder probar sin buzón, el código de verificación aparece en el mensaje de la pantalla y el enlace de la contraseña en el log. Esto solo ocurre con `digsa.entorno=local`: en cualquier otro entorno la aplicación no arranca con correo a archivo.
 
+## En contenedores (Docker)
+
+La aplicación se empaca en **una sola imagen**: el backend sirve la SPA desde el mismo origen. Así se despliega en cualquier servidor con Docker, en un datacenter en Colombia (duda 16.1) o en un orquestador (Azure Container Apps, Kubernetes). La imagen no lleva secretos: la configuración entra por variables de entorno.
+
+```bash
+cp .env.example .env              # diligencie DIGSA_DB_CLAVE y lo demás (el .env no se versiona)
+docker compose up -d --build      # aplicación en http://localhost:8080 + PostgreSQL 16
+# primer administrador (solo una vez): el enlace para definir la contraseña sale en el log
+docker compose run --rm app --digsa.crear-admin.correo=admin@ejemplo.gov.co --digsa.crear-admin.nombre=Administrador --digsa.crear-admin.usuario=admin
+docker compose --profile pruebas up -d   # además, correo de pruebas en http://localhost:8025 (Mailpit)
+```
+
+- **Datos:** los archivos (evidencias y actas) quedan en el volumen `datos-app` (`/datos`) y la base en `datos-db`.
+- **Producción:** se quita el servicio `db` y `DIGSA_DB_URL` apunta a la base administrada (alta disponibilidad).
+- **Validación de arranque:** con `DIGSA_ENTORNO=produccion` la aplicación no arranca sin https, SMTP, remitente y dominios de los reportes.
+- **En este equipo:** guía paso a paso en `docs/guia_docker_local.md` y arranque con doble clic en `docker/iniciar-local.bat`. Pendiente: construir y probar la imagen cuando TI instale Docker (duda 17.7).
+
 ## Pruebas
 
 ```bash

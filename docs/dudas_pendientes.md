@@ -417,3 +417,75 @@ Quedan pendientes, sin bloquear (fase 8):
 | 22.17 | Mostrar el vencimiento del plazo para objetar en «Prestadores con hallazgos» |
 | 22.18 | Botones táctiles de 44 px en las tablas |
 | 22.19 | ESLint con react-hooks y jsx-a11y |
+
+
+## Decisiones del 2026-10-21 y mini-fase de ajustes
+
+Las dudas bloqueantes quedaron resueltas en `docs/decisiones_2026-10-21.md` (D1 a D14).
+
+**Cerradas sin cambios:**
+- 17.1: consultar el correo no es un cambio de pantalla.
+- 17.2: el mismo usuario no abre sesión en dos equipos (ya hecho).
+- 17.11: los dominios son configurables.
+- 22.1 y 22.9: se dejan como estaban.
+- 22.3: se deja como estaba; la fuente de verdad no regula la aprobación de prórrogas por la DIGSA.
+
+**Implementado en los ajustes:**
+- **D4 (18.11 y 19.6):** control de hora militar propio.
+- **D5 (21.12):** el ítem de habilitación en «No cumple» puede marcarse «habilitación en trámite». Sigue siendo hallazgo, y el acta dice que queda pendiente aportar el distintivo o las actas del ente habilitador.
+- **D6 (22.6):** en el seguimiento, cada parte vuelve al auditor que la calificó.
+- **D9 (22.2):** en cada seguimiento, la acción vencida que sigue en «No cumple» se reporta como plan incumplido. La que pidió prórroga no cuenta.
+- **D11 (21.4):** el OPL no firma el plan mientras haya objeciones sin decidir.
+- **D12 (19.4):** cada ronda del acta se firma de nuevo (V14); las firmas de la ronda anterior se conservan.
+- **D14 (16.1 a 16.4):** Dockerfile, docker-compose (aplicación + PostgreSQL 16 + Mailpit de pruebas) y .env.example.
+
+| # | Pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 23.1 | **D13, OCR de la minuta:** es obligatorio | Fase propia. Se necesita una minuta real, o de ejemplo con el mismo formato, para ajustar la extracción. Mientras tanto sigue el catálogo editable |
+| 23.2 | **D14, construir la imagen:** este equipo no tiene Docker | Se necesita Docker Desktop o un servidor con Docker, o construirla en el pipeline |
+| 23.3 | **Acción vencida con prórroga solicitada (D9):** ¿se reporta si la prórroga se rechaza después? | Hoy no se reporta mientras esté la prórroga. Al rechazarla, el coordinador puede reprogramar; el siguiente seguimiento la verá vencida y la reportará |
+
+## Fase 8 · Propuesta de agenda y cobertura (2026-10-21)
+
+Implementado según `docs/especificaciones/propuesta-agenda`, con las decisiones 13, 32 y 13.4 (año de contrato):
+- **Ciclos:** línea base, anual, farmacias alternas y nivel central, con la cobertura del periodo (total, cerradas, agendadas y faltan).
+- **Borrador:** se calcula en 4 pasos (qué se visita, auditor líder por asignación o cercanía repartiendo la carga, fecha y borrador), con las reglas del PHP pasadas a `reglas/PropuestaAgenda` y sus 26 pruebas.
+- **Ajuste y recálculo:** el coordinador ajusta una fila, que queda fija, y al recalcular se respeta lo fijado.
+- **Confirmación:** programa y notifica cada fila una sola vez por el camino de siempre. Una confirmación cortada se puede continuar.
+- **Reporte nuevo:** la distribución auditor–punto (13.3) es un reporte más de «Reportes de visitas», para la coordinación y la DIGSA.
+- **Avisos de la cobertura:** ciudades principales sin auditor con base en ellas y ESM de dispensación sin auditor asignado (Anexo 3 p.9 y p.13).
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 24.1 | **Componentes de las visitas que crea la propuesta:** Java exige al menos uno y el PHP no tenía | Todos los componentes de la versión vigente que aplican a la unidad del punto, menos C02 (seguimiento): es la auditoría «al 100 %» |
+| 24.2 | **Año de contrato (13.4) en las farmacias alternas y el nivel central** | Los tres ciclos anuales usan el año de contrato. La pantalla elige «Año de contrato N (desde – hasta)». La visita inicial cubre el año 1 |
+| 24.3 | **Primer día posible** | Regla de la agenda: el día D sirve si su límite de notificación (hábil anterior a D − 15) no ha pasado. Antes era hoy + 15 días calendario |
+| 24.4 | **Datos iniciales:** ningún ESM trae auditor asignado, ningún auditor trae municipio base y no hay puntos de nivel central | La propuesta funciona igual, pero mide todo «sin ubicación» hasta que se carguen esos datos en Puntos y auditores |
+| 24.5 | **Avisos de las ciudades principales y de los ESM sin auditor asignado:** son nuevos (fuente de verdad), el PHP no los tenía | Se muestran en la cobertura como avisos; no impiden proponer |
+| 24.6 | **Fila «En proceso…»:** una confirmación que se cae a mitad deja esa fila marcada | Se programa en su propia transacción. Si quedó «En proceso…», hay que revisarla en la agenda (queda pendiente un reintento automático) |
+| 24.7 | **Fin de la línea base:** el PHP suma 3 meses inclusive (15-ene → 15-abr) | Se dejó como el PHP |
+
+### Revisión de los ajustes (2026-10-22)
+
+**Backend (Java, base de datos y seguridad).** Se corrigieron:
+- **P1:**
+  - el healthcheck de Docker apuntaba a una ruta que no existe;
+  - el reporte de plan incumplido decía una causa falsa y listaba hallazgos de más;
+  - la acción vencida se medía contra el envío del acta y no contra el día de la visita;
+  - el compose publicaba en la red el modo local.
+- **P2 y P3:**
+  - **Reportes a la DIGSA:** el reporte de un seguimiento reabierto no se duplica, y se reclama antes de enviarse (estado «enviando»).
+  - **Compose:** usuario dueño de la base y rol de la aplicación con permisos mínimos.
+  - **Firmas existentes (V14):** quedan en su ronda.
+  - **Marca de trámite:** si el campo no llega, se conserva la que había.
+- **Duda 23.4 (nueva):** si el líder decide la última objeción después del plazo del plan, el OPL tiene 2 días hábiles más para firmar, y mientras haya objeciones sin decidir el plan no vence. ¿Es correcto?
+
+**Frontend (React).** Sin P1. Se corrigieron:
+- la hora pegada en 12 h («2:30 PM»), que se guardaba como de la mañana;
+- un posible ciclo de renders del campo de hora.
+
+Quedan pendientes, sin bloquear (fase 11):
+- e2e de ida y vuelta de la fecha y hora real;
+- aviso junto al campo cuando falta la hora;
+- `aria-describedby` en «Firmar el plan»;
+- ocultar el aviso de la ronda cuando ya no faltan firmas.

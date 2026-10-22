@@ -16,6 +16,8 @@ frontend/dist/
 e2e/node_modules/
 e2e/test-results/
 e2e/playwright-report/
+# Spring Modulith lo genera al levantar el backend desde e2e/ (webServer de Playwright)
+e2e/build/
 frontend/*.tsbuildinfo
 
 # Almacén de archivos (evidencias, actas, correos locales): nunca en el repositorio (Ley 1581)

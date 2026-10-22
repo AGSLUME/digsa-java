@@ -22,9 +22,30 @@ export async function dibujarEn(page: Page, panel: Locator): Promise<void> {
   await page.mouse.up();
 }
 
+/**
+ * Inicio y fin real de la visita («yyyy-MM-ddTHH:mm»): fecha en su campo y hora militar en el suyo (decisión D4). Al salir del campo la
+ * hora queda en 24 h con dos dígitos.
+ */
+export async function llenarInicioFin(page: Page, inicio: string, fin: string): Promise<void> {
+  for (const [nombre, valor] of [
+    ['inicio real', inicio],
+    ['fin real', fin],
+  ] as const) {
+    const [fecha = '', hora = ''] = valor.split('T');
+    await page.getByLabel('Fecha de ' + nombre).fill(fecha);
+    const campo = page.getByRole('textbox', { name: 'Hora de ' + nombre });
+    await campo.fill(hora);
+    await campo.blur();
+    await expect(campo).toHaveValue(hora);
+  }
+}
+
 /** Firma de un rol del formulario (acta o plan de mejoramiento) en su diálogo. */
 export async function firmarRol(page: Page, rol: string, nombre: string): Promise<void> {
-  await page.getByTestId('firma-' + rol).getByRole('button', { name: 'Firmar' }).click();
+  await page
+    .getByTestId('firma-' + rol)
+    .getByRole('button', { name: 'Firmar' })
+    .click();
   const dialogo = page.getByRole('dialog');
   await dialogo.getByLabel('Nombre').fill(nombre);
   await dibujarEn(page, dialogo.locator('canvas').first());
@@ -44,7 +65,10 @@ export async function llenarPlan(page: Page, fecha: string): Promise<void> {
   for (let i = 0; i < n; i++) {
     const que = filas.nth(i).getByRole('textbox', { name: /^Qué/ });
     if (!(await que.inputValue())) await que.fill('Implementar el control diario del soporte.');
-    await filas.nth(i).getByLabel(/^Fin/).fill(`${fin.getFullYear()}-${p(fin.getMonth() + 1)}-${p(fin.getDate())}`);
+    await filas
+      .nth(i)
+      .getByLabel(/^Fin/)
+      .fill(`${fin.getFullYear()}-${p(fin.getMonth() + 1)}-${p(fin.getDate())}`);
   }
   await page.getByTestId('guardar-plan').click();
   await expect(page.getByText('Plan de mejoramiento guardado.')).toBeVisible();

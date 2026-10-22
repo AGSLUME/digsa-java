@@ -44,7 +44,20 @@ public class ServicioSeguimiento {
     static final int MAX_SEGUIMIENTOS_DEFECTO = 3;
 
     /** Qué pasa con el seguimiento al cerrar esta visita (va en el acta y decide qué se crea). */
-    public record Programacion(String situacion, LocalDate fecha, int n, List<Map<String, Object>> abiertas) {
+    /** @param vencidas D9: acciones del plan anterior vencidas que siguen en «No cumple» (sin prórroga): plan incumplido */
+    public record Programacion(String situacion, LocalDate fecha, int n, List<Map<String, Object>> abiertas, List<String> vencidas) {
+        Programacion(String situacion, LocalDate fecha, int n, List<Map<String, Object>> abiertas) {
+            this(situacion, fecha, n, abiertas, List.of());
+        }
+
+        Programacion conVencidas(List<String> v) {
+            return new Programacion(situacion, fecha, n, abiertas, v);
+        }
+
+        boolean incumplido() {
+            return MAXIMO.equals(situacion) || !vencidas.isEmpty();
+        }
+
         static final String PROGRAMADO = "programado";
         static final String SIN_ABIERTAS = "sin_abiertas";
         static final String MAXIMO = "maximo";
@@ -198,8 +211,43 @@ public class ServicioSeguimiento {
         return r;
     }
 
-    /** Qué pasará con el seguimiento al cerrar la visita (se calcula antes del acta, que lo dice). */
+    /** Qué pasará con el seguimiento al cerrar la visita (se calcula antes del acta, que lo dice), con las acciones vencidas (D9). */
     Programacion programacion(RepositorioVisitas.Visita v, Map<String, Map<String, Object>> filas, List<Map<String, Object>> hallazgos) {
+        Programacion p = programacionSinVencidas(v, filas, hallazgos);
+        return v.esSeguimiento() ? p.conVencidas(vencidas(v, filas, hallazgos)) : p;
+    }
+
+    /**
+     * Decisión D9 del 2026-10-21: en cada seguimiento, la acción cuya fecha fin del plan anterior ya pasó y sigue en «No cumple» es un
+     * plan incumplido (se reporta a la DIGSA). La que pidió prórroga no cuenta: la decide la coordinación con la DIGSA.
+     */
+    List<String> vencidas(RepositorioVisitas.Visita v, Map<String, Map<String, Object>> filas, List<Map<String, Object>> hallazgos) {
+        Set<String> claves = new LinkedHashSet<>();
+        hallazgos.forEach(h -> claves.add((String) h.get("clave")));
+        Set<String> prorrogadas = new LinkedHashSet<>();
+        prorrogas(v, filas, claves).forEach(x -> prorrogadas.add(x.clave()));
+        Map<String, Map<String, Object>> antes = anteriores(v);
+        LocalDate diaVisita = diaDeEjecucion(v);
+        List<String> r = new ArrayList<>();
+        for (Map<String, Object> h : hallazgos) {
+            Map<String, Object> a = antes.get((String) h.get("clave"));
+            if (a == null || a.get("fin") == null || prorrogadas.contains((String) h.get("clave"))) {
+                continue;
+            }
+            if (LocalDate.parse(String.valueOf(a.get("fin"))).isBefore(diaVisita)) {
+                r.add((String) h.get("codigo"));
+            }
+        }
+        return r;
+    }
+
+    /** Día en que se ejecutó la visita (inicio real) o, si falta, la fecha programada: un reenvío del acta no vuelve vencida una acción. */
+    LocalDate diaDeEjecucion(RepositorioVisitas.Visita v) {
+        return jdbc.sql("SELECT inicio_real FROM visitas_ejecucion WHERE visita_id = :v").param("v", v.id()).query(OffsetDateTime.class).optional()
+                .filter(java.util.Objects::nonNull).map(t -> t.atZoneSameInstant(Fechas.BOGOTA).toLocalDate()).orElse(v.fecha());
+    }
+
+    private Programacion programacionSinVencidas(RepositorioVisitas.Visita v, Map<String, Map<String, Object>> filas, List<Map<String, Object>> hallazgos) {
         int n = (v.seguimientoN() == null ? 0 : v.seguimientoN()) + 1;
         if (hallazgos.isEmpty()) {
             return new Programacion(v.esSeguimiento() ? Programacion.SIN_ABIERTAS : Programacion.SIN_HALLAZGOS, null, n, List.of());
@@ -227,6 +275,15 @@ public class ServicioSeguimiento {
 
     /** Texto bajo el plan 5W2H del acta (decisión 6.10). */
     static String textoActa(Programacion p, int maximo) {
+        String base = textoSituacion(p, maximo);
+        if (p.vencidas().isEmpty()) {
+            return base;
+        }
+        String v = "Acciones del plan vencidas en incumplimiento: " + String.join(", ", p.vencidas()) + ". Se reportan a la DIGSA como plan incumplido.";
+        return base == null ? v : base + " " + v;
+    }
+
+    private static String textoSituacion(Programacion p, int maximo) {
         return switch (p.situacion()) {
             case Programacion.PROGRAMADO -> "Visita de seguimiento: " + Plazos.fechaLarga(p.fecha()) + ". Es la fecha fin más próxima de las acciones abiertas del plan; la "
                     + Seguimiento.ordinal(p.n()).toLowerCase() + " visita de seguimiento se programa sola.";
@@ -255,6 +312,7 @@ public class ServicioSeguimiento {
         Optional<RepositorioVisitas.Visita> ya = visitas.seguimientoDe(v.id());
         if (ya.isPresent()) {
             // Reabierta y cerrada otra vez: no se duplica; el seguimiento por ejecutar se ajusta al acta nueva
+            marcarIncumplido(v, p);
             RepositorioVisitas.Visita s = ya.get();
             if (co.com.agsamericas.digsa.reglas.EstadosVisita.POR_EJECUTAR.contains(s.estado())) {
                 if (p.crea()) {
@@ -271,6 +329,7 @@ public class ServicioSeguimiento {
             return new Resultado(p, null, null);
         }
         if (p.crea()) {
+            marcarIncumplido(v, p);
             try {
                 long id = anidada.execute(t -> {
                     long nuevo = agenda.programarSeguimiento(v, p.fecha(), p.n(), alcance(p, v.numero()), quien);
@@ -292,7 +351,16 @@ public class ServicioSeguimiento {
             visitas.historial(v.id(), null, "sistema", "Máximo de seguimientos", "Se alcanzó el máximo de " + maximo() + " con " + p.abiertas().size()
                     + " acción(es) abiertas: no se programa otro seguimiento");
         }
+        marcarIncumplido(v, p);
         return new Resultado(p, null, null);
+    }
+
+    /** Marca en el historial el plan incumplido: la tarea diaria lo retoma si el reporte no salió (el evento es en memoria). */
+    private void marcarIncumplido(RepositorioVisitas.Visita v, Programacion p) {
+        if (p.incumplido()) {
+            visitas.historial(v.id(), null, "sistema", "Plan incumplido", Programacion.MAXIMO.equals(p.situacion())
+                    ? "Máximo de seguimientos con acciones abiertas" : "Acciones vencidas en incumplimiento: " + String.join(", ", p.vencidas()));
+        }
     }
 
     /**
@@ -330,9 +398,17 @@ public class ServicioSeguimiento {
             bitacora.registrar("visita_programada", "Seguimiento de la visita " + v.numero() + " programado para el " + p.fecha(), quien.id(), quien.usuario());
         } else if (Programacion.MAXIMO.equals(p.situacion())) {
             mensajes.add(escalar(v, p));
-            eventos.publishEvent(new PlanIncumplido(v.id(), actaId, v.numero()));
         } else if (Programacion.SIN_ABIERTAS.equals(p.situacion()) && v.esSeguimiento()) {
             eventos.publishEvent(new PlanCerradoSinAbiertas(v.origenId(), v.numero()));
+        }
+        // Un mismo incumplimiento no se reporta dos veces: una ronda nueva del mismo seguimiento no genera otro consecutivo
+        boolean yaReportado = jdbc.sql("SELECT count(*) FROM reportes_digsa WHERE visita_id = :v AND motivo = 'plan_incumplido' AND estado = 'enviado'")
+                .param("v", v.id()).query(Long.class).single() > 0;
+        if (p.incumplido() && actaId > 0 && !yaReportado) {
+            eventos.publishEvent(new PlanIncumplido(v.id(), actaId, v.numero()));
+            if (!p.vencidas().isEmpty()) {
+                mensajes.add("Acciones vencidas en incumplimiento (" + String.join(", ", p.vencidas()) + "): se reportan a la DIGSA como plan incumplido.");
+            }
         }
         return mensajes.stream().filter(m -> m != null && !m.isBlank()).toList();
     }

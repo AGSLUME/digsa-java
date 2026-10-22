@@ -6,6 +6,7 @@ import {
   errorFirmaPlan,
   errorRespuesta,
   faltanQuienComo,
+  objecionesPorDecidir,
   pideReabrir,
   pideRefrescar,
   pideReverificar,
@@ -26,7 +27,16 @@ function hallazgo(codigo: string, extra: Partial<HallazgoOpl> = {}): HallazgoOpl
     origen: 'item',
     texto: 'Punto',
     hallazgo: 'Sin registro',
-    planAuditor: { causas: null, que: 'Control diario', porque: null, donde: null, inicio: null, fin: '2026-11-30', indicador: null, estado: 'Pendiente' },
+    planAuditor: {
+      causas: null,
+      que: 'Control diario',
+      porque: null,
+      donde: null,
+      inicio: null,
+      fin: '2026-11-30',
+      indicador: null,
+      estado: 'Pendiente',
+    },
     estado: 'sin_respuesta',
     decision: null,
     justificacion: null,
@@ -139,6 +149,18 @@ describe('respuesta del OPL', () => {
     expect(pideRefrescar(new ErrorApi(500, 'Error'))).toBe(false);
     expect(conAvisoFallido('Objeción registrada. Aviso al auditor líder fallido.')).toBe(true);
     expect(conAvisoFallido('Hallazgo aceptado.')).toBe(false);
+  });
+
+  it('el plan no se firma con objeciones sin decidir por el auditor líder (D11)', () => {
+    const hs = [
+      hallazgo('C08-01', { estado: 'objetado', decision: 'objeta' }),
+      hallazgo('C08-02', { estado: 'aceptado', decision: 'acepta' }),
+      hallazgo('C08-03', { estado: 'ratificado', decision: 'objeta', resolucion: 'ratifica' }),
+      hallazgo('C08-04', { estado: 'levantado', decision: 'objeta', resolucion: 'levanta' }),
+      hallazgo('OB-01', { estado: 'objetado', decision: 'objeta' }),
+    ];
+    expect(objecionesPorDecidir(hs)).toEqual(['C08-01', 'OB-01']);
+    expect(objecionesPorDecidir(hs.slice(1, 4))).toEqual([]);
   });
 
   it('el token del enlace sale de la dirección y queda en la pestaña para recargar sin él', () => {

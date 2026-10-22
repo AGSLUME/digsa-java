@@ -231,8 +231,15 @@ class EjecucionApiTest extends EscenariosVisita {
         assertThat(det.path("historial").toString()).contains("Reabierta", "Corrección", "Cerrada");
         assertThat(e.coord().post(base + "/acta", null).estado()).as("el coordinador no envía el acta").isEqualTo(403);
 
+        // Decisión D12: la ronda nueva se firma de nuevo; las firmas de la ronda 1 se conservan
+        Respuesta sinFirmas = e.lider().post(base + "/acta", null);
+        assertThat(sinFirmas.mensaje()).contains("Falta la firma del auditor líder");
+        assertThat(e.lider().get(base + "/formulario").json().path("firmas").size()).as("la ronda 2 empieza sin firmas").isZero();
+        firmarRonda(e, false);
         Respuesta ronda2 = e.lider().post(base + "/acta", null);
         assertThat(ronda2.json().path("ok").asBoolean()).as(ronda2.texto()).isTrue();
+        assertThat(jdbc.sql("SELECT count(*) FROM visitas_firmas WHERE visita_id = :v AND ronda = 1").param("v", e.id()).query(Long.class).single())
+                .as("las firmas de la ronda 1 se conservan").isEqualTo(4);
         assertThat(ronda2.json().path("ronda").asInt()).isEqualTo(2);
         assertThat(jdbc.sql("SELECT count(*) FROM visitas_actas WHERE visita_id = :v").param("v", e.id()).query(Long.class).single()).isEqualTo(2);
         assertThat(jdbc.sql("SELECT nc FROM visitas_resumen WHERE visita_id = :v").param("v", e.id()).query(Integer.class).single()).isZero();

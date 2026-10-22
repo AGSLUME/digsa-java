@@ -1,0 +1,62 @@
+# Suite DIGSA en contenedores: aplicación + PostgreSQL 16. Sirve en cualquier servidor con Docker (duda 16.1).
+#   cp .env.example .env      # y diligencie las claves (el .env no se versiona)
+#   docker compose up -d --build
+#   docker compose run --rm app --digsa.crear-admin.correo=admin@ejemplo.gov.co --digsa.crear-admin.nombre=Administrador --digsa.crear-admin.usuario=admin
+# En producción la base suele ser administrada (PostgreSQL en alta disponibilidad): basta con quitar el servicio «db» y apuntar
+# DIGSA_DB_URL a ella.
+services:
+  db:
+    image: postgres:16.4-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: digsa
+      # Dueño de la base: corre las migraciones. La aplicación usa otro rol con permisos mínimos (V2, V10: bitácora y firmas sin borrado)
+      POSTGRES_USER: ${DIGSA_DB_DUENO:?Falta DIGSA_DB_DUENO en .env}
+      POSTGRES_PASSWORD: ${DIGSA_DB_DUENO_CLAVE:?Falta DIGSA_DB_DUENO_CLAVE en .env}
+      DIGSA_DB_USUARIO: ${DIGSA_DB_USUARIO:?Falta DIGSA_DB_USUARIO en .env}
+      DIGSA_DB_CLAVE: ${DIGSA_DB_CLAVE:?Falta DIGSA_DB_CLAVE en .env}
+      TZ: America/Bogota
+    volumes:
+      - datos-db:/var/lib/postgresql/data
+      - ./docker/postgres:/docker-entrypoint-initdb.d:ro
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d digsa"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    image: digsa-suite:${DIGSA_VERSION:-local}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DIGSA_DB_URL: jdbc:postgresql://db:5432/digsa
+      DIGSA_DB_MIGRACION_USUARIO: ${DIGSA_DB_DUENO}
+      DIGSA_DB_MIGRACION_CLAVE: ${DIGSA_DB_DUENO_CLAVE}
+      DIGSA_DB_ROL_APP: ${DIGSA_DB_USUARIO}
+    ports:
+      # Solo en este equipo por defecto: para publicarlo en un servidor, use DIGSA_ENTORNO=pruebas o produccion (https) y
+      # DIGSA_ESCUCHA=0.0.0.0 detrás del proxy
+      - "${DIGSA_ESCUCHA:-127.0.0.1}:${DIGSA_PUERTO:-8080}:8080"
+    volumes:
+      # Con un directorio del servidor en lugar del volumen, debe pertenecer al usuario «digsa» de la imagen
+      - datos-app:/datos
+    security_opt:
+      - no-new-privileges:true
+
+  # Correo de pruebas (perfil «pruebas»): recibe todo lo que envía la aplicación y lo muestra en http://localhost:8025
+  correo:
+    image: axllent/mailpit:v1.20
+    profiles: ["pruebas"]
+    ports:
+      - "127.0.0.1:8025:8025"
+
+volumes:
+  datos-db:
+  datos-app:

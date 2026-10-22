@@ -147,6 +147,14 @@ export function planFirmado(p: PlanOpl): boolean {
   return p.estado === 'firmado' || (p.estado === 'cerrado' && !!p.firmado);
 }
 
+/**
+ * Hallazgos objetados que el auditor líder aún no decide: mientras haya alguno el plan no se firma (decisión D11 del 2026-10-21; el
+ * servidor lo rechaza con el mismo texto).
+ */
+export function objecionesPorDecidir(hallazgos: HallazgoOpl[]): string[] {
+  return hallazgos.filter((h) => h.estado === 'objetado').map((h) => h.codigo);
+}
+
 /** Se puede aceptar u objetar: enlace abierto, fase de objeciones, plan sin firmar y sin decisión del líder. */
 export function puedeResponder(d: DetalleOpl, h: HallazgoOpl): boolean {
   return d.abierta && d.fase === 'objeciones' && !planFirmado(d.plan) && h.resolucion === null;
@@ -181,7 +189,8 @@ export function errorRespuesta(decision: 'acepta' | 'objeta' | null, justificaci
 export function errorFirmaPlan(nombre: string, cargo: string, documento: string, imagen: string | null): string | null {
   const n = nombre.trim();
   const c = cargo.trim();
-  if (n.length < 3 || n.length > 150 || c.length < 2 || c.length > 150) return 'Escriba el nombre (3 a 150 caracteres) y el cargo (2 a 150) de quien firma.';
+  if (n.length < 3 || n.length > 150 || c.length < 2 || c.length > 150)
+    return 'Escriba el nombre (3 a 150 caracteres) y el cargo (2 a 150) de quien firma.';
   if (!/^[0-9A-Za-z.-]{4,30}$/.test(documento.trim())) return 'Escriba el número de documento de quien firma.';
   if (!imagen) return 'Dibuje la firma.';
   return null;

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { ADMIN, api, dentroDe, ingresar, ingresarConClaveInicial, salir, sinDesplazamientoHorizontal, unico } from './apoyo';
-import { firmarRol, llenarPlan } from './apoyo-acta';
+import { firmarRol, llenarInicioFin, llenarPlan } from './apoyo-acta';
 
 // Equivalente de tests/ui/ui_seg.js: al cerrar una visita con un hallazgo cuyo plan vence en 30 días se programa sola la visita de
 // seguimiento; el líder la inicia, ve el aviso y el hallazgo anterior, lo deja en No cumple y corre la fecha fin (prórroga con
@@ -19,8 +19,7 @@ function ahora(minutos: number): string {
 
 /** Datos de la visita, personal auditado y firmas del acta (lo que pide el envío además del checklist y el plan). */
 async function datosYFirmas(page: Page, objeto: string): Promise<void> {
-  await page.getByLabel('Inicio real').fill(ahora(90));
-  await page.getByLabel('Fin real').fill(ahora(5));
+  await llenarInicioFin(page, ahora(90), ahora(5));
   await page.getByLabel('Objeto de la visita').fill(objeto);
   await page.getByRole('button', { name: 'Guardar datos de la visita' }).click();
   await expect(page.getByText('Datos de la visita guardados.')).toBeVisible();
@@ -52,7 +51,12 @@ test('Seguimiento: programación automática, hallazgo anterior, prórroga con j
   const crear = async (prefijo: string, nombre: string, perfil: number) => {
     const usuario = unico(prefijo);
     const r = await api<{ id: number }>(page, 'POST', '/api/usuarios', {
-      nombre: `${nombre} ${usuario}`, usuario, correo: `${usuario}@example.com`, documento: '80000009', perfiles: [perfil], claveInicial: inicial,
+      nombre: `${nombre} ${usuario}`,
+      usuario,
+      correo: `${usuario}@example.com`,
+      documento: '80000009',
+      perfiles: [perfil],
+      claveInicial: inicial,
     });
     expect(r.estado, JSON.stringify(r.datos)).toBe(201);
     return { usuario, id: r.datos.id };
@@ -63,18 +67,34 @@ test('Seguimiento: programación automática, hallazgo anterior, prórroga con j
   const digsa = await crear('digsaseg', 'Analista DIGSA', 5);
   const lugar = unico('ESM seguimiento ');
   const punto = await api<{ id: number }>(page, 'POST', '/api/maestros/puntos', {
-    nombre: lugar, unidad: 'ESM', fuerza: 'EJC', modalidad: 'Dispensación', municipio: '05001', correos: ['contacto.seg@example.com'],
+    nombre: lugar,
+    unidad: 'ESM',
+    fuerza: 'EJC',
+    modalidad: 'Dispensación',
+    municipio: '05001',
+    correos: ['contacto.seg@example.com'],
   });
   expect(punto.estado).toBe(201);
   await api(page, 'PUT', '/api/maestros/opl', { nombre: 'Operador logístico de prueba', correos: ['opl.e2e@example.com'] });
   const cat = await api<{ fuerzas: { codigo: string; nombre: string; sanidad: string | null; correos: string[] }[] }>(page, 'GET', '/api/catalogos');
   const fuerza = cat.datos.fuerzas.find((f) => f.codigo === 'EJC')!;
   if (fuerza.correos.length === 0) {
-    await api(page, 'PUT', '/api/catalogos/fuerzas/EJC', { nombre: fuerza.nombre, sanidad: fuerza.sanidad, correos: ['disan.e2e@example.com'], activo: true });
+    await api(page, 'PUT', '/api/catalogos/fuerzas/EJC', {
+      nombre: fuerza.nombre,
+      sanidad: fuerza.sanidad,
+      correos: ['disan.e2e@example.com'],
+      activo: true,
+    });
   }
   const hoy = dentroDe(0);
   const v = await api<{ id: number; numero: string }>(page, 'POST', '/api/agenda', {
-    tipo: 'anual', puntoId: punto.datos.id, fecha: hoy, liderId: lider.id, otros: [], alcance: 'Almacenamiento.', componentes: ['C08'],
+    tipo: 'anual',
+    puntoId: punto.datos.id,
+    fecha: hoy,
+    liderId: lider.id,
+    otros: [],
+    alcance: 'Almacenamiento.',
+    componentes: ['C08'],
   });
   expect(v.estado).toBe(201);
   const { id, numero } = v.datos;
@@ -130,7 +150,10 @@ test('Seguimiento: programación automática, hallazgo anterior, prórroga con j
 
   // ---------- Sigue en No cumple y corre la fecha fin: se pide la justificación ----------
   await datosYFirmas(p2, 'Verificar el plan de mejoramiento.');
-  await p2.getByTestId('calificacion-' + item).getByText('No cumple', { exact: true }).click();
+  await p2
+    .getByTestId('calificacion-' + item)
+    .getByText('No cumple', { exact: true })
+    .click();
   await p2.getByLabel('Hallazgo de ' + item).fill('Sigue sin el registro diario de temperatura.');
   await p2.getByTestId('guardar-calificaciones').click();
   await expect(p2.getByText(/Guardado \(\d+ ítems?\)/)).toBeVisible();

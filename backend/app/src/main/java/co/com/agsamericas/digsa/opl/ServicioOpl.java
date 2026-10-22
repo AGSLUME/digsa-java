@@ -81,9 +81,12 @@ public class ServicioOpl {
     private final TransactionTemplate tx;
     private final Clock reloj;
     private final co.com.agsamericas.digsa.agenda.ServicioAgenda agenda;
+    private final co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta;
 
     public ServicioOpl(JdbcClient jdbc, RepositorioVisitas visitas, ValidadorArchivos validador, Almacen almacen, Correo correo, RegistroBitacora bitacora,
-                       TransactionTemplate tx, Clock reloj, co.com.agsamericas.digsa.agenda.ServicioAgenda agenda) {
+                       TransactionTemplate tx, Clock reloj, co.com.agsamericas.digsa.agenda.ServicioAgenda agenda,
+                       co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta) {
+        this.consulta = consulta;
         this.agenda = agenda;
         this.jdbc = jdbc;
         this.visitas = visitas;
@@ -573,6 +576,11 @@ public class ServicioOpl {
             if (!sinRespuesta.isEmpty()) {
                 throw ErrorNegocio.validacion("Responda (acepte u objete) los hallazgos: " + String.join(", ", sinRespuesta) + ".");
             }
+            // Decisión D11 del 2026-10-21: no se firma mientras el auditor líder no decida todas las objeciones
+            List<String> porDecidir = hs.stream().filter(h -> "objetado".equals(h.get("estado"))).map(h -> (String) h.get("codigo")).toList();
+            if (!porDecidir.isEmpty()) {
+                throw ErrorNegocio.validacion("El plan se firma cuando el auditor líder decida las objeciones de: " + String.join(", ", porDecidir) + ".");
+            }
             List<String> faltan = faltanPlan(hs);
             if (!faltan.isEmpty()) {
                 throw ErrorNegocio.validacion("Falta quién y cómo de: " + String.join(", ", faltan) + ".");
@@ -632,6 +640,15 @@ public class ServicioOpl {
             }
             visitas.historial(visitaId, quien.id(), quien.usuario(), "ratifica".equals(resolucion) ? "Hallazgo ratificado" : "Hallazgo levantado",
                     clave.substring(3) + ": " + m);
+            // La firma espera las decisiones (D11): decidida la última objeción, el OPL tiene al menos 2 días hábiles más para firmar (duda 23.4)
+            if (hallazgos(a).stream().noneMatch(h -> "objetado".equals(h.get("estado")))) {
+                OffsetDateTime minimo = EnlaceOpl.vence(consulta.plazos(), ahora(), EnlaceOpl.DIAS_PLAN - EnlaceOpl.DIAS_OBJECIONES);
+                if (minimo.isAfter(a.vencePlan())) {
+                    jdbc.sql("UPDATE opl_accesos SET vence_plan = :vp WHERE visita_id = :v AND acta_id = :a").param("vp", minimo).param("v", visitaId)
+                            .param("a", a.actaId()).update();
+                    visitas.historial(visitaId, null, "sistema", "Plazo del plan ampliado", "Decididas las objeciones después del plazo: firma hasta el " + local(minimo));
+                }
+            }
             boolean quedanVigentes = hallazgos(a).stream().anyMatch(h -> !"levantado".equals(h.get("estado")));
             if (!quedanVigentes) {
                 jdbc.sql("""

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  aFechaHoraLocal,
+  conCalificacion,
   conteo,
   cuerpoPlan,
   cumplimientoLegible,
@@ -56,36 +56,69 @@ const COMPONENTES: ComponenteChecklist[] = [
 describe('formulario del checklist', () => {
   it('solo envía los ítems editables que cambiaron', () => {
     const r = respuestasCambiadas(COMPONENTES, {
-      'HB-01': { calificacion: 'C', hallazgo: '' },
-      'HB-02': { calificacion: 'NC', hallazgo: ' Sin rótulo ' },
-      'HB-03': { calificacion: 'NC', hallazgo: 'Nevera sin registro' },
-      'HB-04': { calificacion: 'C', hallazgo: '' },
+      'HB-01': { calificacion: 'C', hallazgo: '', enTramite: false },
+      'HB-02': { calificacion: 'NC', hallazgo: ' Sin rótulo ', enTramite: false },
+      'HB-03': { calificacion: 'NC', hallazgo: 'Nevera sin registro', enTramite: false },
+      'HB-04': { calificacion: 'C', hallazgo: '', enTramite: false },
     });
-    expect(r).toEqual([{ item: 'HB-03', calificacion: 'NC', hallazgo: 'Nevera sin registro' }]);
+    expect(r).toEqual([{ item: 'HB-03', calificacion: 'NC', hallazgo: 'Nevera sin registro', enTramite: false }]);
   });
 
   it('al dejar de ser "No cumple" el hallazgo se borra; vaciar la calificación también cuenta como cambio', () => {
     const r = respuestasCambiadas(COMPONENTES, {
-      'HB-01': { calificacion: null, hallazgo: '' },
-      'HB-02': { calificacion: 'C', hallazgo: 'Sin rótulo' },
+      'HB-01': { calificacion: null, hallazgo: '', enTramite: false },
+      'HB-02': { calificacion: 'C', hallazgo: 'Sin rótulo', enTramite: false },
     });
     expect(r).toEqual([
-      { item: 'HB-01', calificacion: null, hallazgo: null },
-      { item: 'HB-02', calificacion: 'C', hallazgo: null },
+      { item: 'HB-01', calificacion: null, hallazgo: null, enTramite: false },
+      { item: 'HB-02', calificacion: 'C', hallazgo: null, enTramite: false },
     ]);
-    expect(sinHallazgo([{ item: 'HB-03', calificacion: 'NC', hallazgo: null }])).toEqual(['HB-03']);
+    expect(sinHallazgo([{ item: 'HB-03', calificacion: 'NC', hallazgo: null, enTramite: false }])).toEqual(['HB-03']);
   });
 
   it('cuenta con las ediciones locales aplicadas', () => {
     const items = COMPONENTES[0]!.items;
     expect(conteo(items, {})).toEqual({ c: 1, nc: 1, na: 0, pendientes: 2 });
-    expect(conteo(items, { 'HB-03': { calificacion: 'NA', hallazgo: '' } })).toEqual({ c: 1, nc: 1, na: 1, pendientes: 1 });
+    expect(conteo(items, { 'HB-03': { calificacion: 'NA', hallazgo: '', enTramite: false } })).toEqual({ c: 1, nc: 1, na: 1, pendientes: 1 });
   });
 
-  it('formatea fechas, textos, tamaños y cumplimiento', () => {
-    expect(aFechaHoraLocal('2026-11-03T08:30:00')).toBe('2026-11-03T08:30');
-    expect(aFechaHoraLocal('2026-11-03 08:30')).toBe('2026-11-03T08:30');
-    expect(aFechaHoraLocal(null)).toBe('');
+  it('habilitación en trámite (D5): solo en un ítem que la admite y en «No cumple»; marcarla o quitarla es un cambio', () => {
+    const c00: ComponenteChecklist[] = [
+      {
+        codigo: 'C00',
+        nombre: 'Validaciones de habilitación',
+        escalaPropia: false,
+        items: [
+          item('C00-01', { admiteTramite: true, calificacion: 'NC', hallazgo: 'Sin distintivo', enTramite: true }),
+          item('C00-02', { admiteTramite: true }),
+          item('HB-09'),
+        ],
+      },
+    ];
+    // Lo guardado sin editar no se envía; desmarcar la casilla sí
+    expect(respuestasCambiadas(c00, { 'C00-01': { calificacion: 'NC', hallazgo: 'Sin distintivo', enTramite: true } })).toEqual([]);
+    expect(respuestasCambiadas(c00, { 'C00-01': { calificacion: 'NC', hallazgo: 'Sin distintivo', enTramite: false } })).toEqual([
+      { item: 'C00-01', calificacion: 'NC', hallazgo: 'Sin distintivo', enTramite: false },
+    ]);
+    // Marcada en un ítem que la admite; en uno que no la admite nunca se envía
+    expect(
+      respuestasCambiadas(c00, {
+        'C00-02': { calificacion: 'NC', hallazgo: 'Habilitación vencida', enTramite: true },
+        'HB-09': { calificacion: 'NC', hallazgo: 'Nevera', enTramite: true },
+      }),
+    ).toEqual([
+      { item: 'C00-02', calificacion: 'NC', hallazgo: 'Habilitación vencida', enTramite: true },
+      { item: 'HB-09', calificacion: 'NC', hallazgo: 'Nevera', enTramite: false },
+    ]);
+    // Fuera de «No cumple» la casilla se desmarca; al volver a «No cumple» sigue desmarcada
+    const marcada = { calificacion: 'NC' as const, hallazgo: 'Sin distintivo', enTramite: true };
+    expect(conCalificacion(marcada, 'C')).toEqual({ calificacion: 'C', hallazgo: 'Sin distintivo', enTramite: false });
+    expect(conCalificacion(marcada, null).enTramite).toBe(false);
+    expect(conCalificacion(marcada, 'NC').enTramite).toBe(true);
+    expect(conCalificacion(conCalificacion(marcada, 'NA'), 'NC').enTramite).toBe(false);
+  });
+
+  it('formatea textos, tamaños y cumplimiento', () => {
     expect(textoONulo('  ')).toBeNull();
     expect(textoONulo(' a ')).toBe('a');
     expect(tamanoLegible(2048)).toBe('2 KB');
@@ -123,14 +156,48 @@ describe('plan de mejoramiento 5W2H', () => {
   it('detecta cambios sin guardar (sin contar espacios) y arma el cuerpo con todas las filas', () => {
     expect(planCambiado(PLAN, null, {})).toBe(false);
     expect(planCambiado(PLAN, '2026-10-21', {})).toBe(true);
-    const igual = { causas: '', que: ' Ajustar la ruta ', porque: '', donde: '', inicio: '', fin: '2026-11-30', indicador: '', estado: 'En curso', prorroga: '' };
+    const igual = {
+      causas: '',
+      que: ' Ajustar la ruta ',
+      porque: '',
+      donde: '',
+      inicio: '',
+      fin: '2026-11-30',
+      indicador: '',
+      estado: 'En curso',
+      prorroga: '',
+    };
     expect(planCambiado(PLAN, null, { 'ob:OB-OPL-01': igual })).toBe(false);
     expect(planCambiado(PLAN, null, { 'ob:OB-OPL-01': { ...igual, fin: '2026-12-15' } })).toBe(true);
     const c = cuerpoPlan(PLAN, '2026-10-21', { 'it:HB-02': { ...igual, que: ' Rotular ', estado: 'Pendiente', fin: '' } });
     expect(c.fecha).toBe('2026-10-21');
     expect(c.filas).toEqual([
-      { clave: 'it:HB-02', causas: null, que: 'Rotular', porque: null, donde: null, inicio: null, fin: null, indicador: null, estado: 'Pendiente', avance: 0, prorroga: null },
-      { clave: 'ob:OB-OPL-01', causas: null, que: 'Ajustar la ruta', porque: null, donde: null, inicio: null, fin: '2026-11-30', indicador: null, estado: 'En curso', avance: 20, prorroga: null },
+      {
+        clave: 'it:HB-02',
+        causas: null,
+        que: 'Rotular',
+        porque: null,
+        donde: null,
+        inicio: null,
+        fin: null,
+        indicador: null,
+        estado: 'Pendiente',
+        avance: 0,
+        prorroga: null,
+      },
+      {
+        clave: 'ob:OB-OPL-01',
+        causas: null,
+        que: 'Ajustar la ruta',
+        porque: null,
+        donde: null,
+        inicio: null,
+        fin: '2026-11-30',
+        indicador: null,
+        estado: 'En curso',
+        avance: 20,
+        prorroga: null,
+      },
     ]);
   });
 });
@@ -178,7 +245,18 @@ describe('prórroga en el seguimiento', () => {
     ],
   };
   const fila = (cambio: Partial<EdicionPlan>): Record<string, EdicionPlan> => ({
-    'it:HB-02': { causas: '', que: 'Rotular', porque: '', donde: '', inicio: '', fin: '2026-11-10', indicador: '', estado: 'En curso', prorroga: '', ...cambio },
+    'it:HB-02': {
+      causas: '',
+      que: 'Rotular',
+      porque: '',
+      donde: '',
+      inicio: '',
+      fin: '2026-11-10',
+      indicador: '',
+      estado: 'En curso',
+      prorroga: '',
+      ...cambio,
+    },
   });
 
   it('al correr la fecha fin pide la justificación y solo la envía cuando hay prórroga', () => {
@@ -195,7 +273,10 @@ describe('prórroga en el seguimiento', () => {
     );
     expect(cuerpoPlan(SEG, null, fila({ fin: '2026-11-05', prorroga: 'Ya no es prórroga' })).filas[0]!.prorroga).toBeNull();
     // La justificación guardada se conserva al recargar
-    const guardada = { ...SEG, hallazgos: [{ ...SEG.hallazgos[0]!, fila: { ...SEG.hallazgos[0]!.fila, fin: '2026-11-30', prorroga_justificacion: 'Llega en diciembre' } }] };
+    const guardada = {
+      ...SEG,
+      hallazgos: [{ ...SEG.hallazgos[0]!, fila: { ...SEG.hallazgos[0]!.fila, fin: '2026-11-30', prorroga_justificacion: 'Llega en diciembre' } }],
+    };
     expect(faltantesPlan(guardada, null, {})).toEqual([]);
     expect(planCambiado(guardada, null, {})).toBe(false);
   });

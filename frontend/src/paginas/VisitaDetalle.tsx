@@ -1,12 +1,45 @@
-import { Alert, Anchor, Badge, Button, Card, Center, Checkbox, Group, List, Loader, Modal, MultiSelect, ScrollArea, Select, SimpleGrid, Stack, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
+import {
+  Alert,
+  Anchor,
+  Badge,
+  Button,
+  Card,
+  Center,
+  Checkbox,
+  Group,
+  List,
+  Loader,
+  Modal,
+  MultiSelect,
+  ScrollArea,
+  Select,
+  SimpleGrid,
+  Stack,
+  Table,
+  Text,
+  Textarea,
+  TextInput,
+  Title,
+} from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { colorEstado, horaCorta, type DetalleVisita, type OpcionesAgenda } from '../shared/agenda';
 import { api, ErrorApi } from '../shared/api';
+import { CampoHora24 } from '../shared/CampoHora24';
 import { FormularioVisita, MAX_OTROS } from '../shared/FormularioVisita';
-import { COLOR_ESTADO, COLOR_FASE, conAvisoFallido, NOMBRE_ESTADO, NOMBRE_FASE, NOMBRE_PLAN, type HallazgoOpl, type OplDeVisita } from '../shared/opl';
+import { horaValida, MENSAJE_HORA } from '../shared/hora';
+import {
+  COLOR_ESTADO,
+  COLOR_FASE,
+  conAvisoFallido,
+  NOMBRE_ESTADO,
+  NOMBRE_FASE,
+  NOMBRE_PLAN,
+  type HallazgoOpl,
+  type OplDeVisita,
+} from '../shared/opl';
 
 export type OrigenVisita = 'agenda' | 'mis-visitas' | 'calendario';
 
@@ -134,17 +167,17 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
               Reabrir
             </Button>
           )}
-          {origen !== 'calendario' && (v.estado === 'ejecucion' || v.estado === 'cerrada') && !(origen === 'mis-visitas' && v.acciones.includes('iniciar')) && (
-            <Button variant={v.estado === 'cerrada' ? 'light' : 'filled'} onClick={() => navegar(`/visita/${v.id}`)}>
-              Abrir formulario
-            </Button>
-          )}
+          {origen !== 'calendario' &&
+            (v.estado === 'ejecucion' || v.estado === 'cerrada') &&
+            !(origen === 'mis-visitas' && v.acciones.includes('iniciar')) && (
+              <Button variant={v.estado === 'cerrada' ? 'light' : 'filled'} onClick={() => navegar(`/visita/${v.id}`)}>
+                Abrir formulario
+              </Button>
+            )}
           {origen === 'mis-visitas' && v.acciones.includes('iniciar') && (
             <Button
               loading={accion.isPending}
-              onClick={() =>
-                accion.mutate({ ruta: `/api/mis-visitas/${v.id}/iniciar` }, { onSuccess: () => navegar(`/visita/${v.id}`) })
-              }
+              onClick={() => accion.mutate({ ruta: `/api/mis-visitas/${v.id}/iniciar` }, { onSuccess: () => navegar(`/visita/${v.id}`) })}
             >
               {v.estado === 'ejecucion' ? 'Continuar' : 'Iniciar visita'}
             </Button>
@@ -152,9 +185,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
         </Group>
       </Group>
       {opciones.error && <Alert color="red">No se pudieron cargar las opciones: {opciones.error.message}</Alert>}
-      {v.equipoSinNotificar && deAgenda && (
-        <Alert color="orange">El cambio de equipo aún no se ha notificado al OPL y a las DISANES.</Alert>
-      )}
+      {v.equipoSinNotificar && deAgenda && <Alert color="orange">El cambio de equipo aún no se ha notificado al OPL y a las DISANES.</Alert>}
       {(v.advertencias ?? []).map((a, i) => (
         <Alert key={i} color="orange">
           {a}
@@ -169,9 +200,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
           </Dato>
           <Dato titulo="Tipo">{v.tipoNombre}</Dato>
           <Dato titulo="Punto">{v.punto}</Dato>
-          <Dato titulo="Unidad">
-            {[v.unidad, v.fuerza, v.modalidad].filter(Boolean).join(' · ')}
-          </Dato>
+          <Dato titulo="Unidad">{[v.unidad, v.fuerza, v.modalidad].filter(Boolean).join(' · ')}</Dato>
           {v.fechaSolicitud && <Dato titulo="Fecha de la solicitud">{v.fechaSolicitud}</Dato>}
           <Dato titulo="Versión del checklist">{v.checklistVersion ?? '—'}</Dato>
         </SimpleGrid>
@@ -493,6 +522,10 @@ function Reprogramar({
   const [notificar, setNotificar] = useState(true);
   const enviar = (e: FormEvent) => {
     e.preventDefault();
+    if (hora && !horaValida(hora)) {
+      notifications.show({ color: 'orange', autoClose: 10000, message: MENSAJE_HORA });
+      return;
+    }
     alEnviar({ fecha, hora: hora || null, motivo, notificar });
   };
   return (
@@ -500,7 +533,7 @@ function Reprogramar({
       <Stack>
         <SimpleGrid cols={{ base: 1, xs: 2 }}>
           <TextInput label="Fecha" type="date" required value={fecha} onChange={(e) => setFecha(e.currentTarget.value)} />
-          <TextInput label="Hora" type="time" value={hora} onChange={(e) => setHora(e.currentTarget.value)} />
+          <CampoHora24 label="Hora" value={hora} onChange={setHora} />
         </SimpleGrid>
         <Textarea label="Motivo" required autosize minRows={2} maxLength={800} value={motivo} onChange={(e) => setMotivo(e.currentTarget.value)} />
         <Checkbox label="Notificar la nueva fecha" checked={notificar} onChange={(e) => setNotificar(e.currentTarget.checked)} />
@@ -624,10 +657,17 @@ function Reasignar({
       }}
     >
       <Stack>
-        <Select label="Auditor líder" required searchable data={datos} value={lider} onChange={(x) => {
-          setLider(x);
-          setOtros(otros.filter((o) => o !== x));
-        }} />
+        <Select
+          label="Auditor líder"
+          required
+          searchable
+          data={datos}
+          value={lider}
+          onChange={(x) => {
+            setLider(x);
+            setOtros(otros.filter((o) => o !== x));
+          }}
+        />
         <MultiSelect
           label="Otros auditores"
           searchable
@@ -741,7 +781,11 @@ function RespuestaDelOpl({ id }: { id: number }) {
     mutationFn: (c: { clave: string; resolucion: 'ratifica' | 'levanta'; motivo: string }) =>
       api<Respuesta>(`/api/visitas/${id}/opl/resolucion`, { metodo: 'POST', cuerpo: c }),
     onSuccess: (r) => {
-      notifications.show({ color: conAvisoFallido(r.mensaje) ? 'orange' : 'green', autoClose: conAvisoFallido(r.mensaje) ? false : 6000, message: r.mensaje });
+      notifications.show({
+        color: conAvisoFallido(r.mensaje) ? 'orange' : 'green',
+        autoClose: conAvisoFallido(r.mensaje) ? false : 6000,
+        message: r.mensaje,
+      });
       setDecidir(null);
       qc.invalidateQueries({ queryKey: clave });
       qc.invalidateQueries({ queryKey: ['visita'] });

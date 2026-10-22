@@ -50,8 +50,14 @@ public class ServicioFormulario {
         }
     }
 
-    public record Respuesta(String item, String calificacion, String hallazgo) {
+    /** @param enTramite D5: el ítem de habilitación (C00) en «No cumple» con la habilitación en trámite (sigue siendo hallazgo) */
+    public record Respuesta(String item, String calificacion, String hallazgo, Boolean enTramite) {
     }
+
+    /** Componente de las validaciones de habilitación. */
+    static final String HABILITACION = "C00";
+    /** Lo que queda pendiente con la habilitación en trámite (decisión D5 del 2026-10-21). */
+    public static final String TEXTO_TRAMITE = "Habilitación en trámite: queda pendiente aportar el distintivo de habilitación o las actas de visita del ente habilitador.";
 
     public record Ejecucion(String inicioReal, String finReal, String objeto, String recomendaciones, String observacionesAuditor,
                             String observacionesEsm, String observacionesOpl) {
@@ -179,6 +185,17 @@ public class ServicioFormulario {
                 .list();
     }
 
+    /** Ítems marcados con la habilitación en trámite. */
+    Set<String> enTramite(long visitaId) {
+        return new HashSet<>(jdbc.sql("SELECT i.codigo FROM visitas_respuestas r JOIN chk_items i ON i.id = r.item_id WHERE r.visita_id = :v AND r.en_tramite")
+                .param("v", visitaId).query(String.class).list());
+    }
+
+    /** Ronda vigente del acta (cada reapertura abre otra, con firmas nuevas: decisión D12). */
+    static int ronda(RepositorioVisitas.Visita v) {
+        return v.reaperturas() + 1;
+    }
+
     Map<String, Checklist.Respuesta> respuestas(long visitaId) {
         Map<String, Checklist.Respuesta> r = new LinkedHashMap<>();
         jdbc.sql("""
@@ -247,13 +264,14 @@ public class ServicioFormulario {
         m.put("ejecucion", ejecucion(visitaId));
         m.put("personal", jdbc.sql("SELECT entidad, nombre, cargo, documento, correo FROM visitas_personal WHERE visita_id = :v ORDER BY orden, id")
                 .param("v", visitaId).query().listOfRows());
-        m.put("firmas", jdbc.sql("SELECT rol, nombre, documento, cargo, firmado FROM visitas_firmas WHERE visita_id = :v ORDER BY rol")
-                .param("v", visitaId).query().listOfRows());
+        m.put("firmas", jdbc.sql("SELECT rol, nombre, documento, cargo, firmado FROM visitas_firmas WHERE visita_id = :v AND ronda = :r ORDER BY rol")
+                .param("v", visitaId).param("r", ronda(v)).query().listOfRows());
 
         // Componentes con sus ítems; cada ítem dice de quién es la parte y si este usuario lo puede calificar
         List<ItemVisita> items = items(v);
         Map<String, Checklist.Respuesta> resp = respuestas(visitaId);
         Map<String, List<Map<String, Object>>> archivos = archivosPorClave(visitaId);
+        Set<String> tramite = enTramite(visitaId);
         Map<String, Map<String, Object>> anteriores = seguimiento.anteriores(v);
         Map<String, List<Map<String, Object>>> archivosAnteriores = seguimiento.archivosAnteriores(v,
                 items.stream().map(ItemVisita::clave).collect(Collectors.toSet()));
@@ -284,6 +302,8 @@ public class ServicioFormulario {
             it.put("hallazgo", r == null ? null : r.hallazgo());
             it.put("clave", i.clave());
             it.put("obligacion", i.obligacion());
+            it.put("admiteTramite", !i.obligacion() && HABILITACION.equals(i.componente()));
+            it.put("enTramite", tramite.contains(i.codigo()));
             it.put("archivos", archivos.getOrDefault(i.clave(), List.of()));
             if (v.esSeguimiento()) {
                 it.put("anterior", anteriores.get(i.clave()));
@@ -360,7 +380,8 @@ public class ServicioFormulario {
         if (personal == 0) {
             f.add("Registre al menos una persona del personal auditado.");
         }
-        Set<String> firmas = new HashSet<>(jdbc.sql("SELECT rol FROM visitas_firmas WHERE visita_id = :v").param("v", v.id()).query(String.class).list());
+        Set<String> firmas = new HashSet<>(jdbc.sql("SELECT rol FROM visitas_firmas WHERE visita_id = :v AND ronda = :r").param("v", v.id())
+                .param("r", ronda(v)).query(String.class).list());
         if (!firmas.contains("auditor")) {
             f.add("Falta la firma del auditor líder.");
         }
@@ -428,6 +449,7 @@ public class ServicioFormulario {
         }
         Map<String, ItemVisita> porCodigo = items(a.visita()).stream().collect(Collectors.toMap(ItemVisita::codigo, i -> i));
         Map<String, Checklist.Respuesta> antes = respuestas(visitaId);
+        Set<String> tramiteAntes = enTramite(visitaId);
         List<String> errores = new ArrayList<>();
         List<String> cambiados = new ArrayList<>();
         OffsetDateTime ahora = OffsetDateTime.now(reloj);
@@ -444,6 +466,9 @@ public class ServicioFormulario {
             String cal = r.calificacion() == null || r.calificacion().isBlank() ? null : r.calificacion().strip().toUpperCase();
             String hallazgo = r.hallazgo() == null || r.hallazgo().isBlank() ? null : r.hallazgo().strip();
             Checklist.problema(i.regla(), new Checklist.Respuesta(cal, hallazgo)).ifPresent(errores::add);
+            if (Boolean.TRUE.equals(r.enTramite()) && (i.obligacion() || !HABILITACION.equals(i.componente()) || !"NC".equals(cal))) {
+                errores.add(i.codigo() + ": «habilitación en trámite» se marca solo en una validación de habilitación calificada «No cumple»");
+            }
         }
         if (!errores.isEmpty()) {
             throw ErrorNegocio.validacion("No se guardó: " + String.join("; ", errores.subList(0, Math.min(10, errores.size())))
@@ -454,8 +479,11 @@ public class ServicioFormulario {
             String cal = r.calificacion() == null || r.calificacion().isBlank() ? null : r.calificacion().strip().toUpperCase();
             String hallazgo = r.hallazgo() == null || r.hallazgo().isBlank() ? null : r.hallazgo().strip();
             Checklist.Respuesta previa = antes.get(i.codigo());
-            boolean igual = previa == null ? cal == null && hallazgo == null
-                    : java.util.Objects.equals(previa.calificacion(), cal) && java.util.Objects.equals(previa.hallazgo(), hallazgo);
+            // Sin el campo se conserva la marca que tenía (un cliente que solo edita el hallazgo no la borra); solo vale en «No cumple»
+            boolean tramite = (r.enTramite() == null ? tramiteAntes.contains(i.codigo()) : r.enTramite()) && "NC".equals(cal);
+            boolean igual = (previa == null ? cal == null && hallazgo == null
+                    : java.util.Objects.equals(previa.calificacion(), cal) && java.util.Objects.equals(previa.hallazgo(), hallazgo))
+                    && tramite == tramiteAntes.contains(i.codigo());
             if (igual) {
                 continue;
             }
@@ -476,12 +504,12 @@ public class ServicioFormulario {
                 jdbc.sql("DELETE FROM visitas_respuestas WHERE visita_id = :v AND item_id = :i").param("v", visitaId).param("i", i.id()).update();
             } else {
                 jdbc.sql("""
-                        INSERT INTO visitas_respuestas (visita_id, item_id, parte, calificacion, hallazgo, usuario_id, actualizado)
-                        VALUES (:v, :i, :p, :c, :h, :u, :ahora)
+                        INSERT INTO visitas_respuestas (visita_id, item_id, parte, calificacion, hallazgo, en_tramite, usuario_id, actualizado)
+                        VALUES (:v, :i, :p, :c, :h, :t, :u, :ahora)
                         ON CONFLICT (visita_id, item_id) DO UPDATE SET calificacion = EXCLUDED.calificacion, hallazgo = EXCLUDED.hallazgo,
-                          usuario_id = EXCLUDED.usuario_id, actualizado = EXCLUDED.actualizado""")
-                        .param("v", visitaId).param("i", i.id()).param("p", i.parte()).param("c", cal).param("h", hallazgo).param("u", quien.id())
-                        .param("ahora", ahora).update();
+                          en_tramite = EXCLUDED.en_tramite, usuario_id = EXCLUDED.usuario_id, actualizado = EXCLUDED.actualizado""")
+                        .param("v", visitaId).param("i", i.id()).param("p", i.parte()).param("c", cal).param("h", hallazgo).param("t", tramite)
+                        .param("u", quien.id()).param("ahora", ahora).update();
             }
         }
         if (a.correccion() && !cambiados.isEmpty()) {
@@ -604,10 +632,10 @@ public class ServicioFormulario {
         }
         byte[] png = png(f.imagen());
         jdbc.sql("""
-                INSERT INTO visitas_firmas (visita_id, rol, nombre, documento, cargo, imagen, firmado) VALUES (:v, :r, :n, :d, :c, :i, :ahora)
-                ON CONFLICT (visita_id, rol) DO UPDATE SET nombre = EXCLUDED.nombre, documento = EXCLUDED.documento, cargo = EXCLUDED.cargo,
+                INSERT INTO visitas_firmas (visita_id, ronda, rol, nombre, documento, cargo, imagen, firmado) VALUES (:v, :ronda, :r, :n, :d, :c, :i, :ahora)
+                ON CONFLICT (visita_id, ronda, rol) DO UPDATE SET nombre = EXCLUDED.nombre, documento = EXCLUDED.documento, cargo = EXCLUDED.cargo,
                   imagen = EXCLUDED.imagen, firmado = EXCLUDED.firmado""")
-                .param("v", visitaId).param("r", rol).param("n", nombre).param("d", texto(f.documento(), 30, "El documento"))
+                .param("v", visitaId).param("ronda", ronda(a.visita())).param("r", rol).param("n", nombre).param("d", texto(f.documento(), 30, "El documento"))
                 .param("c", texto(f.cargo(), 120, "El cargo")).param("i", png).param("ahora", OffsetDateTime.now(reloj)).update();
         visitas.historial(visitaId, quien.id(), quien.usuario(), "Firma registrada", "Firma de " + ("auditor".equals(rol) ? "el auditor líder" : "el " + rol.toUpperCase()));
     }
@@ -619,6 +647,7 @@ public class ServicioFormulario {
      * (docs/especificaciones/flujo-opl: «Hallazgos de la visita al cerrarla»).
      */
     List<Map<String, Object>> hallazgos(RepositorioVisitas.Visita v, List<ItemVisita> items, Map<String, Checklist.Respuesta> resp) {
+        Set<String> tramite = enTramite(v.id());
         List<Map<String, Object>> r = new ArrayList<>();
         for (ItemVisita i : items) {
             Checklist.Respuesta x = resp.get(i.codigo());
@@ -629,6 +658,7 @@ public class ServicioFormulario {
                 h.put("origen", i.obligacion() ? "obligacion" : "item");
                 h.put("texto", i.punto());
                 h.put("hallazgo", x.hallazgo());
+                h.put("enTramite", tramite.contains(i.codigo()));
                 r.add(h);
             }
         }

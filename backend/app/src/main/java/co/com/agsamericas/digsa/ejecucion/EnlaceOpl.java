@@ -31,7 +31,7 @@ public record EnlaceOpl(String token, String url, OffsetDateTime enviado, Offset
     }
 
     /** Fin del último día hábil (23:59:59 en Bogotá) a n días hábiles del envío, sin contar el día del envío. */
-    static OffsetDateTime vence(Plazos plazos, OffsetDateTime envio, int dias) {
+    public static OffsetDateTime vence(Plazos plazos, OffsetDateTime envio, int dias) {
         LocalDate d = plazos.sumarHabiles(envio.atZoneSameInstant(Fechas.BOGOTA).toLocalDate(), dias);
         return ZonedDateTime.of(d.atTime(23, 59, 59), Fechas.BOGOTA).toOffsetDateTime();
     }

@@ -1,4 +1,23 @@
-import { Alert, Anchor, Badge, Box, Button, Card, Center, Group, List, Loader, Paper, Radio, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
+import {
+  Alert,
+  Anchor,
+  Badge,
+  Box,
+  Button,
+  Card,
+  Center,
+  Group,
+  List,
+  Loader,
+  Paper,
+  Radio,
+  SimpleGrid,
+  Stack,
+  Text,
+  Textarea,
+  TextInput,
+  Title,
+} from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -18,6 +37,7 @@ import {
   NOMBRE_ESTADO,
   NOMBRE_FASE,
   NOMBRE_PLAN,
+  objecionesPorDecidir,
   pideReabrir,
   pideRefrescar,
   pideReverificar,
@@ -47,15 +67,7 @@ interface EdicionRespuesta {
  * «/api/opl/visitas/{id}»): plazos, aceptar u objetar cada hallazgo, soportes de la objeción, quién y cómo del plan, firma del plan y
  * descarga del acta. Lo escrito vive aquí: si el enlace pide verificar el código otra vez, el padre lo pide sin desmontar el componente.
  */
-export function RespuestaOpl({
-  base,
-  rutaDetalle = base,
-  alReverificar,
-}: {
-  base: string;
-  rutaDetalle?: string;
-  alReverificar?: () => void;
-}) {
+export function RespuestaOpl({ base, rutaDetalle = base, alReverificar }: { base: string; rutaDetalle?: string; alReverificar?: () => void }) {
   const clave = ['opl', 'detalle', rutaDetalle];
   const detalle = useQuery({ queryKey: clave, queryFn: () => api<DetalleOpl>(rutaDetalle) });
   const reverificarDetalle = pideReverificar(detalle.error) || pideReabrir(detalle.error);
@@ -100,7 +112,11 @@ function Contenido({ base, clave, d, alReverificar }: { base: string; clave: unk
     mutationFn: (c: { clave: string; decision: 'acepta' | 'objeta'; justificacion: string | null; nombre: string; cargo: string }) =>
       api<Mensaje>(`${base}/respuestas`, { metodo: 'POST', cuerpo: c }),
     onSuccess: (r, c) => {
-      notifications.show({ color: conAvisoFallido(r.mensaje) ? 'orange' : 'green', autoClose: conAvisoFallido(r.mensaje) ? false : 6000, message: r.mensaje });
+      notifications.show({
+        color: conAvisoFallido(r.mensaje) ? 'orange' : 'green',
+        autoClose: conAvisoFallido(r.mensaje) ? false : 6000,
+        message: r.mensaje,
+      });
       setRespuestas((x) => Object.fromEntries(Object.entries(x).filter(([k]) => k !== c.clave)));
       refrescar();
     },
@@ -175,8 +191,22 @@ function Contenido({ base, clave, d, alReverificar }: { base: string; clave: unk
             Quién responde
           </Title>
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
-            <TextInput label="Nombre de quien responde" required minLength={3} maxLength={150} value={nombre} onChange={(e) => setNombre(e.currentTarget.value)} />
-            <TextInput label="Cargo de quien responde" required minLength={2} maxLength={150} value={cargo} onChange={(e) => setCargo(e.currentTarget.value)} />
+            <TextInput
+              label="Nombre de quien responde"
+              required
+              minLength={3}
+              maxLength={150}
+              value={nombre}
+              onChange={(e) => setNombre(e.currentTarget.value)}
+            />
+            <TextInput
+              label="Cargo de quien responde"
+              required
+              minLength={2}
+              maxLength={150}
+              value={cargo}
+              onChange={(e) => setCargo(e.currentTarget.value)}
+            />
           </SimpleGrid>
           <Text size="xs" c="dimmed" mt={4}>
             Queda con cada respuesta. Puede cambiar su respuesta hasta que el auditor líder decida la objeción.
@@ -294,7 +324,14 @@ function Contenido({ base, clave, d, alReverificar }: { base: string; clave: unk
         )}
       </Card>
 
-      <FirmaPlan base={base} d={d} firmado={firmado} sinGuardar={cambiadosPlan.length > 0 || Object.keys(respuestas).length > 0} alFirmar={refrescar} avisarError={avisarError} />
+      <FirmaPlan
+        base={base}
+        d={d}
+        firmado={firmado}
+        sinGuardar={cambiadosPlan.length > 0 || Object.keys(respuestas).length > 0}
+        alFirmar={refrescar}
+        avisarError={avisarError}
+      />
     </Stack>
   );
 }
@@ -304,8 +341,8 @@ function Plazos({ d }: { d: DetalleOpl }) {
     <Alert color={COLOR_FASE[d.fase]} title="Plazos" data-testid="plazos-opl">
       <Stack gap={4}>
         <Text size="sm">
-          Para aceptar u objetar cada hallazgo: {DIAS_OBJECIONES} días hábiles, hasta el {d.venceObjecionesLargo} a las 23:59. Lo que no se
-          responda en ese plazo queda aceptado.
+          Para aceptar u objetar cada hallazgo: {DIAS_OBJECIONES} días hábiles, hasta el {d.venceObjecionesLargo} a las 23:59. Lo que no se responda
+          en ese plazo queda aceptado.
         </Text>
         <Text size="md" fw={700}>
           Plazo máximo para remitir el plan de mejoramiento firmado: {DIAS_PLAN} días hábiles, hasta el {d.vencePlanLargo} a las 23:59. Vencido el
@@ -435,7 +472,11 @@ function Hallazgo({
             <Text span fw={500}>
               Respuesta del OPL:{' '}
             </Text>
-            {h.decision === 'objeta' ? 'Objetado' : h.estado === 'aceptado_auto' ? 'Aceptado automáticamente (sin respuesta en el plazo)' : 'Aceptado'}
+            {h.decision === 'objeta'
+              ? 'Objetado'
+              : h.estado === 'aceptado_auto'
+                ? 'Aceptado automáticamente (sin respuesta en el plazo)'
+                : 'Aceptado'}
             {h.respondio ? ' · ' + h.respondio : ''}
           </Text>
         )
@@ -567,12 +608,17 @@ function FirmaPlan({
     mutationFn: () =>
       api<Mensaje>(`${base}/firma`, { metodo: 'POST', cuerpo: { nombre: nombre.trim(), cargo: cargo.trim(), documento: documento.trim(), imagen } }),
     onSuccess: (r) => {
-      notifications.show({ color: conAvisoFallido(r.mensaje) ? 'orange' : 'green', autoClose: conAvisoFallido(r.mensaje) ? false : 6000, message: r.mensaje });
+      notifications.show({
+        color: conAvisoFallido(r.mensaje) ? 'orange' : 'green',
+        autoClose: conAvisoFallido(r.mensaje) ? false : 6000,
+        message: r.mensaje,
+      });
       alFirmar();
     },
     onError: (e) => avisarError(e, 'No se pudo firmar el plan.'),
   });
   const sinRespuesta = d.hallazgos.filter((h) => h.estado === 'sin_respuesta').map((h) => h.codigo);
+  const porDecidir = objecionesPorDecidir(d.hallazgos);
 
   return (
     <Card withBorder data-testid="firma-plan-opl">
@@ -600,7 +646,9 @@ function FirmaPlan({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            const error = sinGuardar ? 'Guarde las respuestas y el quién y cómo antes de firmar el plan.' : errorFirmaPlan(nombre, cargo, documento, imagen);
+            const error = sinGuardar
+              ? 'Guarde las respuestas y el quién y cómo antes de firmar el plan.'
+              : errorFirmaPlan(nombre, cargo, documento, imagen);
             if (error) {
               notifications.show({ color: 'orange', autoClose: 10000, message: error });
               return;
@@ -614,14 +662,46 @@ function FirmaPlan({
                 Antes de firmar, acepte u objete: {sinRespuesta.join(', ')}.
               </Text>
             )}
+            {porDecidir.length > 0 && (
+              // Decisión D11: no se firma con objeciones sin decidir
+              <Text size="sm" c="orange" data-testid="objeciones-por-decidir">
+                El plan se firma cuando el auditor líder decida las objeciones de: {porDecidir.join(', ')}.
+              </Text>
+            )}
             <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs">
-              <TextInput label="Nombre de quien firma" required minLength={3} maxLength={150} value={nombre} onChange={(e) => setNombre(e.currentTarget.value)} />
-              <TextInput label="Cargo de quien firma" required minLength={2} maxLength={150} value={cargo} onChange={(e) => setCargo(e.currentTarget.value)} />
-              <TextInput label="Número de documento" required maxLength={30} value={documento} onChange={(e) => setDocumento(e.currentTarget.value)} />
+              <TextInput
+                label="Nombre de quien firma"
+                required
+                minLength={3}
+                maxLength={150}
+                value={nombre}
+                onChange={(e) => setNombre(e.currentTarget.value)}
+              />
+              <TextInput
+                label="Cargo de quien firma"
+                required
+                minLength={2}
+                maxLength={150}
+                value={cargo}
+                onChange={(e) => setCargo(e.currentTarget.value)}
+              />
+              <TextInput
+                label="Número de documento"
+                required
+                maxLength={30}
+                value={documento}
+                onChange={(e) => setDocumento(e.currentTarget.value)}
+              />
             </SimpleGrid>
             <PanelFirma alCambiar={setImagen} />
             <Group justify="flex-end">
-              <Button type="submit" color="green" data-testid="firmar-plan-opl" disabled={!imagen || sinRespuesta.length > 0} loading={firmar.isPending}>
+              <Button
+                type="submit"
+                color="green"
+                data-testid="firmar-plan-opl"
+                disabled={!imagen || sinRespuesta.length > 0 || porDecidir.length > 0}
+                loading={firmar.isPending}
+              >
                 Firmar el plan
               </Button>
             </Group>

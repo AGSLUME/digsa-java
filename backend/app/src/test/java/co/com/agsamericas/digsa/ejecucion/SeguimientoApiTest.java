@@ -99,7 +99,12 @@ class SeguimientoApiTest extends EscenariosVisita {
         Correo.Mensaje acta = correos().reversed().stream().filter(x -> x.asunto().startsWith("Acta de visita " + e.numero())).findFirst().orElseThrow();
         assertThat(acta.adjuntos()).hasSize(1);
 
+        // Decisión D6: la parte del hallazgo vuelve al auditor que la calificó en la visita de origen
+        long sid0 = ((Number) s.get("id")).longValue();
+        assertThat(jdbc.sql("SELECT usuario_id FROM visitas_reparto WHERE visita_id = :s AND parte = 'C00'").param("s", sid0).query(Long.class).single())
+                .isEqualTo(idDe(e.liderUsuario()));
         assertThat(e.coord().post("/api/visitas/" + e.id() + "/reabrir", Map.of("motivo", "soporte", "descripcion", "Falta un soporte del ítem")).estado()).isEqualTo(200);
+        firmarRonda(e, true);
         Respuesta otra = e.lider().post("/api/visitas/" + e.id() + "/acta", null);
         assertThat(otra.json().path("ok").asBoolean()).as(otra.texto()).isTrue();
         assertThat(jdbc.sql("SELECT count(*) FROM visitas WHERE origen_id = :o AND estado <> 'cancelada'").param("o", e.id()).query(Long.class).single()).isEqualTo(1);
@@ -260,6 +265,55 @@ class SeguimientoApiTest extends EscenariosVisita {
         assertThat(r.estado()).as(r.texto()).isEqualTo(200);
         assertThat(r.texto()).contains(e.numero(), "vigente").doesNotContain("Justificación privada del OPL").doesNotContain("objetado");
         assertThat(entrar(crearUsuario("oplnac", Perfil.OPL_NACIONAL)).get("/api/hallazgos").estado()).isEqualTo(403);
+    }
+
+    @Test
+    @DisplayName("decisión D9: en cada seguimiento, la acción vencida que sigue en No cumple se reporta a la DIGSA como plan incumplido")
+    void accionVencidaEsPlanIncumplido() throws Exception {
+        jdbc.sql("UPDATE par_parametros SET valor = 'digsa.vencida@example.com' WHERE clave = 'correo_digsa'").update();
+        try {
+            Escenario e = escenario();
+            String clave = claveNc(e);
+            cerrarConHallazgos(e, 1);
+            long sid = iniciar(e, ((Number) seguimientoDe(e.id()).get("id")).longValue());
+            // La fecha fin del plan de origen ya pasó y el seguimiento la deja igual (no es prórroga)
+            jdbc.sql("UPDATE visitas_plan SET fin = :f, inicio = NULL WHERE visita_id IN (:o, :s)").param("f", hoy().minusDays(1)).param("o", e.id()).param("s", sid).update();
+            completarSeguimiento(sid, e.lider(), e.regente(), clave, "NC", "Retrasado", hoy().minusDays(1), null);
+            Respuesta envio = e.lider().post("/api/visitas/" + sid + "/acta", null);
+            assertThat(envio.json().path("ok").asBoolean()).as(envio.texto()).isTrue();
+            assertThat(envio.mensaje()).contains("plan incumplido");
+            Map<String, Object> rep = jdbc.sql("SELECT motivo, estado FROM reportes_digsa WHERE visita_id = :s").param("s", sid).query().singleRow();
+            assertThat(rep.get("motivo")).isEqualTo("plan_incumplido");
+            assertThat(rep.get("estado")).isEqualTo("enviado");
+            assertThat(seguimientoDe(sid)).as("igual se programa el siguiente seguimiento").isNotNull();
+        } finally {
+            jdbc.sql("UPDATE par_parametros SET valor = '' WHERE clave = 'correo_digsa'").update();
+        }
+    }
+
+    @Test
+    @DisplayName("decisión D5: la habilitación en trámite sigue siendo hallazgo y el acta dice qué queda pendiente aportar")
+    void habilitacionEnTramite() throws Exception {
+        Escenario e = escenario();
+        String base = "/api/visitas/" + e.id();
+        completar(e);
+        JsonNode f = e.lider().get(base + "/formulario").json();
+        String codigo = items(f, "C00").get(0).path("codigo").asText();
+        String c08 = items(f, "C08").get(0).path("codigo").asText();
+        Map<String, Object> mal = new LinkedHashMap<>(Map.of("item", codigo, "calificacion", "C", "enTramite", true));
+        assertThat(e.lider().put(base + "/respuestas", Map.of("respuestas", List.of(mal))).mensaje()).contains("habilitación en trámite");
+        assertThat(e.regente().put(base + "/respuestas", Map.of("respuestas", List.of(Map.of("item", c08, "calificacion", "NC", "hallazgo", "Sin registro", "enTramite", true))))
+                .mensaje()).as("solo en habilitación (C00)").contains("habilitación en trámite");
+        Map<String, Object> ok = new LinkedHashMap<>(Map.of("item", codigo, "calificacion", "NC", "hallazgo", "Sin distintivo de habilitación", "enTramite", true));
+        assertThat(e.lider().put(base + "/respuestas", Map.of("respuestas", List.of(ok))).estado()).isEqualTo(200);
+        JsonNode item = items(e.lider().get(base + "/formulario").json(), "C00").get(0);
+        assertThat(item.path("enTramite").asBoolean()).isTrue();
+        assertThat(item.path("admiteTramite").asBoolean()).isTrue();
+        planYFirmas(e, List.of("it:" + codigo));
+        Respuesta envio = e.lider().post(base + "/acta", null);
+        assertThat(envio.json().path("ok").asBoolean()).as(envio.texto()).isTrue();
+        assertThat(jdbc.sql("SELECT en_tramite FROM visitas_hallazgos WHERE visita_id = :v").param("v", e.id()).query(Boolean.class).single())
+                .as("sigue siendo hallazgo, marcado en trámite").isTrue();
     }
 
     @Test

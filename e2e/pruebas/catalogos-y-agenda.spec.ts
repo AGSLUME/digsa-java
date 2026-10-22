@@ -61,11 +61,19 @@ test('prueba 11: visita con componentes elegidos y C13 asignado al regente, que 
   // Datos de la prueba por la API: dos auditores con contraseña inicial y un punto propio
   const inicial = 'Inicial.Auditor.2026';
   const auditores: Record<string, { id: number; usuario: string; nombre: string }> = {};
-  for (const [clave, rol] of [['qf', 'quimico_farmaceutico'], ['reg', 'regente']] as const) {
+  for (const [clave, rol] of [
+    ['qf', 'quimico_farmaceutico'],
+    ['reg', 'regente'],
+  ] as const) {
     const usuario = unico(clave + 'e2e');
     const nombre = `Auditor ${clave.toUpperCase()} ${usuario}`;
     const r = await api<{ id: number }>(page, 'POST', '/api/usuarios', {
-      nombre, usuario, correo: `${usuario}@example.com`, documento: '80000001', perfiles: [3], claveInicial: inicial,
+      nombre,
+      usuario,
+      correo: `${usuario}@example.com`,
+      documento: '80000001',
+      perfiles: [3],
+      claveInicial: inicial,
     });
     expect(r.estado).toBe(201);
     expect((await api(page, 'PUT', `/api/maestros/auditores/${r.datos.id}`, { rol })).estado).toBe(200);
@@ -73,7 +81,12 @@ test('prueba 11: visita con componentes elegidos y C13 asignado al regente, que 
   }
   const nombrePunto = unico('ESM e2e ');
   const punto = await api<{ id: number }>(page, 'POST', '/api/maestros/puntos', {
-    nombre: nombrePunto, unidad: 'ESM', fuerza: 'EJC', modalidad: 'Dispensación', municipio: '05001', correos: [],
+    nombre: nombrePunto,
+    unidad: 'ESM',
+    fuerza: 'EJC',
+    modalidad: 'Dispensación',
+    municipio: '05001',
+    correos: [],
   });
   expect(punto.estado).toBe(201);
 
@@ -85,7 +98,11 @@ test('prueba 11: visita con componentes elegidos y C13 asignado al regente, que 
   await dialogo.getByRole('textbox', { name: 'Punto' }).fill(nombrePunto);
   await page.getByRole('option', { name: new RegExp(nombrePunto) }).click();
   await dialogo.locator('input[type="date"]').first().fill(dentroDe(20));
-  await dialogo.locator('input[type="time"]').first().fill('09:00');
+  // Hora militar (D4): campo propio en 24 h, sin a. m./p. m.; «1545» queda 15:45 al salir del campo
+  const hora = dialogo.getByRole('textbox', { name: 'Hora', exact: true });
+  await hora.fill('1545');
+  await hora.blur();
+  await expect(hora).toHaveValue('15:45');
   await dialogo.getByRole('textbox', { name: 'Auditor líder' }).fill(auditores.qf!.usuario);
   await page.getByRole('option', { name: new RegExp(auditores.qf!.usuario) }).click();
   await dialogo.getByRole('textbox', { name: 'Otros auditores' }).fill(auditores.reg!.usuario);
@@ -113,6 +130,17 @@ test('prueba 11: visita con componentes elegidos y C13 asignado al regente, que 
   const numero = (/VS-\d{8}-\d{4,}/.exec((await detalle.textContent()) ?? '') ?? [''])[0];
   expect(numero).not.toBe('');
   await expect(page.getByTestId('asignacion')).toContainText('C13');
+  await expect(detalle).toContainText('15:45');
+  // La reprogramación usa el mismo campo: trae la hora en 24 h y rechaza una hora fuera de rango
+  await page.getByRole('button', { name: 'Reprogramar' }).click();
+  const reprogramar = page.getByRole('dialog');
+  const horaNueva = reprogramar.getByRole('textbox', { name: 'Hora', exact: true });
+  await expect(horaNueva).toHaveValue('15:45');
+  await horaNueva.fill('25:00');
+  await horaNueva.blur();
+  await expect(reprogramar.getByText('Escriba la hora en formato de 24 horas (HH:MM), de 00:00 a 23:59.')).toBeVisible();
+  await reprogramar.getByRole('button', { name: 'Volver' }).click();
+  await expect(reprogramar).toHaveCount(0);
 
   // El regente entra (cambia su contraseña inicial) y en Mis visitas ve solo su parte
   const otro = await browser.newContext();

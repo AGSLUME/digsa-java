@@ -201,6 +201,11 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
                 <Button type="submit" loading={enviando}>
                   Ingresar
                 </Button>
+                {/* Por ahora solo correo; el envío por SMS queda pendiente del proveedor y sus credenciales (decisión del 2026-10-22) */}
+                <Text size="xs" c="dimmed" data-testid="aviso-codigo">
+                  Para ingresar le enviaremos un código de verificación a su correo electrónico registrado. Más adelante también podrá recibirlo por
+                  SMS.
+                </Text>
                 <Anchor component={Link} to="/olvide-clave" size="sm">
                   ¿Olvidó su contraseña?
                 </Anchor>

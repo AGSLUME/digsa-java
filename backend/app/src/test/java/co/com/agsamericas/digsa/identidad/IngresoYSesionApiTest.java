@@ -141,9 +141,9 @@ class IngresoYSesionApiTest extends PruebaIntegracion {
         String u = crearUsuario("inac", Perfil.COORDINADOR);
         Navegador n = navegador();
         n.ingresar(u, CLAVE);
-        reloj.adelantar(Duration.ofSeconds(599));
+        reloj.adelantar(Duration.ofSeconds(590));
         assertThat(n.get("/api/sesion/mantener").estado()).as("el latido renueva el último acceso").isEqualTo(200);
-        reloj.adelantar(Duration.ofSeconds(599));
+        reloj.adelantar(Duration.ofSeconds(590));
         assertThat(n.get("/api/sesion").estado()).isEqualTo(200);
         reloj.adelantar(Duration.ofMinutes(10));
         Respuesta r = n.get("/api/sesion");

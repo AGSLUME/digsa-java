@@ -151,7 +151,7 @@ public class TareaDiariaOpl {
         for (Map<String, Object> f : jdbc.sql("""
                 SELECT a.visita_id, a.acta_id FROM opl_accesos a JOIN visitas v ON v.id = a.visita_id
                 WHERE v.estado = 'cerrada'
-                  AND EXISTS (SELECT 1 FROM visitas_historial h WHERE h.visita_id = v.id AND h.evento = 'Máximo de seguimientos' AND h.fecha >= a.enviado)
+                  AND EXISTS (SELECT 1 FROM visitas_historial h WHERE h.visita_id = v.id AND h.evento IN ('Plan incumplido', 'Máximo de seguimientos') AND h.fecha >= a.enviado)
                   AND NOT EXISTS (SELECT 1 FROM reportes_digsa r WHERE r.acta_id = a.acta_id AND r.motivo = 'plan_incumplido' AND r.estado = 'enviado')
                 ORDER BY a.visita_id""").query().listOfRows()) {
             try {
@@ -209,12 +209,26 @@ public class TareaDiariaOpl {
         if (a == null || a.actaId() != actaId) {
             return null;
         }
-        List<Map<String, Object>> vigentes = opl.hallazgos(a).stream().filter(h -> !"levantado".equals(h.get("estado"))).toList();
+        // La causa la dejó el cierre en el historial (marca durable): máximo de seguimientos o acciones vencidas en incumplimiento
+        String causa = jdbc.sql("""
+                SELECT detalle FROM visitas_historial WHERE visita_id = :v AND evento = 'Plan incumplido' AND fecha >= :e ORDER BY id DESC LIMIT 1""")
+                .param("v", visitaId).param("e", a.enviado()).query(String.class).optional().orElse("");
+        java.util.Set<String> vencidas = new java.util.HashSet<>();
+        String prefijo = "Acciones vencidas en incumplimiento: ";
+        if (causa.startsWith(prefijo)) {
+            for (String c : causa.substring(prefijo.length()).split(",")) {
+                vencidas.add(c.strip());
+            }
+        }
+        List<Map<String, Object>> vigentes = opl.hallazgos(a).stream().filter(h -> !"levantado".equals(h.get("estado")))
+                .filter(h -> vencidas.isEmpty() || vencidas.contains(String.valueOf(h.get("codigo")))).toList();
         if (vigentes.isEmpty()) {
             return null;
         }
+        String falto = vencidas.isEmpty() ? "Se alcanzó el máximo de visitas de seguimiento con acciones del plan de mejoramiento abiertas."
+                : "En el seguimiento, acciones del plan de mejoramiento vencidas siguen sin cumplirse: " + String.join(", ", vencidas.stream().sorted().toList()) + ".";
         Long id = tx.execute(t -> jdbc.sql("SELECT id FROM reportes_digsa WHERE acta_id = :a AND motivo = 'plan_incumplido'").param("a", a.actaId())
-                .query(Long.class).optional().orElseGet(() -> crearReporte(a, vigentes, "plan_incumplido")));
+                .query(Long.class).optional().orElseGet(() -> crearReporte(a, vigentes, "plan_incumplido", falto)));
         return enviarReporte(a, id);
     }
 
@@ -270,6 +284,10 @@ public class TareaDiariaOpl {
         if (vigentes.isEmpty()) {
             return null;
         }
+        if (hs.stream().anyMatch(h -> "objetado".equals(h.get("estado")))) {
+            // D11: el OPL no firma con objeciones sin decidir; mientras el líder no decida, el plan no vence (duda 23.4)
+            return null;
+        }
         Long reporteId = tx.execute(t -> {
             visitas.bloquear(a.visitaId());
             ServicioOpl.Acceso vigente = opl.accesoDeVisita(a.visitaId()).orElse(null);
@@ -288,7 +306,8 @@ public class TareaDiariaOpl {
                 bitacora.registrar("plan_vencido", "Visita " + a.numero() + ": plan de mejoramiento vencido", null, "sistema");
             }
             return jdbc.sql("SELECT id FROM reportes_digsa WHERE acta_id = :a AND motivo = 'plan_no_presentado'").param("a", a.actaId()).query(Long.class)
-                    .optional().orElseGet(() -> crearReporte(a, vigentes, "plan_no_presentado"));
+                    .optional().orElseGet(() -> crearReporte(a, vigentes, "plan_no_presentado",
+                            "El plan de mejoramiento no se firmó dentro de los " + EnlaceOpl.DIAS_PLAN + " días hábiles."));
         });
         if (reporteId == null) {
             return null;
@@ -302,7 +321,7 @@ public class TareaDiariaOpl {
     }
 
     /** Dentro de una transacción. El consecutivo se toma con candado propio (la tarea diaria y el plan incumplido no se cruzan) y UNIQUE. */
-    private long crearReporte(ServicioOpl.Acceso a, List<Map<String, Object>> vigentes, String motivo) {
+    private long crearReporte(ServicioOpl.Acceso a, List<Map<String, Object>> vigentes, String motivo, String falto) {
         jdbc.sql("SELECT pg_advisory_xact_lock(:k)").param("k", CANDADO_CONSECUTIVO).query().listOfRows();
         int anio = opl.ahora().atZoneSameInstant(Fechas.BOGOTA).getYear();
         int numero = jdbc.sql("SELECT coalesce(max(numero), 0) + 1 FROM reportes_digsa WHERE anio = :y").param("y", anio).query(Integer.class).single();
@@ -329,9 +348,7 @@ public class TareaDiariaOpl {
         }
         contenido.put("hallazgos", hs);
         contenido.put("motivo", motivo);
-        contenido.put("falto", "plan_incumplido".equals(motivo)
-                ? "Se alcanzó el máximo de visitas de seguimiento con acciones del plan de mejoramiento abiertas."
-                : "El plan de mejoramiento no se firmó dentro de los " + EnlaceOpl.DIAS_PLAN + " días hábiles.");
+        contenido.put("falto", falto);
         String texto;
         try {
             texto = json.writeValueAsString(contenido);
@@ -365,6 +382,12 @@ public class TareaDiariaOpl {
         jdbc.sql("SELECT correo FROM usuarios WHERE id = :id AND activo").param("id", a.liderId()).query(String.class).list().stream().map(Correos::normalizar)
                 .filter(Correos::valido).forEach(para::add);
         String error;
+        if (!yaEnviado && jdbc.sql("""
+                UPDATE reportes_digsa SET estado = 'enviando' WHERE id = :id
+                  AND (estado IN ('pendiente', 'fallido') OR (estado = 'enviando' AND creado < :hace))""")
+                .param("id", reporteId).param("hace", opl.ahora().minusHours(1)).update() == 0) {
+            return "fallido"; // otro proceso lo está enviando ahora
+        }
         if (yaEnviado) {
             error = null;
         } else if (digsa.isEmpty()) {

@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   Center,
+  Checkbox,
   Group,
   List,
   Loader,
@@ -30,8 +31,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { colorEstado, horaCorta } from '../shared/agenda';
 import { api, ErrorApi, subirArchivos } from '../shared/api';
+import { CampoHora24 } from '../shared/CampoHora24';
 import {
-  aFechaHoraLocal,
+  conCalificacion,
   conteo,
   cuerpoPlan,
   cumplimientoLegible,
@@ -49,6 +51,7 @@ import {
   sinHallazgo,
   tamanoLegible,
   textoONulo,
+  TEXTO_TRAMITE,
   valorFila,
   valorItem,
   type Archivo,
@@ -63,6 +66,7 @@ import {
   type PersonaAuditada,
   type RolFirma,
 } from '../shared/checklist';
+import { separarFechaHora, unirFechaHora } from '../shared/hora';
 import { PanelFirma } from '../shared/PanelFirma';
 import { puedeEntrar, useSesion } from '../shared/sesion';
 
@@ -76,9 +80,12 @@ interface Peticion {
   cuerpo?: unknown;
 }
 
+/** Inicio y fin real en fecha y hora militar separadas (decisión D4); al servidor van juntas como «yyyy-MM-ddTHH:mm». */
 interface CamposEjecucion {
-  inicioReal: string;
-  finReal: string;
+  inicioFecha: string;
+  inicioHora: string;
+  finFecha: string;
+  finHora: string;
   objeto: string;
   recomendaciones: string;
   observacionesAuditor: string;
@@ -87,9 +94,13 @@ interface CamposEjecucion {
 }
 
 function camposIniciales(e: Ejecucion): CamposEjecucion {
+  const inicio = separarFechaHora(e.inicioReal);
+  const fin = separarFechaHora(e.finReal);
   return {
-    inicioReal: aFechaHoraLocal(e.inicioReal),
-    finReal: aFechaHoraLocal(e.finReal),
+    inicioFecha: inicio.fecha,
+    inicioHora: inicio.hora,
+    finFecha: fin.fecha,
+    finHora: fin.hora,
     objeto: e.objeto ?? '',
     recomendaciones: e.recomendaciones ?? '',
     observacionesAuditor: e.observacionesAuditor ?? '',
@@ -98,10 +109,15 @@ function camposIniciales(e: Ejecucion): CamposEjecucion {
   };
 }
 
+/** Cuerpo del PUT de la ejecución, o el error si el inicio o el fin real quedaron a medias o con una hora inválida. */
 function cuerpoEjecucion(f: CamposEjecucion) {
+  const inicio = unirFechaHora(f.inicioFecha, f.inicioHora, 'Inicio real');
+  const fin = unirFechaHora(f.finFecha, f.finHora, 'Fin real');
+  const error = inicio.error ?? fin.error;
+  if (error) return { error };
   return {
-    inicioReal: f.inicioReal || null,
-    finReal: f.finReal || null,
+    inicioReal: inicio.valor || null,
+    finReal: fin.valor || null,
     objeto: textoONulo(f.objeto),
     recomendaciones: textoONulo(f.recomendaciones),
     observacionesAuditor: textoONulo(f.observacionesAuditor),
@@ -169,12 +185,19 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
   const [edicionesPlan, setEdicionesPlan] = useState<Record<string, EdicionPlan>>({});
   const guardarDatos = usePeticion(id);
   const guardarObservaciones = usePeticion(id);
+  const guardarEjecucion = (peticion: typeof guardarDatos) => {
+    const cuerpo = cuerpoEjecucion(campos);
+    if ('error' in cuerpo) {
+      notifications.show({ color: 'orange', autoClose: 10000, message: cuerpo.error });
+      return;
+    }
+    peticion.mutate({ ruta: `/api/visitas/${id}/ejecucion`, metodo: 'PUT', cuerpo });
+  };
   const qc = useQueryClient();
 
   const cambiadas = respuestasCambiadas(d.componentes, ediciones);
   const planSinGuardar = planCambiado(d.plan, fechaPlan, edicionesPlan);
-  const sinGuardar =
-    cambiadas.length > 0 || planSinGuardar || JSON.stringify(campos) !== JSON.stringify(camposIniciales(d.ejecucion));
+  const sinGuardar = cambiadas.length > 0 || planSinGuardar || JSON.stringify(campos) !== JSON.stringify(camposIniciales(d.ejecucion));
   // Aviso del navegador al cerrar o recargar con cambios sin guardar
   useEffect(() => {
     if (!sinGuardar) return;
@@ -195,7 +218,12 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
         Object.fromEntries(
           Object.entries(ed).filter(([k, e]) => {
             const env = enviadasPorItem.get(k);
-            return !env || (e.calificacion ?? null) !== (env.calificacion ?? null) || (e.hallazgo ?? '').trim() !== (env.hallazgo ?? '').trim();
+            return (
+              !env ||
+              (e.calificacion ?? null) !== (env.calificacion ?? null) ||
+              (e.hallazgo ?? '').trim() !== (env.hallazgo ?? '').trim() ||
+              (e.calificacion === 'NC' && e.enTramite) !== env.enTramite
+            );
           }),
         ),
       );
@@ -215,8 +243,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
     guardarRespuestas.mutate(cambiadas);
   };
 
-  const editar = (it: ItemChecklist, cambio: Partial<Edicion>) =>
-    setEdiciones((ed) => ({ ...ed, [it.codigo]: { ...valorItem(it, ed), ...cambio } }));
+  const editar = (it: ItemChecklist, cambio: (e: Edicion) => Edicion) => setEdiciones((ed) => ({ ...ed, [it.codigo]: cambio(valorItem(it, ed)) }));
 
   const soloLectura = !p.escribeVisita;
 
@@ -242,6 +269,13 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
           <Text size="xs" c="dimmed" mt={4}>
             Visita de origen: {d.seguimiento.origenNumero} del {d.seguimiento.origenFecha}.
           </Text>
+        </Alert>
+      )}
+      {v.ronda > 1 && p.escribible && (
+        // Decisión D12: cada ronda pide firmas nuevas; las de la ronda anterior quedan en su acta
+        <Alert color="grape" title={`Ronda ${v.ronda}: firme de nuevo el acta`} data-testid="aviso-ronda">
+          La visita se reabrió. Las firmas de la ronda anterior quedan en su acta; para enviar el acta de esta ronda se necesitan otra vez todas las
+          firmas{d.plan.hallazgos.length > 0 ? ', también las del plan de mejoramiento' : ''}.
         </Alert>
       )}
       {!p.escribible && <Alert color="yellow">{p.motivo ?? 'El formulario está en solo lectura.'}</Alert>}
@@ -274,18 +308,30 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
         )}
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs" mt="md">
           <TextInput
-            label="Inicio real"
-            type="datetime-local"
+            label="Fecha de inicio real"
+            type="date"
             readOnly={soloLectura}
-            value={campos.inicioReal}
-            onChange={(e) => setCampos({ ...campos, inicioReal: e.currentTarget.value })}
+            value={campos.inicioFecha}
+            onChange={(e) => setCampos({ ...campos, inicioFecha: e.currentTarget.value })}
+          />
+          <CampoHora24
+            label="Hora de inicio real"
+            readOnly={soloLectura}
+            value={campos.inicioHora}
+            onChange={(inicioHora) => setCampos((c) => ({ ...c, inicioHora }))}
           />
           <TextInput
-            label="Fin real"
-            type="datetime-local"
+            label="Fecha de fin real"
+            type="date"
             readOnly={soloLectura}
-            value={campos.finReal}
-            onChange={(e) => setCampos({ ...campos, finReal: e.currentTarget.value })}
+            value={campos.finFecha}
+            onChange={(e) => setCampos({ ...campos, finFecha: e.currentTarget.value })}
+          />
+          <CampoHora24
+            label="Hora de fin real"
+            readOnly={soloLectura}
+            value={campos.finHora}
+            onChange={(finHora) => setCampos((c) => ({ ...c, finHora }))}
           />
         </SimpleGrid>
         <Textarea
@@ -300,10 +346,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
         />
         {!soloLectura && (
           <Group justify="flex-end" mt="sm">
-            <Button
-              loading={guardarDatos.isPending}
-              onClick={() => guardarDatos.mutate({ ruta: `/api/visitas/${id}/ejecucion`, metodo: 'PUT', cuerpo: cuerpoEjecucion(campos) })}
-            >
+            <Button loading={guardarDatos.isPending} onClick={() => guardarEjecucion(guardarDatos)}>
               Guardar datos de la visita
             </Button>
           </Group>
@@ -338,8 +381,8 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
                   <Stack gap="sm">
                     {c.items.every((i) => i.obligacion) && (
                       <Text size="sm" c="dimmed">
-                        Obligaciones de la minuta del prestador visitado (operador logístico o farmacia alterna). Un «No cumple» es un
-                        hallazgo y va al plan de mejoramiento.
+                        Obligaciones de la minuta del prestador visitado (operador logístico o farmacia alterna). Un «No cumple» es un hallazgo y va
+                        al plan de mejoramiento.
                       </Text>
                     )}
                     {c.items.map((it) => (
@@ -352,12 +395,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
           })}
         </Accordion>
         {d.componentes.some((c) => c.items.some((i) => i.editable)) && (
-          <Paper
-            withBorder
-            shadow="sm"
-            p="sm"
-            style={{ position: 'sticky', bottom: 8, zIndex: 5 }}
-          >
+          <Paper withBorder shadow="sm" p="sm" style={{ position: 'sticky', bottom: 8, zIndex: 5 }}>
             <Group justify="space-between" gap="xs">
               <Text size="sm" c={cambiadas.length > 0 ? 'orange' : 'dimmed'}>
                 {cambiadas.length === 0
@@ -412,12 +450,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
           ))}
           {!soloLectura && (
             <Group justify="flex-end">
-              <Button
-                loading={guardarObservaciones.isPending}
-                onClick={() =>
-                  guardarObservaciones.mutate({ ruta: `/api/visitas/${id}/ejecucion`, metodo: 'PUT', cuerpo: cuerpoEjecucion(campos) })
-                }
-              >
+              <Button loading={guardarObservaciones.isPending} onClick={() => guardarEjecucion(guardarObservaciones)}>
                 Guardar observaciones
               </Button>
             </Group>
@@ -508,7 +541,12 @@ function Personal({ id, inicial, editable }: { id: string; inicial: PersonaAudit
                 />
                 <TextInput label="Nombre" required maxLength={150} value={x.nombre} onChange={(e) => cambiar(i, { nombre: e.currentTarget.value })} />
                 <TextInput label="Cargo" maxLength={120} value={x.cargo ?? ''} onChange={(e) => cambiar(i, { cargo: e.currentTarget.value })} />
-                <TextInput label="Documento" maxLength={30} value={x.documento ?? ''} onChange={(e) => cambiar(i, { documento: e.currentTarget.value })} />
+                <TextInput
+                  label="Documento"
+                  maxLength={30}
+                  value={x.documento ?? ''}
+                  onChange={(e) => cambiar(i, { documento: e.currentTarget.value })}
+                />
                 <TextInput label="Correo" type="email" value={x.correo ?? ''} onChange={(e) => cambiar(i, { correo: e.currentTarget.value })} />
               </SimpleGrid>
               <Group justify="flex-end" mt={6}>
@@ -553,7 +591,7 @@ function Personal({ id, inicial, editable }: { id: string; inicial: PersonaAudit
   );
 }
 
-function Item({ id, it, valor, alEditar }: { id: string; it: ItemChecklist; valor: Edicion; alEditar: (e: Partial<Edicion>) => void }) {
+function Item({ id, it, valor, alEditar }: { id: string; it: ItemChecklist; valor: Edicion; alEditar: (cambio: (e: Edicion) => Edicion) => void }) {
   const opciones: Calificacion[] = ['C', 'NC', 'NA'];
   const faltaHallazgo = valor.calificacion === 'NC' && valor.hallazgo.trim().length === 0;
   return (
@@ -626,17 +664,12 @@ function Item({ id, it, valor, alEditar }: { id: string; it: ItemChecklist; valo
         label={<VisuallyHidden>{'Calificación de ' + it.codigo}</VisuallyHidden>}
         data-testid={'calificacion-' + it.codigo}
         value={valor.calificacion ?? ''}
-        onChange={(x) => alEditar({ calificacion: (x || null) as Calificacion | null })}
+        onChange={(x) => alEditar((e) => conCalificacion(e, (x || null) as Calificacion | null))}
         readOnly={!it.editable}
       >
         <Group gap="md">
           {opciones.map((o) => (
-            <Radio
-              key={o}
-              value={o}
-              label={ETIQUETA_CALIFICACION[o]}
-              disabled={!it.editable || (o === 'NA' && !it.admiteNoAplica)}
-            />
+            <Radio key={o} value={o} label={ETIQUETA_CALIFICACION[o]} disabled={!it.editable || (o === 'NA' && !it.admiteNoAplica)} />
           ))}
         </Group>
       </Radio.Group>
@@ -646,7 +679,7 @@ function Item({ id, it, valor, alEditar }: { id: string; it: ItemChecklist; valo
         </Text>
       )}
       {it.editable && valor.calificacion && (
-        <Button size="compact-xs" variant="subtle" mt={2} onClick={() => alEditar({ calificacion: null })}>
+        <Button size="compact-xs" variant="subtle" mt={2} onClick={() => alEditar((e) => conCalificacion(e, null))}>
           Quitar calificación
         </Button>
       )}
@@ -663,8 +696,26 @@ function Item({ id, it, valor, alEditar }: { id: string; it: ItemChecklist; valo
           readOnly={!it.editable}
           error={it.editable && faltaHallazgo ? 'Escriba el hallazgo.' : undefined}
           value={valor.hallazgo}
-          onChange={(e) => alEditar({ hallazgo: e.currentTarget.value })}
+          onChange={(e) => {
+            const hallazgo = e.currentTarget.value;
+            alEditar((x) => ({ ...x, hallazgo }));
+          }}
         />
+      )}
+      {it.admiteTramite && valor.calificacion === 'NC' && (
+        // Decisión D5: sigue siendo hallazgo; la casilla solo deja constancia de que la habilitación está en trámite
+        <Box mt="xs" data-testid={'tramite-' + it.codigo}>
+          <Checkbox
+            label="Habilitación en trámite"
+            description={TEXTO_TRAMITE}
+            disabled={!it.editable}
+            checked={valor.enTramite}
+            onChange={(e) => {
+              const enTramite = e.currentTarget.checked;
+              alEditar((x) => ({ ...x, enTramite }));
+            }}
+          />
+        </Box>
       )}
       <Box mt="xs">
         <Evidencias
@@ -684,7 +735,17 @@ function Item({ id, it, valor, alEditar }: { id: string; it: ItemChecklist; valo
  * En el seguimiento: el hallazgo de la visita de origen y su acción del plan, en solo lectura, con los soportes de entonces para
  * descargar (decisiones 6.5 y 6.6). Se califica de nuevo desde cero.
  */
-function HallazgoDeAntes({ id, codigo, anterior, archivos }: { id: string; codigo: string; anterior: HallazgoAnterior; archivos: ArchivoAnterior[] }) {
+function HallazgoDeAntes({
+  id,
+  codigo,
+  anterior,
+  archivos,
+}: {
+  id: string;
+  codigo: string;
+  anterior: HallazgoAnterior;
+  archivos: ArchivoAnterior[];
+}) {
   return (
     <Paper withBorder p="xs" mt="xs" bg="var(--mantine-color-gray-0)" data-testid={'anterior-' + codigo}>
       <Text size="sm" fw={600}>
@@ -779,7 +840,9 @@ function Evidencias({
                     color="red"
                     aria-label={'Quitar ' + a.nombre}
                     disabled={quitar.isPending}
-                    onClick={() => window.confirm(`¿Quitar el archivo ${a.nombre}?`) && quitar.mutate({ ruta: `/api/archivos/${a.id}`, metodo: 'DELETE' })}
+                    onClick={() =>
+                      window.confirm(`¿Quitar el archivo ${a.nombre}?`) && quitar.mutate({ ruta: `/api/archivos/${a.id}`, metodo: 'DELETE' })
+                    }
                   >
                     Quitar
                   </Button>
@@ -824,7 +887,7 @@ function Firmas({ id, d }: { id: string; d: DatosFormulario }) {
   return (
     <Card withBorder data-testid="firmas">
       <Title order={5} mb="xs">
-        Firmas
+        Firmas{d.visita.ronda > 1 ? ` · ronda ${d.visita.ronda}` : ''}
       </Title>
       <GrupoFirmas id={id} d={d} roles={ROLES_FIRMA} />
     </Card>
@@ -875,7 +938,7 @@ function GrupoFirmas({ id, d, roles }: { id: string; d: DatosFormulario; roles: 
           <FormFirma
             id={id}
             rol={rol}
-            nombreInicial={d.firmas.find((x) => x.rol === rol)?.nombre ?? (rol === 'auditor' || rol === 'w5_auditor' ? d.visita.lider ?? '' : '')}
+            nombreInicial={d.firmas.find((x) => x.rol === rol)?.nombre ?? (rol === 'auditor' || rol === 'w5_auditor' ? (d.visita.lider ?? '') : '')}
             alCerrar={() => setRol(null)}
           />
         )}
@@ -929,8 +992,8 @@ function PlanMejoramiento({
         Plan de mejoramiento (5W2H)
       </Title>
       <Text size="sm" c="dimmed" mb="xs">
-        Una fila por hallazgo. Quién y cómo los diligencia el operador logístico con el enlace del acta. Para enviar el acta se necesitan la
-        fecha del plan, el qué de cada fila, la fecha fin de las acciones abiertas y las dos firmas.
+        Una fila por hallazgo. Quién y cómo los diligencia el operador logístico con el enlace del acta. Para enviar el acta se necesitan la fecha del
+        plan, el qué de cada fila, la fecha fin de las acciones abiertas y las dos firmas.
         {d.seguimiento &&
           ' En el seguimiento el plan parte del anterior: si una acción sigue abierta y su fecha fin pasa a ser posterior a la anterior, es una prórroga y hay que justificarla (la aprueban la coordinación y la DIGSA).'}
       </Text>
@@ -1009,8 +1072,20 @@ function PlanMejoramiento({
                   value={v.porque}
                   onChange={(e) => cambiar({ porque: e.currentTarget.value })}
                 />
-                <TextInput label="Dónde" maxLength={500} readOnly={!editable} value={v.donde} onChange={(e) => cambiar({ donde: e.currentTarget.value })} />
-                <TextInput label="Inicio" type="date" readOnly={!editable} value={v.inicio} onChange={(e) => cambiar({ inicio: e.currentTarget.value })} />
+                <TextInput
+                  label="Dónde"
+                  maxLength={500}
+                  readOnly={!editable}
+                  value={v.donde}
+                  onChange={(e) => cambiar({ donde: e.currentTarget.value })}
+                />
+                <TextInput
+                  label="Inicio"
+                  type="date"
+                  readOnly={!editable}
+                  value={v.inicio}
+                  onChange={(e) => cambiar({ inicio: e.currentTarget.value })}
+                />
                 <TextInput
                   label="Fin"
                   type="date"
@@ -1050,7 +1125,9 @@ function PlanMejoramiento({
                   minRows={2}
                   maxLength={2000}
                   readOnly={!editable}
-                  error={editable && !justificacionValida(v.prorroga) ? `Justifique la prórroga (mínimo ${MIN_JUSTIFICACION} caracteres).` : undefined}
+                  error={
+                    editable && !justificacionValida(v.prorroga) ? `Justifique la prórroga (mínimo ${MIN_JUSTIFICACION} caracteres).` : undefined
+                  }
                   value={v.prorroga}
                   onChange={(e) => cambiar({ prorroga: e.currentTarget.value })}
                 />
@@ -1069,7 +1146,12 @@ function PlanMejoramiento({
           <Text size="sm" c={sinGuardar ? 'orange' : 'dimmed'}>
             {sinGuardar ? 'El plan tiene cambios sin guardar.' : 'Sin cambios por guardar en el plan.'}
           </Text>
-          <Button data-testid="guardar-plan" disabled={!sinGuardar} loading={guardar.isPending} onClick={() => guardar.mutate({ fecha, enviadas: ediciones })}>
+          <Button
+            data-testid="guardar-plan"
+            disabled={!sinGuardar}
+            loading={guardar.isPending}
+            onClick={() => guardar.mutate({ fecha, enviadas: ediciones })}
+          >
             Guardar plan
           </Button>
         </Group>
@@ -1094,7 +1176,11 @@ function FormFirma({ id, rol, nombreInicial, alCerrar }: { id: string; rol: RolF
         e.preventDefault();
         if (!imagen) return;
         guardar.mutate(
-          { ruta: `/api/visitas/${id}/firmas`, metodo: 'POST', cuerpo: { rol, nombre: nombre.trim(), documento: textoONulo(documento), cargo: textoONulo(cargo), imagen } },
+          {
+            ruta: `/api/visitas/${id}/firmas`,
+            metodo: 'POST',
+            cuerpo: { rol, nombre: nombre.trim(), documento: textoONulo(documento), cargo: textoONulo(cargo), imagen },
+          },
           { onSuccess: alCerrar },
         );
       }}

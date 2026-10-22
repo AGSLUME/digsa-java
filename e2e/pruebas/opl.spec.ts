@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { ADMIN, api, ingresar, ingresarConClaveInicial, salir, sinDesplazamientoHorizontal, unico } from './apoyo';
-import { correoCon, dibujarEn, firmarRol, llenarPlan, PNG } from './apoyo-acta';
+import { correoCon, dibujarEn, firmarRol, llenarInicioFin, llenarPlan, PNG } from './apoyo-acta';
 
 // Equivalente de tests/ui/ui_fase4.js: obligaciones del contrato y 5W2H en el checklist, acta con hallazgos, enlace del acta (QR) sin
 // usuario con el código de 6 dígitos que llega al correo del OPL, aceptar u objetar, soportes, quién y cómo, firma del plan y la
@@ -44,6 +44,22 @@ async function llenarCodigo(casillas: Locator, codigo: string): Promise<void> {
   for (let i = 0; i < 6; i++) await casillas.nth(i).fill(codigo[i]!);
 }
 
+/** Código de 6 dígitos del último correo de verificación de la visita; con `distintoDe`, espera uno nuevo. */
+async function codigoDelCorreo(numero: string, distintoDe?: string): Promise<string> {
+  let codigo = '';
+  await expect
+    .poll(
+      async () => {
+        const correo = await correoCon(`Asunto: Código de verificación · visita ${numero}`);
+        codigo = /<strong>(\d{6})<\/strong>/.exec(correo)?.[1] ?? '';
+        return /^\d{6}$/.test(codigo) && codigo !== distintoDe;
+      },
+      { message: 'llega el código de verificación', timeout: 30_000 },
+    )
+    .toBe(true);
+  return codigo;
+}
+
 test('OPL: 5W2H en el checklist, acta con hallazgos y respuesta por el enlace del acta con el código', async ({ page, browser }) => {
   test.setTimeout(300_000);
   await ingresar(page, ...ADMIN);
@@ -51,24 +67,45 @@ test('OPL: 5W2H en el checklist, acta con hallazgos y respuesta por el enlace de
   const propia = 'Lider.Propia.2026';
   const usuario = unico('lideropl');
   const r = await api<{ id: number }>(page, 'POST', '/api/usuarios', {
-    nombre: `Auditor líder ${usuario}`, usuario, correo: `${usuario}@example.com`, documento: '80000003', perfiles: [3], claveInicial: inicial,
+    nombre: `Auditor líder ${usuario}`,
+    usuario,
+    correo: `${usuario}@example.com`,
+    documento: '80000003',
+    perfiles: [3],
+    claveInicial: inicial,
   });
   expect(r.estado).toBe(201);
   await api(page, 'PUT', `/api/maestros/auditores/${r.datos.id}`, { rol: 'quimico_farmaceutico' });
   const lugar = unico('ESM opl ');
   const punto = await api<{ id: number }>(page, 'POST', '/api/maestros/puntos', {
-    nombre: lugar, unidad: 'ESM', fuerza: 'EJC', modalidad: 'Dispensación', municipio: '05001', correos: ['contacto.e2e@example.com'],
+    nombre: lugar,
+    unidad: 'ESM',
+    fuerza: 'EJC',
+    modalidad: 'Dispensación',
+    municipio: '05001',
+    correos: ['contacto.e2e@example.com'],
   });
   await api(page, 'PUT', '/api/maestros/opl', { nombre: 'Operador logístico de prueba', correos: ['opl.e2e@example.com'] });
   const ejc = await api<{ fuerzas: { codigo: string; nombre: string; sanidad: string | null; correos: string[] }[] }>(page, 'GET', '/api/catalogos');
   const fuerza = ejc.datos.fuerzas.find((f) => f.codigo === 'EJC')!;
   if (fuerza.correos.length === 0) {
-    await api(page, 'PUT', '/api/catalogos/fuerzas/EJC', { nombre: fuerza.nombre, sanidad: fuerza.sanidad, correos: ['disan.e2e@example.com'], activo: true });
+    await api(page, 'PUT', '/api/catalogos/fuerzas/EJC', {
+      nombre: fuerza.nombre,
+      sanidad: fuerza.sanidad,
+      correos: ['disan.e2e@example.com'],
+      activo: true,
+    });
   }
   await asegurarObligacion(page);
   const hoy = ahora(0).slice(0, 10);
   const v = await api<{ id: number; numero: string }>(page, 'POST', '/api/agenda', {
-    tipo: 'anual', puntoId: punto.datos.id, fecha: hoy, liderId: r.datos.id, otros: [], alcance: 'Almacenamiento y obligaciones del contrato.', componentes: ['C08'],
+    tipo: 'anual',
+    puntoId: punto.datos.id,
+    fecha: hoy,
+    liderId: r.datos.id,
+    otros: [],
+    alcance: 'Almacenamiento y obligaciones del contrato.',
+    componentes: ['C08'],
   });
   expect(v.estado).toBe(201);
   const { id, numero } = v.datos;
@@ -83,8 +120,7 @@ test('OPL: 5W2H en el checklist, acta con hallazgos y respuesta por el enlace de
   await expect(p2.getByTestId('formulario-visita')).toBeVisible();
   await expect(p2.getByTestId('item-' + OBLIGACION)).toContainText('Obligación del contrato');
 
-  await p2.getByLabel('Inicio real').fill(ahora(90));
-  await p2.getByLabel('Fin real').fill(ahora(5));
+  await llenarInicioFin(p2, ahora(90), ahora(5));
   await p2.getByLabel('Objeto de la visita').fill('Verificar almacenamiento y obligaciones del contrato.');
   await p2.getByRole('button', { name: 'Guardar datos de la visita' }).click();
   await expect(p2.getByText('Datos de la visita guardados.')).toBeVisible();
@@ -120,7 +156,10 @@ test('OPL: 5W2H en el checklist, acta con hallazgos y respuesta por el enlace de
   await expect(p2.getByTestId('faltantes')).toContainText('fecha del plan');
   await expect(p2.getByTestId('enviar-acta')).toBeDisabled();
   await plan.getByLabel(/^Fecha del plan/).fill(hoy);
-  await plan.getByTestId('plan-' + item).getByRole('textbox', { name: /^Qué/ }).fill('Implementar el registro diario de temperatura.');
+  await plan
+    .getByTestId('plan-' + item)
+    .getByRole('textbox', { name: /^Qué/ })
+    .fill('Implementar el registro diario de temperatura.');
   await expect(plan.getByText('El plan tiene cambios sin guardar.')).toBeVisible();
   await expect(p2.getByText('Hay cambios sin guardar: guárdelos antes de enviar el acta.')).toBeVisible();
   await llenarPlan(p2, hoy);
@@ -153,9 +192,7 @@ test('OPL: 5W2H en el checklist, acta con hallazgos y respuesta por el enlace de
   await opl.getByRole('radio', { name: 'o*****e@example.com' }).check();
   await opl.getByRole('button', { name: 'Enviar código' }).click();
   await expect(opl.getByTestId('codigo-enviado')).toContainText('Le enviamos un código de 6 dígitos a o*****e@example.com');
-  const correoCodigo = await correoCon(`Asunto: Código de verificación · visita ${numero}`);
-  const codigo = /<strong>(\d{6})<\/strong>/.exec(correoCodigo)?.[1] ?? '';
-  expect(codigo).toMatch(/^\d{6}$/);
+  const codigo = await codigoDelCorreo(numero);
   const casillas = opl.locator('[data-testid="codigo-opl"] input');
   // Un código errado no deja pasar
   await llenarCodigo(casillas, codigo === '000000' ? '111111' : '000000');
@@ -207,16 +244,14 @@ test('OPL: 5W2H en el checklist, acta con hallazgos y respuesta por el enlace de
   await expect(opl.getByTestId('respuesta-opl')).toBeVisible();
   await expect(opl.getByTestId('quien-como-' + OBLIGACION).getByLabel('Quién de ' + OBLIGACION)).toHaveValue('Jefe de distribución');
 
-  // Firma del plan (el objetado pendiente no la bloquea)
+  // Decisión D11: con la objeción sin decidir por el auditor líder el plan no se firma
   const firma = opl.getByTestId('firma-plan-opl');
   await firma.getByLabel(/^Nombre de quien firma/).fill('Coordinadora OPL e2e');
   await firma.getByLabel(/^Cargo de quien firma/).fill('Coordinadora de calidad');
   await firma.getByLabel(/^Número de documento/).fill('1020304050');
   await dibujarEn(opl, firma.locator('canvas'));
-  await opl.getByTestId('firmar-plan-opl').click();
-  await expect(opl.getByText(/Plan de mejoramiento firmado\./)).toBeVisible();
-  await expect(firma).toContainText('Plan firmado');
-  await expect(firma).not.toContainText('1020304050');
+  await expect(firma.getByTestId('objeciones-por-decidir')).toHaveText(`El plan se firma cuando el auditor líder decida las objeciones de: ${item}.`);
+  await expect(opl.getByTestId('firmar-plan-opl')).toBeDisabled();
   await qr.close();
 
   // ---------- El líder ve la respuesta del OPL y levanta la objeción ----------
@@ -228,7 +263,10 @@ test('OPL: 5W2H en el checklist, acta con hallazgos y respuesta por el enlace de
   await expect(seccion).toBeVisible();
   await expect(seccion.getByTestId('opl-' + OBLIGACION)).toContainText('Aceptado');
   await expect(seccion.getByTestId('opl-' + item)).toContainText('El registro de temperatura existe');
-  await seccion.getByTestId('opl-' + item).getByRole('button', { name: 'Levantar' }).click();
+  await seccion
+    .getByTestId('opl-' + item)
+    .getByRole('button', { name: 'Levantar' })
+    .click();
   const dialogo = p3.getByRole('dialog');
   await dialogo.getByLabel(/^Motivo/).fill('El soporte del OPL demuestra el registro diario.');
   await dialogo.getByRole('button', { name: 'Levantar' }).click();
@@ -237,6 +275,29 @@ test('OPL: 5W2H en el checklist, acta con hallazgos y respuesta por el enlace de
   await expect(seccion.getByRole('button', { name: 'Ratificar' })).toHaveCount(0);
   await salir(p3);
   await ctx3.close();
+
+  // ---------- Decidida la objeción, el OPL vuelve por el enlace (código nuevo) y firma el plan ----------
+  const qr2 = await browser.newContext();
+  const opl2 = await qr2.newPage();
+  await opl2.goto(`/opl-responder?t=${token}`);
+  await expect(opl2.getByTestId('opl-responder')).toContainText(numero);
+  await opl2.getByRole('radio', { name: 'o*****e@example.com' }).check();
+  await opl2.getByRole('button', { name: 'Enviar código' }).click();
+  await expect(opl2.getByTestId('codigo-enviado')).toBeVisible();
+  await llenarCodigo(opl2.locator('[data-testid="codigo-opl"] input'), await codigoDelCorreo(numero, codigo));
+  await opl2.getByRole('button', { name: 'Verificar código' }).click();
+  await expect(opl2.getByTestId('estado-' + item)).toContainText('Levantado');
+  const firma2 = opl2.getByTestId('firma-plan-opl');
+  await expect(firma2.getByTestId('objeciones-por-decidir')).toHaveCount(0);
+  await firma2.getByLabel(/^Nombre de quien firma/).fill('Coordinadora OPL e2e');
+  await firma2.getByLabel(/^Cargo de quien firma/).fill('Coordinadora de calidad');
+  await firma2.getByLabel(/^Número de documento/).fill('1020304050');
+  await dibujarEn(opl2, firma2.locator('canvas'));
+  await opl2.getByTestId('firmar-plan-opl').click();
+  await expect(opl2.getByText(/Plan de mejoramiento firmado\./)).toBeVisible();
+  await expect(firma2).toContainText('Plan firmado');
+  await expect(firma2).not.toContainText('1020304050');
+  await qr2.close();
 });
 
 test('OPL: el enlace sin token pide abrir el del acta y uno inventado no es válido', async ({ browser }) => {

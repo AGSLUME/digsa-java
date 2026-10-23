@@ -74,6 +74,7 @@ export function Reportes() {
   const [aplicado, setAplicado] = useState<{ def: DefReporte; e: Eleccion } | null>(null);
   const [pagina, setPagina] = useState(1);
   const [para, setPara] = useState('');
+  const [errorEnvio, setErrorEnvio] = useState<string | null>(null);
   const [formatoEnvio, setFormatoEnvio] = useState('xlsx');
   const [descargando, setDescargando] = useState<string | null>(null);
   const [pestana, setPestana] = useState('generar');
@@ -103,9 +104,20 @@ export function Reportes() {
   // Descarga y envío usan siempre los filtros del reporte que se está viendo (aplicado), no los que se están editando
   const enviar = useMutation({
     mutationFn: (a: { def: DefReporte; e: Eleccion }) =>
-      api<{ mensaje: string }>(`/api/reportes/${a.def.id}/enviar`, { cuerpo: cuerpoEnvio(a.def, a.e, para, formatoEnvio) }),
-    onSuccess: (r) => notifications.show({ color: 'green', message: r.mensaje }),
-    onError: (err) => notifications.show({ color: 'red', message: err instanceof ErrorApi ? err.message : 'No se pudo enviar el reporte.' }),
+      api<{ mensaje: string; rechazados?: string[] }>(`/api/reportes/${a.def.id}/enviar`, { cuerpo: cuerpoEnvio(a.def, a.e, para, formatoEnvio) }),
+    onMutate: () => setErrorEnvio(null),
+    // Si el servidor de correo rechazó a algunos destinatarios, el aviso es amarillo y no se cierra solo
+    onSuccess: (r) =>
+      notifications.show({
+        color: r.rechazados?.length ? 'yellow' : 'green',
+        autoClose: r.rechazados?.length ? false : undefined,
+        message: r.mensaje,
+      }),
+    onError: (err) => {
+      const mensaje = err instanceof ErrorApi ? err.message : 'No se pudo enviar el reporte.';
+      setErrorEnvio(mensaje);
+      notifications.show({ color: 'red', message: mensaje });
+    },
   });
 
   const clienteConsultas = useQueryClient();
@@ -407,10 +419,16 @@ export function Reportes() {
                     <Group mt="md" align="flex-end" wrap="wrap">
                       <TextInput
                         label="Enviar a"
-                        type="email"
-                        placeholder="correo@sanidad.mil.co"
+                        description="Hasta 15 correos, separados por coma"
+                        error={errorEnvio}
+                        inputMode="email"
+                        miw={280}
+                        placeholder="correo@sanidad.mil.co, otro@sanidad.mil.co"
                         value={para}
-                        onChange={(x) => setPara(x.currentTarget.value)}
+                        onChange={(x) => {
+                          setPara(x.currentTarget.value);
+                          setErrorEnvio(null);
+                        }}
                       />
                       <Select
                         label="Formato"
@@ -418,7 +436,7 @@ export function Reportes() {
                         value={formatoEnvio}
                         onChange={(v) => setFormatoEnvio(v ?? 'xlsx')}
                       />
-                      <Button loading={enviar.isPending} disabled={!para || !aplicado} onClick={() => aplicado && enviar.mutate(aplicado)}>
+                      <Button loading={enviar.isPending} disabled={!para.trim() || !aplicado} onClick={() => aplicado && enviar.mutate(aplicado)}>
                         Enviar por correo
                       </Button>
                     </Group>

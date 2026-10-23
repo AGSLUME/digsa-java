@@ -619,6 +619,19 @@ Especificación en `docs/especificaciones/reportes/spec.md`, plan en `plan.md` y
 | R.43 | **Temporales de Excel** | La cinta usa su carpeta propia (`digsa-reportes`, que se vacía al arrancar). Los temporales de POI (SXSSF) siguen en la carpeta común de POI porque esa estrategia es global y la comparte el módulo de exportación. Si el proceso cae mientras escribe, pueden quedar ahí: se documenta para operación (limpiar `poifiles` al arrancar el contenedor) |
 | R.44 | **Lectura larga en REPEATABLE READ** | Una generación de hasta 60 minutos mantiene una foto de los datos y una conexión del pool. Con 4 a la vez son 4 conexiones y 4 fotos (frena el autovacuum mientras dura). Revisar `maximumPoolSize` y medir con la prueba de volumen de R5 |
 
+**R4 · Correo, tableros, logs y presupuesto en el motor:**
+- **Correo:** hasta 15 destinatarios por envío, en lista o en un texto separado por comas, punto y coma o espacios. Cada uno es válido y de un dominio permitido. Uno que no lo es rechaza el envío completo. Si el servidor de correo rechaza a algunos, la respuesta y la bitácora dicen a quién no llegó, y el aviso sale en amarillo.
+- **Nuevos proveedores (aditivos):** dashboard de visitas y de riesgo (tablero), logs de auditoría (auditoria) y los cuatro de presupuesto (autorizado por la sesión 1). Sus pantallas y endpoints siguen igual.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| R.45 | **Filtros de un solo valor en tableros y presupuesto** | Sus servicios filtran por una fuerza, un ESM, una vigencia o un tipo a la vez, y sin cambiar su lógica no admiten varios. En el motor esos filtros son de lista, pero elegir más de uno responde 422 («elija solo uno»). Las fuerzas y modalidades de presupuesto sí admiten varias |
+| R.46 | **Presupuesto en memoria** | `ServicioReportesPresupuesto.generar` arma hasta 100.000 filas en memoria y el proveedor las recorre. Pasarle el límite o un consumidor cambia la lógica de presupuesto: queda para la sesión de presupuesto, y lo mide la prueba de volumen de R5 |
+| R.47 | **La pantalla de logs sigue con un destinatario** | `ControladorLogs.enviar` no se toca (módulo de auditoría: solo se agregan proveedores). Los logs a varios correos salen desde «Reportes → Logs de auditoría» |
+| R.48 | **Búsqueda por texto en logs** | Es `ILIKE '%texto%'`, sin índice, en periodos de hasta 92 días. Cabe hoy en los 3 minutos. Si en la prueba de noviembre pasa de unos 60 s, V53 lleva un índice GIN trigram sobre `descripcion` (encarece cada inserción de la bitácora: no se pone sin medir) |
+| R.49 | **Pesos y umbrales del riesgo** | En la descarga de la pantalla van en el encabezado. En el motor, el encabezado es el de 2.9 y no admite líneas propias del proveedor, así que van como filas «Pesos y umbrales» al final |
+| R.50 | **Prueba del tope del adjunto** | El corte a 10 MB se prueba en R5 junto con la prueba de volumen: generar más de 10 MB en una prueba de API es lento |
+
 ## Presupuesto (rama `presupuesto`, 2026-10-22)
 
 Especificación: `docs/especificaciones/presupuesto/spec.md` (Anexo 5 §4.6, Anexo 2 L739 y L741, casos M7 de la prueba en sitio).

@@ -64,12 +64,12 @@ class MotorReportesApiTest extends PruebaIntegracion {
     void catalogo() {
         Escenario x = escenario();
         JsonNode cat = x.coord().get("/api/reportes/catalogo").json();
-        assertThat(cat.path("grupos")).hasSize(1);
+        // Visitas y hallazgos primero (orden del mockup); la coordinación también ve presupuesto
         JsonNode visitas = cat.path("grupos").get(0);
         assertThat(visitas.path("nombre").asText()).isEqualTo("Visitas y hallazgos");
         List<String> ids = new ArrayList<>();
         visitas.path("reportes").forEach(r -> ids.add(r.path("id").asText()));
-        assertThat(ids).containsExactly("detalle", "lugar", "proceso", "distribucion");
+        assertThat(ids).containsExactly("detalle", "lugar", "proceso", "distribucion", "dashboard_visitas", "dashboard_riesgo");
         JsonNode detalle = visitas.path("reportes").get(0);
         assertThat(detalle.path("clase").asText()).isEqualTo("operativo");
         assertThat(detalle.path("columnas").toString()).contains("Auditor líder", "Inicio real", "Descripción de los hallazgos");

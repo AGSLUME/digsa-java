@@ -306,15 +306,8 @@ public class ControladorReportes {
     @PostMapping("/{id}/enviar")
     @Accion(modulo = "reportes", accion = "enviar", operacion = Declarada.CONSULTA)
     public Map<String, Object> enviar(@PathVariable String id, @RequestBody Map<String, Object> cuerpo) {
-        String para = Correos.normalizar(cuerpo.get("para") instanceof String s ? s.strip() : "");
-        if (!Correos.valido(para)) {
-            throw ErrorNegocio.validacion("Escriba un correo válido para enviar el reporte.");
-        }
-        List<String> dominios = cfg.dominiosReportes();
-        String dominio = para.substring(para.indexOf('@') + 1);
-        if (!dominios.isEmpty() && dominios.stream().noneMatch(d -> dominio.equals(d) || dominio.endsWith("." + d))) {
-            throw ErrorNegocio.validacion("Los reportes solo se envían a correos de: " + String.join(", ", dominios) + ".");
-        }
+        List<String> destinos = destinatarios(cuerpo.get("para"), cfg.dominiosReportes());
+        String enmascarados = String.join(", ", destinos.stream().map(Correos::enmascarar).toList());
         Object pedido = cuerpo.get("formato");
         if (pedido != null && !(pedido instanceof String)) {
             throw ErrorNegocio.validacion("El formato debe ser xlsx, csv, pdf o txt.");
@@ -328,7 +321,7 @@ public class ControladorReportes {
         try {
             a = esperar(pedida, cfgReportes.topeTecnicoMs() + 60_000L);
         } catch (ServicioGeneracion.AdjuntoGrande e) {
-            bitacora.registrar("reporte_enviado", s.definicion().titulo() + " NO enviado a " + Correos.enmascarar(para) + ": el archivo (" + pedida.codigo()
+            bitacora.registrar("reporte_enviado", s.definicion().titulo() + " NO enviado a " + enmascarados + ": el archivo (" + pedida.codigo()
                     + ") pasa del tope del adjunto de " + cfgReportes.adjuntoMaxMb() + " MB", q.id(), q.usuario());
             throw e;
         }
@@ -345,21 +338,91 @@ public class ControladorReportes {
         String titulo = s.definicion().titulo();
         Correo.Resultado res;
         try {
-            res = correo.enviar(new Correo.Mensaje(List.of(para), List.of(), titulo + " · Suite DIGSA",
+            res = correo.enviar(new Correo.Mensaje(destinos, List.of(), titulo + " · Suite DIGSA",
                     PlantillaCorreo.marco(titulo, "<p>Adjunto el reporte generado en la Suite DIGSA.</p><p>Archivo: " + PlantillaCorreo.e(a.nombre())
                             + "</p><p>Código de verificación: <strong>" + PlantillaCorreo.e(a.codigo()) + "</strong></p>"),
                     List.of(new Correo.Adjunto(a.nombre(), a.tipo(), contenido))));
         } catch (RuntimeException e) {
             // Un error inesperado del canal también queda en la bitácora como «NO salió» y se responde 502, no 500
-            LOG.error("[reportes] Falló el envío de {} a {}", titulo, Correos.enmascarar(para), e);
-            res = new Correo.Resultado(false, List.of(), List.of(para), "error inesperado del servidor de correo");
+            LOG.error("[reportes] Falló el envío de {} a {}", titulo, enmascarados, e);
+            res = new Correo.Resultado(false, List.of(), destinos, "error inesperado del servidor de correo");
         }
-        bitacora.registrar("reporte_enviado", titulo + " enviado a " + Correos.enmascarar(para) + " (" + a.nombre() + ", " + a.codigo() + ")"
-                + (res.ok() ? "" : " · NO salió") + " · " + resumen(s, String.valueOf(a.filas()), a.ms()), q.id(), q.usuario());
+        // Con varios destinatarios el servidor puede aceptar unos y rechazar otros: la bitácora y la respuesta dicen a quién no llegó
+        List<String> rechazados = res.ok() ? res.rechazados() : destinos;
+        bitacora.registrar("reporte_enviado", titulo + " enviado a " + enmascarados + " (" + a.nombre() + ", " + a.codigo() + ")"
+                + (res.ok() ? "" : " · NO salió") + (res.ok() && !rechazados.isEmpty() ? " · NO salió a " + String.join(", ",
+                        rechazados.stream().map(Correos::enmascarar).toList()) : "") + " · " + resumen(s, String.valueOf(a.filas()), a.ms()), q.id(), q.usuario());
         if (!res.ok()) {
             throw new ErrorNegocio(HttpStatus.BAD_GATEWAY, "No se pudo enviar el correo: " + res.error());
         }
-        return Map.of("mensaje", "Reporte enviado a " + para + ".", "codigo", a.codigo());
+        return resultadoEnvio(destinos, rechazados, a.codigo());
+    }
+
+    /** «Reporte enviado a…», o a quién llegó y a quién no si el servidor de correo rechazó a algunos. */
+    static Map<String, Object> resultadoEnvio(List<String> destinos, List<String> rechazados, String codigo) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        if (rechazados.isEmpty()) {
+            m.put("mensaje", "Reporte enviado a " + String.join(", ", destinos) + ".");
+        } else {
+            // El servidor de correo puede devolver las direcciones con otras mayúsculas
+            java.util.Set<String> no = new java.util.HashSet<>(rechazados.stream().map(Correos::normalizar).toList());
+            List<String> entregados = destinos.stream().filter(d -> !no.contains(Correos.normalizar(d))).toList();
+            m.put("mensaje", (entregados.isEmpty() ? "" : "Reporte enviado a " + String.join(", ", entregados) + ". ") + "NO llegó a "
+                    + String.join(", ", rechazados) + ": el servidor de correo lo rechazó.");
+        }
+        m.put("codigo", codigo);
+        m.put("rechazados", rechazados);
+        return m;
+    }
+
+    /** Destinatarios por envío (como la notificación manual, duda 18.13). */
+    static final int MAX_DESTINATARIOS = 15;
+
+    /**
+     * Destinatarios del envío: una lista o un texto separado por comas, punto y coma o espacios. Cada uno válido y de un dominio
+     * permitido (incluidos sus subdominios), sin repetir y máximo {@link #MAX_DESTINATARIOS}. Uno no válido rechaza el envío completo,
+     * con el correo que falla: no sale a unos sí y a otros no.
+     */
+    static List<String> destinatarios(Object para, List<String> dominios) {
+        List<String> crudos = new java.util.ArrayList<>();
+        if (para instanceof String s) {
+            crudos.addAll(java.util.Arrays.asList(s.split("[,;\\s]+")));
+        } else if (para instanceof List<?> l) {
+            for (Object o : l) {
+                if (!(o instanceof String s)) {
+                    throw ErrorNegocio.validacion("Los destinatarios deben ser correos.");
+                }
+                crudos.add(s);
+            }
+        } else if (para != null) {
+            throw ErrorNegocio.validacion("Los destinatarios deben ser correos.");
+        }
+        java.util.LinkedHashSet<String> unicos = new java.util.LinkedHashSet<>();
+        for (String c : crudos) {
+            String x = Correos.normalizar(c.strip());
+            if (x.isEmpty()) {
+                continue;
+            }
+            if (!Correos.valido(x)) {
+                throw ErrorNegocio.validacion("«" + recortar(x) + "» no es un correo válido.");
+            }
+            String dominio = x.substring(x.indexOf('@') + 1);
+            if (!dominios.isEmpty() && dominios.stream().noneMatch(d -> dominio.equals(d) || dominio.endsWith("." + d))) {
+                throw ErrorNegocio.validacion("Los reportes solo se envían a correos de: " + String.join(", ", dominios) + " («" + recortar(x) + "» no lo es).");
+            }
+            unicos.add(x);
+        }
+        if (unicos.isEmpty()) {
+            throw ErrorNegocio.validacion("Escriba un correo válido para enviar el reporte.");
+        }
+        if (unicos.size() > MAX_DESTINATARIOS) {
+            throw ErrorNegocio.validacion("Envíe a máximo " + MAX_DESTINATARIOS + " correos a la vez (escribió " + unicos.size() + ").");
+        }
+        return List.copyOf(unicos);
+    }
+
+    private static String recortar(String s) {
+        return s.length() <= 80 ? s : s.substring(0, 80) + "…";
     }
 
     /** Formato pedido, validado antes de generar el reporte: xlsx por defecto. */

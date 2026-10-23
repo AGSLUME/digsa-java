@@ -143,3 +143,31 @@ test('R3: «Descargas del día» lista lo que se pidió hoy y lo vuelve a bajar 
   await page.setViewportSize({ width: 390, height: 844 });
   await sinDesplazamientoHorizontal(page);
 });
+
+test('R4: tableros y logs en el catálogo; logs en PDF y envío a varios correos', async ({ page }) => {
+  await ingresar(page, ...ADMIN);
+  await page.goto('/reportes');
+  const catalogo = page.getByTestId('catalogo-reportes');
+  await expect(catalogo).toContainText('Dashboard de riesgo por ESM');
+  await expect(catalogo).toContainText('Usuarios y seguridad');
+  await page.getByTestId('reporte-logs_auditoria').click();
+  await page.getByRole('button', { name: 'Generar reporte' }).click();
+  const encabezado = page.getByTestId('encabezado-reporte');
+  await expect(encabezado).toContainText('Logs de auditoría');
+  await expect(encabezado).toContainText('Fuente: Bitácora de la Suite DIGSA');
+  const descarga = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Descargar PDF' }).click();
+  expect((await descarga).suggestedFilename()).toMatch(/^reporte_logs_auditoria_.*\.pdf$/);
+
+  await page.getByTestId('reporte-dashboard_riesgo').click();
+  await page.getByRole('button', { name: 'Generar reporte' }).click();
+  await expect(page.getByTestId('tabla-reporte')).toContainText('Puntaje por ESM');
+  // Los pesos y umbrales van al final del reporte: con muchos ESM quedan fuera de la primera página de la pantalla
+  const riesgo = await api<{ filas: unknown[][] }>(page, 'GET', '/api/reportes/dashboard_riesgo');
+  expect(JSON.stringify(riesgo.datos.filas)).toContain('Pesos y umbrales');
+  const a = unico('comite') + '@example.com';
+  const b = unico('digsa') + '@example.com';
+  await page.getByLabel('Enviar a').fill(`${a}, ${b}`);
+  await page.getByRole('button', { name: 'Enviar por correo' }).click();
+  await expect(page.getByText(`Reporte enviado a ${a}, ${b}.`)).toBeVisible();
+});

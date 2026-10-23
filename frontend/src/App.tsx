@@ -30,6 +30,7 @@ import { Plantilla } from './shared/Plantilla';
 import { ProveedorSesion, puedeEntrar, useSesion, type DatosSesion } from './shared/sesion';
 // --- Analítica (rama analitica) ---
 import { CarguesOpl } from './paginas/CarguesOpl';
+import { Homologacion } from './paginas/Homologacion';
 
 function Inicio() {
   const s = useSesion();
@@ -134,6 +135,7 @@ export function App() {
           <Route path="/calendario/visita/:id" element={<Protegida ruta="calendario"><VisitaDetalle key="calendario" origen="calendario" /></Protegida>} />
           {/* --- Analítica (rama analitica) --- */}
           <Route path="/analitica/cargues" element={<Protegida ruta="analitica/cargues"><CarguesOpl /></Protegida>} />
+          <Route path="/homologacion" element={<Protegida ruta="homologacion"><Homologacion /></Protegida>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

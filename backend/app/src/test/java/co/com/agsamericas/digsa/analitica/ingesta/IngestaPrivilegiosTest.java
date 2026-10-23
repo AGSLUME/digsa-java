@@ -64,6 +64,60 @@ class IngestaPrivilegiosTest extends PruebaIntegracion {
             s.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '" + ROL + "') THEN CREATE ROLE " + ROL + " NOLOGIN; END IF; END $$");
             s.execute("GRANT USAGE ON SCHEMA public TO " + ROL); // lo da V2 al rol real
             s.execute(bloque);
+            s.execute(bloque("/db/migration/V61__analitica_homologacion.sql"));
+        }
+    }
+
+    /** Último bloque DO de GRANT de una migración, con el rol de prueba en lugar de ${rol_app}. */
+    private String bloque(String recurso) throws IOException {
+        String sql;
+        try (InputStream in = getClass().getResourceAsStream(recurso)) {
+            sql = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        int desde = sql.lastIndexOf("DO $$");
+        int hasta = sql.indexOf("END $$;", desde) + "END $$;".length();
+        return sql.substring(desde, hasta).replace("${rol_app}", ROL);
+    }
+
+    // --- Homologación (V61) ---
+    /** (tabla, privilegio) que usa el código de la homologación: ServicioReferencias, ServicioHomologacion, ServicioRevision y ServicioReglas. */
+    private static final List<String[]> USADOS_V61 = List.of(
+            new String[] {"ref_fuente", "SELECT"}, new String[] {"ref_atc_nombre_nivel", "SELECT"}, new String[] {"ref_atc_v", "SELECT"},
+            new String[] {"ref_version", "INSERT"}, new String[] {"ref_version", "UPDATE"}, new String[] {"ref_cum_staging", "INSERT"},
+            new String[] {"ref_cum_staging", "DELETE"}, new String[] {"ref_cum_presentacion", "INSERT"}, new String[] {"ref_cum_principio_activo", "INSERT"},
+            new String[] {"ref_cum_rol", "INSERT"}, new String[] {"ref_cie10", "INSERT"}, new String[] {"ref_precio_regulado", "INSERT"},
+            new String[] {"ref_vital_no_disponible", "INSERT"}, new String[] {"ref_lista_normativa", "INSERT"}, new String[] {"ref_codigo_ssfm", "INSERT"},
+            new String[] {"hom_regla", "UPDATE"}, new String[] {"hom_regla_historial", "INSERT"}, new String[] {"hom_catalogo", "INSERT"},
+            new String[] {"hom_version", "INSERT"}, new String[] {"hom_tabla_maestra", "INSERT"}, new String[] {"hom_tabla_cie10", "INSERT"},
+            new String[] {"hom_revision", "INSERT"}, new String[] {"hom_medicamento_origen", "UPDATE"}, new String[] {"hom_cie10_origen", "INSERT"},
+            new String[] {"hom_cargue_origen", "INSERT"}, new String[] {"hom_cargue_mes", "INSERT"}, new String[] {"hom_devolucion", "UPDATE"},
+            // Lo pendiente de un cargue que no se aplica se borra (los disparadores protegen las versiones publicadas)
+            new String[] {"hom_version", "UPDATE"}, new String[] {"hom_version", "DELETE"}, new String[] {"hom_tabla_maestra", "DELETE"},
+            new String[] {"hom_tabla_cie10", "DELETE"}, new String[] {"hom_cargue_origen", "DELETE"}, new String[] {"hom_cargue_mes", "DELETE"},
+            new String[] {"hom_medicamento_origen", "DELETE"}, new String[] {"hom_cie10_origen", "DELETE"});
+
+    /** Lo publicado no se toca: el rol no tiene UPDATE sobre la tabla maestra, las referencias cargadas ni el historial. */
+    private static final List<String[]> PROHIBIDOS_V61 = List.of(
+            new String[] {"hom_tabla_maestra", "UPDATE"}, new String[] {"hom_tabla_cie10", "UPDATE"}, new String[] {"hom_revision", "DELETE"},
+            new String[] {"hom_regla_historial", "DELETE"}, new String[] {"ref_cum_presentacion", "DELETE"}, new String[] {"ref_cum_presentacion", "UPDATE"},
+            new String[] {"ref_version", "DELETE"}, new String[] {"ref_fuente", "INSERT"}, new String[] {"hom_revision", "UPDATE"},
+            new String[] {"ana_dispensaciones", "UPDATE"});
+
+    @Test
+    @DisplayName("V61: el rol tiene lo que usa la homologación y no puede modificar ni borrar lo publicado (tabla maestra, referencias, historial)")
+    void privilegiosHomologacion() {
+        for (String[] u : USADOS_V61) {
+            assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, :p)").param("r", ROL).param("t", u[0]).param("p", u[1]).query(Boolean.class).single())
+                    .as(u[1] + " sobre " + u[0]).isTrue();
+        }
+        for (String[] u : PROHIBIDOS_V61) {
+            assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, :p)").param("r", ROL).param("t", u[0]).param("p", u[1]).query(Boolean.class).single())
+                    .as("sin " + u[1] + " sobre " + u[0]).isFalse();
+        }
+        for (String f : List.of("hom_version_vigente(timestamptz)", "hom_tabla_maestra_version(integer)", "hom_tabla_cie10_version(integer)",
+                "hom_estado_final(text, text)")) {
+            assertThat(jdbc.sql("SELECT has_function_privilege(:r, :f, 'EXECUTE')").param("r", ROL).param("f", f).query(Boolean.class).single())
+                    .as(f).isTrue();
         }
     }
 

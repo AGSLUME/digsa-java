@@ -10,7 +10,6 @@ import java.util.ArrayList;
 import java.util.List;
 import org.apache.poi.openxml4j.opc.OPCPackage;
 import org.apache.poi.openxml4j.opc.PackageAccess;
-import org.apache.poi.openxml4j.util.ZipSecureFile;
 import org.apache.poi.util.XMLHelper;
 import org.apache.poi.xssf.eventusermodel.ReadOnlySharedStringsTable;
 import org.apache.poi.xssf.eventusermodel.XSSFReader;
@@ -69,8 +68,7 @@ final class LectorXlsx {
      */
     static void recorrer(Path archivo, List<String> encabezado, FuenteDispensacion.Consumidor consumidor, boolean soloEncabezado)
             throws IOException {
-        ZipSecureFile.setMinInflateRatio(0.005);
-        ZipSecureFile.setMaxEntrySize(0xFFFFFFFFL); // una hoja de 1 048 576 filas pasa de los 200 MB de la carga de maestros
+        // los límites de descompresión de POI se fijan una sola vez al arrancar (LimitesPoi), no en cada lectura
         List<String> firma = encabezado == null ? null : encabezado.stream().map(AnaliticaIngesta::normalizarEncabezado).toList();
         long[] orden = {0};
         try (OPCPackage pkg = OPCPackage.open(archivo.toFile(), PackageAccess.READ)) {

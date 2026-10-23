@@ -1,5 +1,6 @@
 package co.com.agsamericas.digsa.analitica.ingesta;
 
+import co.com.agsamericas.digsa.reglas.AnaliticaIngesta;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -63,6 +64,9 @@ class ValidadorStaging {
                            CASE WHEN s.cantidad ~ :reCantidad THEN CASE WHEN s.cantidad::numeric <= 0 THEN 'cantidad_no_positiva|cantidad' END END,
                            CASE WHEN s.valor ~ :reValor THEN CASE WHEN s.valor::numeric < 0 THEN 'valor_negativo|valor' END END,
                            CASE WHEN s.cum !~ :reCum THEN 'cum_invalido|cum' END,
+                           CASE WHEN char_length(s.medicamento) > :textoMax THEN 'texto_largo|medicamento' END,
+                           CASE WHEN char_length(s.cum_original) > :textoMax THEN 'texto_largo|cum' END,
+                           CASE WHEN char_length(s.principio_activo) > :textoMax THEN 'texto_largo|principio activo' END,
                            CASE WHEN s.fuerza IS NOT NULL AND f.codigo IS NULL THEN 'fuerza_no_reconocida|fuerza' END,
                            CASE WHEN s.modalidad IS NOT NULL AND m.nombre IS NULL THEN 'modalidad_no_reconocida|modalidad' END
                        ]::text[], NULL) END AS causas
@@ -142,6 +146,7 @@ class ValidadorStaging {
                 long hastaLinea = Math.min(b, desdeLinea + lote - 1);
                 jdbc.sql(CAMPOS).param("c", cargueId).param("a", desdeLinea).param("b", hastaLinea)
                         .param("reFecha", RE_FECHA).param("reCantidad", RE_CANTIDAD).param("reValor", RE_VALOR).param("reCum", RE_CUM)
+                        .param("textoMax", AnaliticaIngesta.TEXTO_MAX)
                         .param("hoy", hoy).param("minima", FECHA_MINIMA).param("desde", desde).param("hasta", hasta).update();
                 avance.accept((int) Math.min(80, (hastaLinea - a + 1) * 80 / total));
             }

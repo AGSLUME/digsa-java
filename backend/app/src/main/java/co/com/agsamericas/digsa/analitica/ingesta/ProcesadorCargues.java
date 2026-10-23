@@ -1,6 +1,7 @@
 package co.com.agsamericas.digsa.analitica.ingesta;
 
 import co.com.agsamericas.digsa.analitica.CargueAplicado;
+import co.com.agsamericas.digsa.analitica.HomologacionCargue;
 import co.com.agsamericas.digsa.analitica.PropiedadesAnalitica;
 import co.com.agsamericas.digsa.plataforma.Almacen;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
@@ -48,9 +49,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * Procesamiento diferido de los cargues (patrón de exportacion/): un ejecutor de un hilo toma el siguiente «pendiente» con FOR UPDATE
  * SKIP LOCKED bajo pg_try_advisory_lock, uno a la vez en todo el sistema; los demás esperan en cola. Etapas medidas: lectura y COPY,
- * validación, carga de hechos y agregados. Todo o nada: los hechos, los pasos de aplicación (agregados) y el paso a «aplicado» van en
- * una sola transacción; si algo falla el cargue queda «fallido» con la etapa y nada se ve. El staging solo existe mientras se procesa
- * (los lotes del servicio web esperan en el almacén, no en el staging UNLOGGED) y se borra siempre al terminar.
+ * validación, homologación de los datos originales nuevos (A2: su propia transacción, todo queda «pendiente del cargue»), carga de hechos
+ * y agregados. Todo o nada: los hechos, los pasos de aplicación (agregados), la publicación de la homologación pendiente y el paso a
+ * «aplicado» van en una sola transacción; si algo falla el cargue queda «fallido» con la etapa, lo pendiente de la homologación se borra y
+ * nada se ve. El staging solo existe mientras se procesa (los lotes del servicio web esperan en el almacén, no en el staging UNLOGGED) y se
+ * borra siempre al terminar.
  *
  * <p>Cada cambio de estado exige el estado anterior (UPDATE … WHERE estado = 'procesando'): lo que pase después del commit (bitácora,
  * estadísticas, evento) solo se registra si falla y jamás convierte un «aplicado» en «fallido» ni borra sus hechos. Un archivo cuyo
@@ -92,11 +95,14 @@ class ProcesadorCargues {
     private final ObjectMapper lectorJson;
     private final Clock reloj;
     private final TransactionTemplate tx;
+    /** Etapa de homologación (analitica.homologacion); vacía si el módulo no la trae. */
+    private final List<HomologacionCargue> homologacion;
     private final ExecutorService ejecutor = Executors.newSingleThreadExecutor(Thread.ofPlatform().name("digsa-analitica-cargues").daemon(true).factory());
 
     ProcesadorCargues(JdbcClient jdbc, DataSource ds, Almacen almacen, Seudonimizador seudo, ValidadorStaging validador, AplicadorHechos aplicador,
                       MantenimientoCargues mantenimiento, RegistroBitacora bitacora, ApplicationEventPublisher eventos, PropiedadesAnalitica propiedades,
-                      ObjectMapper json, Clock reloj, PlatformTransactionManager transacciones) {
+                      ObjectMapper json, Clock reloj, PlatformTransactionManager transacciones, List<HomologacionCargue> homologacion) {
+        this.homologacion = List.copyOf(homologacion);
         this.jdbc = jdbc;
         this.ds = ds;
         this.almacen = almacen;
@@ -250,6 +256,15 @@ class ProcesadorCargues {
                     propiedades.registrosPorLoteValidacion(), pct -> avance(p.id(), "validacion", 60 + pct / 5, recibidos[0]));
             etapas.put("validacion", ms(t));
 
+            // Homologación de los datos originales nuevos (pares distintos del staging) antes de cargar los hechos (A2)
+            etapa[0] = "homologacion";
+            t = System.nanoTime();
+            avance(p.id(), "homologacion", 81, recibidos[0]);
+            for (HomologacionCargue h : homologacion) {
+                h.homologar(p.id());
+            }
+            etapas.put("homologacion", ms(t));
+
             etapa[0] = "hechos";
             t = System.nanoTime();
             avance(p.id(), "hechos", 82, recibidos[0]);
@@ -271,6 +286,20 @@ class ProcesadorCargues {
                     if (recibidos[0] != c.procesados() + rv.rechazados()) {
                         throw new IllegalStateException("Los conteos no cuadran: " + recibidos[0] + " ≠ " + c.procesados() + " + " + rv.rechazados());
                     }
+                    if (!homologacion.isEmpty() && c.sinMedicamento() > 0) {
+                        // Contrato con la homologación: todo hecho queda enlazado a su dato original (cadena completa, A5 L691)
+                        etapa[0] = "hechos";
+                        throw new FallaVisible("Etapa hechos: " + c.sinMedicamento() + " registros quedaron sin dato original homologado; el cargue "
+                                + "no se aplicó. Comuníquese con TI.");
+                    }
+                    // Homologación pendiente del cargue: se publica y confirma aquí, en la misma transacción que lo marca «aplicado»
+                    etapa[0] = "homologacion";
+                    long tPub = System.nanoTime();
+                    for (HomologacionCargue h : homologacion) {
+                        h.alAplicar(p.id());
+                    }
+                    etapas.merge("homologacion", ms(tPub), Long::sum);
+                    etapa[0] = "agregados";
                     int n = jdbc.sql("""
                             UPDATE ana_cargues SET estado = 'aplicado', aplicado_en = :ahora, terminado = :ahora, etapa = 'agregados', porcentaje = 100,
                                    filas_leidas = :recibidos, recibidos = :recibidos, procesados = :procesados, rechazados = :rechazados,
@@ -299,7 +328,7 @@ class ProcesadorCargues {
             return;
         } catch (Exception e) {
             LOG.error("[analitica] El cargue {} falló en la etapa {}", p.id(), etapa[0], e);
-            fallido(p, etapa[0], ms(inicio), etapas, null);
+            fallido(p, etapa[0], ms(inicio), etapas, e instanceof FallaVisible ? e.getMessage() : null);
             return;
         }
         // Ya confirmado: lo que sigue solo se registra si falla (nunca vuelve el cargue «fallido» ni borra sus hechos)
@@ -343,6 +372,7 @@ class ProcesadorCargues {
                         + "ya se aplicó en ese cargue").param("id", p.id()).query(String.class).list();
         if (!ruta.isEmpty()) {
             limpiarStaging(p.id());
+            descartarHomologacion(p.id());
             mantenimiento.borrarOriginal(p.id(), ruta.getFirst(), "duplicado");
             bitacora.registrar("analitica_cargue_duplicado", "Cargue " + p.id() + " · duplicado de #" + existente, p.usuarioId(), usuario(p.usuarioId()));
         }
@@ -538,7 +568,22 @@ class ProcesadorCargues {
         } catch (RuntimeException e) {
             LOG.error("[analitica] No se pudieron borrar los hechos del cargue {}", id, e);
         }
+        descartarHomologacion(id);
         limpiarStaging(id);
+    }
+
+    /** Lo pendiente de la homologación (datos originales nuevos, versión sin publicar, pares y meses) de un cargue que no se aplicó. */
+    private void descartarHomologacion(long id) {
+        for (HomologacionCargue h : homologacion) {
+            h.descartar(id);
+        }
+    }
+
+    /** Falla con un mensaje propio para el usuario (en lugar del genérico de la etapa). */
+    static final class FallaVisible extends IllegalStateException {
+        FallaVisible(String mensaje) {
+            super(mensaje);
+        }
     }
 
     private void limpiarStaging(long id) {

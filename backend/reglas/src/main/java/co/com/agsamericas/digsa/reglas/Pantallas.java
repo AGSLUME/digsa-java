@@ -33,7 +33,13 @@ public enum Pantallas {
     VISITA("visita", "Visita", null, Set.of(Perfil.AUDITOR, Perfil.COORDINADOR)),
     // --- Analítica (rama analitica) ---
     /** Cargues del insumo del OPL (analitica-ingesta): cargan Administrador y Analista; el Coordinador consulta la bitácora. */
-    ANALITICA_CARGUES("analitica/cargues", "Cargues del OPL", "Información", Set.of(Perfil.ANALISTA, Perfil.COORDINADOR));
+    ANALITICA_CARGUES("analitica/cargues", "Cargues del OPL", "Información", Set.of(Perfil.ANALISTA, Perfil.COORDINADOR)),
+    /**
+     * Homologación, referencias oficiales y tabla maestra (analitica-homologacion): el Analista carga fuentes, edita reglas, ejecuta,
+     * revisa, aprueba y devuelve; el Coordinador consulta, aprueba, devuelve y exporta. «Químico farmacéutico» es un rol de auditor y no
+     * entra por perfil: se le asigna la pantalla como rol adicional (sesión de identidad).
+     */
+    HOMOLOGACION("homologacion", "Homologación", "Información", Set.of(Perfil.ANALISTA, Perfil.COORDINADOR));
 
     private final String ruta;
     private final String titulo;

@@ -91,7 +91,7 @@ class RendimientoIngestaTest extends PruebaIntegracion {
             // Meta interna (spec «Tiempos medidos»): 2 M filas aplicadas en menos de 300 s. Se compara y se deja en la salida sin fallar:
             // la medición depende del equipo y de la carga de las demás sesiones (se anota en docs/rendimiento_analitica.md)
             long duracion = fin.path("duracionMs").asLong();
-            boolean cincoEtapas = List.of("subida", "lectura", "validacion", "hechos", "agregados").stream().allMatch(fin.path("etapasMs")::has);
+            boolean cincoEtapas = List.of("subida", "lectura", "validacion", "homologacion", "hechos", "agregados").stream().allMatch(fin.path("etapasMs")::has);
             System.out.printf("[rendimiento] meta < %d s: %s (procesamiento %,.1f s; cinco etapas medidas: %s)%n", META_MS / 1000,
                     duracion < META_MS ? "CUMPLE" : "NO CUMPLE", duracion / 1000.0, cincoEtapas ? "sí" : "no");
             assertThat(cincoEtapas).as("la duración de las cinco etapas queda en el cargue").isTrue();

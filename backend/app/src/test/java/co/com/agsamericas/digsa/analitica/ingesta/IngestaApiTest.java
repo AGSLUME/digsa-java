@@ -175,7 +175,7 @@ class IngestaApiTest extends PruebaIntegracion {
                 GeneradorSintetico.Resultado r = GeneradorSintetico.generar(dir, "sintetico", FILAS_CUADRE, 777L);
                 byte[] datos = Files.readAllBytes(r.csv());
                 assertThat(partes(datos)).as("el archivo base se sube en varias partes").isGreaterThan(1);
-                String analista = crearUsuario("analista", Perfil.ANALISTA);
+                String analista = crearUsuario("an", Perfil.ANALISTA);
                 Navegador n = navegador();
                 assertThat(n.ingresar(analista, CLAVE).estado()).isEqualTo(200);
                 Navegador.Respuesta c = subir(n, "insumo_sintetico_2025.csv", datos, null);
@@ -215,7 +215,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("subida por partes: crea, recibe las partes de tamaño exacto, verifica el SHA-256 y pasa a «mapeo»; las partes se borran")
     void subidaPorPartes() {
-        Navegador n = como("analistapartes", Perfil.ANALISTA);
+        Navegador n = como("anpartes", Perfil.ANALISTA);
         StringBuilder sb = new StringBuilder("CUM;CANTIDAD\r\n");
         for (int i = 0; sb.length() < 2 * PARTE + 500; i++) {
             sb.append("19901234-").append(i % 99).append(";").append(i).append("\r\n");
@@ -236,7 +236,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("partes: el número debe ser ceil(tamaño / 1 MB) y cada parte de tamaño exacto; máximo 3 cargues abiertos por usuario")
     void partesExactasYCarguesAbiertos() {
-        Navegador n = como("analistaexacta", Perfil.ANALISTA);
+        Navegador n = como("anexacta", Perfil.ANALISTA);
         byte[] datos = IngestaApiTest.csv(ENC_CORTO, fila("75000001", "10/05/2025"));
         Map<String, Object> s = new LinkedHashMap<>(Map.of("nombre", "x.csv", "tamano", datos.length, "sha256", Huellas.sha256(datos), "partes", 2));
         Navegador.Respuesta mal = n.post("/api/analitica/cargues", s);
@@ -265,7 +265,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("huella distinta: 422 «El archivo llegó incompleto o alterado; vuelva a subirlo» y el cargue queda «fallido»")
     void huellaDistinta() {
-        Navegador n = como("analistahuella", Perfil.ANALISTA);
+        Navegador n = como("anhuella", Perfil.ANALISTA);
         byte[] datos = csv("CUM;CANTIDAD", "19901234-1;2");
         Navegador.Respuesta r = subir(n, "alterado.csv", datos, "0".repeat(64));
         assertThat(r.estado()).isEqualTo(422);
@@ -279,7 +279,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("mapeo por sinónimos del encabezado del generador: personales se descartan; falta cantidad ⇒ 422 y sigue en «mapeo»")
     void mapeoYMapeoIncompleto() {
-        Navegador n = como("analistamapeo", Perfil.ANALISTA);
+        Navegador n = como("anmapeo", Perfil.ANALISTA);
         byte[] datos = csv("DOC_PACIENTE;FZA;COD_ESM;MOD;FEC_DISP;DESC_MED;CUM;VR_TOTAL;NOMBRE_PACIENTE",
                 "CC 1.023.456;EJC;BAS02;Dispensación;14/03/2025;LOSARTAN;20010037-1;1000,00;JUAN FICTICIO");
         Navegador.Respuesta c = subir(n, "sin_cantidad.csv", datos, null);
@@ -300,7 +300,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("vista previa: toda columna no asignada a un campo no personal va enmascarada (encabezados no reconocidos incluidos)")
     void vistaPreviaEnmascarada() {
-        Navegador n = como("analistavista", Perfil.ANALISTA);
+        Navegador n = como("anvista", Perfil.ANALISTA);
         byte[] datos = csv("IDENT;FZA;COD_ESM;MOD;FEC_DISP;DESC_MED;CUM;CANTIDAD;VR_TOTAL;NOM_AFIL",
                 "CC 55.443.322;EJC;BAS02;Dispensación;14/03/2025;LOSARTAN;20010037-1;30;1000,00;LUISA FICTICIA");
         long id = subir(n, "raros.csv", datos, null).json().path("id").asLong();
@@ -317,7 +317,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("privacidad del mapeo: una columna personal (NOMBRE_PACIENTE) asignada a un campo de texto ⇒ 422")
     void columnaPersonalACampoDeTexto() {
-        Navegador n = como("analistatexto", Perfil.ANALISTA);
+        Navegador n = como("antexto", Perfil.ANALISTA);
         byte[] datos = csv("NUM_DOC;FUERZA;COD_ESM;MODALIDAD;FECHA_DISPENSACION;CUM;CANTIDAD;VALOR_TOTAL;NOMBRE_PACIENTE",
                 "CC76000001;EJC;BAS02;Dispensación;10/05/2025;20010037-1;30;5415,00;MARTA FICTICIA");
         long id = subir(n, "texto.csv", datos, null).json().path("id").asLong();
@@ -333,7 +333,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("primera fila sin encabezado reconocible: se guardan «Columna 1..n», nunca sus valores, con un aviso")
     void encabezadoNoReconocido() {
-        Navegador n = como("analistasinenc", Perfil.ANALISTA);
+        Navegador n = como("ansinenc", Perfil.ANALISTA);
         byte[] datos = csv("CC 66.554.433;ROSA FICTICIA;EJC;BAS02", "CC 66.554.434;OTRA FICTICIA;EJC;BAS02");
         Navegador.Respuesta c = subir(n, "sin_encabezado.csv", datos, null);
         assertThat(c.estado()).as(c.texto()).isEqualTo(200);
@@ -350,7 +350,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("columnas corridas («;» dentro del nombre): la fila llega a staging sin ningún valor; nombre, documento y nacimiento nunca")
     void columnasCorridasSinPersonales() {
-        Navegador n = como("analistacorrida", Perfil.ANALISTA);
+        Navegador n = como("ancorrida", Perfil.ANALISTA);
         String enc = "TIPO_DOC;NUM_DOC;NOMBRE_PACIENTE;FECHA_NAC;FUERZA;COD_ESM;MODALIDAD;FECHA_DISPENSACION;CUM;CANTIDAD;VALOR_TOTAL";
         List<String> filas = new ArrayList<>();
         for (int i = 0; i < 150; i++) {
@@ -389,7 +389,7 @@ class IngestaApiTest extends PruebaIntegracion {
         aplicador.trasInsertar = id -> enStaging.set(jdbc.sql("""
                 SELECT count(*) FROM ana_staging_dispensacion x WHERE x.cargue_id = :c AND x::text LIKE ANY(:p)""")
                 .param("c", id).param("p", patrones).query(Long.class).single());
-        Navegador n = como("analistastaging", Perfil.ANALISTA);
+        Navegador n = como("anstaging", Perfil.ANALISTA);
         Navegador.Respuesta c = subir(n, "staging.csv", Files.readAllBytes(g.csv()), null);
         long id = c.json().path("id").asLong();
         Navegador.Respuesta mapeo = n.get("/api/analitica/cargues/" + id + "/mapeo");
@@ -538,7 +538,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @DisplayName("idempotencia: el mismo archivo otra vez devuelve el cargue aplicado (200) sin crear otro")
     void mismoArchivo() throws IOException {
         Base b = base();
-        Navegador n = como("analistaotravez", Perfil.ANALISTA);
+        Navegador n = como("anotravez", Perfil.ANALISTA);
         long antes = contar("SELECT count(*) FROM ana_cargues");
         Navegador.Respuesta r = subir(n, "otra_vez.csv", b.archivo(), null);
         assertThat(r.estado()).isEqualTo(200);
@@ -551,11 +551,11 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("archivo aplicado mientras se subía: al cerrar el cargue queda «duplicado» con la referencia (nunca se borra) y sin original")
     void duplicadoAlCerrar() {
-        Navegador n = como("analistadupcierre", Perfil.ANALISTA);
+        Navegador n = como("andupcierre", Perfil.ANALISTA);
         byte[] datos = csv(ENC_CORTO, fila("78000001", "11/05/2025"), fila("78000002", "12/05/2025"));
         long id = crear(n, "dup.csv", datos, null).json().path("id").asLong();
         enviarPartes(n, id, datos);
-        JsonNode otro = cargar(como("analistadupotro", Perfil.ANALISTA), "dup_otro.csv", datos, "agregar");
+        JsonNode otro = cargar(como("andupotro", Perfil.ANALISTA), "dup_otro.csv", datos, "agregar");
         assertThat(otro.path("estado").asText()).isEqualTo("aplicado");
         Navegador.Respuesta r = n.post("/api/analitica/cargues/" + id + "/cerrar", null);
         assertThat(r.estado()).as(r.texto()).isEqualTo(200);
@@ -571,7 +571,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("dos cargues del mismo archivo en cola: el primero se aplica y el segundo termina «duplicado de #N»")
     void dosEnCola() {
-        Navegador n = como("analistadoscola", Perfil.ANALISTA);
+        Navegador n = como("andoscola", Perfil.ANALISTA);
         byte[] datos = csv(ENC_CORTO, fila("79000001", "13/05/2025"));
         long a = subir(n, "cola_a.csv", datos, null).json().path("id").asLong();
         long b = subir(n, "cola_b.csv", datos, null).json().path("id").asLong();
@@ -588,7 +588,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @DisplayName("idempotencia por llave natural: los mismos registros en otro archivo se rechazan como «Ya cargado» y no se duplica el gasto")
     void yaCargado() throws IOException {
         Base b = base();
-        Navegador n = como("analistarepite", Perfil.ANALISTA);
+        Navegador n = como("anrepite", Perfil.ANALISTA);
         String texto = new String(b.archivo(), StandardCharsets.UTF_8);
         List<String> lineas = texto.lines().toList();
         // Encabezado y 50 líneas válidas del archivo base, más una nueva: otro SHA-256
@@ -639,7 +639,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("rechazo estructural: más del 1 % de filas con otro número de campos rechaza el archivo completo, sin hechos")
     void rechazoEstructural() {
-        Navegador n = como("analistaestructura", Perfil.ANALISTA);
+        Navegador n = como("anestructura", Perfil.ANALISTA);
         List<String> l = new ArrayList<>();
         l.add(ENC_CORTO);
         for (int i = 0; i < 100; i++) {
@@ -662,7 +662,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("comilla sin cerrar: el archivo se rechaza por estructura con la línea, sin tragarse el resto como una celda")
     void comillaSinCerrar() {
-        Navegador n = como("analistacomilla", Perfil.ANALISTA);
+        Navegador n = como("ancomilla", Perfil.ANALISTA);
         List<String> l = new ArrayList<>();
         for (int i = 0; i < 20; i++) {
             l.add(fila(Integer.toString(80_000_000 + i), "14/03/2025"));
@@ -680,7 +680,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("cantidad con más de 3 decimales: rechazo de esa fila por número inválido; el cargue se aplica")
     void cantidadConDecimales() {
-        Navegador n = como("analistadecimales", Perfil.ANALISTA);
+        Navegador n = como("andecimales", Perfil.ANALISTA);
         byte[] datos = csv(ENC_CORTO, "CC;81000001;EJC;BAS02;Dispensación;14/03/2025;20010037-1;0,0004;5415,00",
                 "CC;81000002;EJC;BAS02;Dispensación;14/03/2025;20010037-1;2,5000;5415,00");
         JsonNode fin = cargar(n, "decimales.csv", datos, "agregar");
@@ -695,7 +695,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("falla a mitad de la carga: el cargue queda «fallido» con la etapa, sin hechos visibles ni staging, y queda en la bitácora")
     void fallaSinEfecto() {
-        Navegador n = como("analistafalla", Perfil.ANALISTA);
+        Navegador n = como("anfalla", Perfil.ANALISTA);
         AtomicReference<Long> visibles = new AtomicReference<>();
         aplicador.trasInsertar = id -> {
             // Con otra conexión (no la de la transacción en curso): los hechos recién insertados no se ven fuera de ella (todo o nada)
@@ -728,10 +728,74 @@ class IngestaApiTest extends PruebaIntegracion {
                 .param("d", "Cargue " + id + " ·%").query(String.class).list()).anyMatch(x -> x.endsWith("etapa hechos"));
     }
 
+    private static final String ENC_MED = "TIPO_DOC;NUM_DOC;FUERZA;COD_ESM;MODALIDAD;FECHA_DISPENSACION;DESC_MEDICAMENTO;CUM;CANTIDAD;VALOR_TOTAL";
+
+    private static String filaMed(String doc, String fecha, String medicamento) {
+        return "CC;" + doc + ";EJC;BAS02;Dispensación;" + fecha + ";" + medicamento + ";;30;5415,00";
+    }
+
+    @Test
+    @DisplayName("homologación atómica con el cargue: si falla después de homologar no quedan datos originales, versión, pares ni devoluciones cambiadas")
+    void fallaSinEfectoHomologacion() {
+        Navegador n = como("anfallahom", Perfil.ANALISTA);
+        String s = Long.toString(System.nanoTime() % 1_000_000_000L);
+        String x = "PRODUCTO DEVUELTO " + s;
+        String y = "PRODUCTO NUEVO " + s;
+        // Cargue aplicado con el dato X y su devolución al OPL
+        JsonNode a = cargar(n, "dev_" + s + ".csv", csv(ENC_MED, filaMed("72" + s, "14/04/2025", x)), "agregar");
+        assertThat(a.path("estado").asText()).as(a.toString()).isEqualTo("aplicado");
+        long origen = jdbc.sql("SELECT id FROM hom_medicamento_origen WHERE descripcion = :d").param("d", x).query(Long.class).single();
+        Navegador.Respuesta dev = n.post("/api/homologacion/revision/" + origen + "/devolver", Map.of("motivo", "Prueba de atomicidad"));
+        assertThat(dev.estado()).as(dev.texto()).isEqualTo(200);
+        Map<String, Object> origenAntes = jdbc.sql("SELECT ultimo_cargue_id, fecha_referencia FROM hom_medicamento_origen WHERE id = :o").param("o", origen)
+                .query().singleRow();
+        long publicadas = contar("SELECT count(*) FROM hom_version WHERE estado = 'publicada'");
+        long filas = contar("SELECT count(*) FROM hom_tabla_maestra");
+        // Cargue posterior con X (que pasaría a «persiste») y un dato nuevo Y: falla después de homologar e insertar los hechos
+        AtomicReference<Long> pendientes = new AtomicReference<>();
+        aplicador.trasInsertar = id -> {
+            pendientes.set(contar("SELECT count(*) FROM hom_medicamento_origen WHERE pendiente_cargue_id = :c", "c", id));
+            throw new IllegalStateException("Falla simulada tras homologar");
+        };
+        JsonNode b = cargar(n, "falla_hom_" + s + ".csv", csv(ENC_MED, filaMed("73" + s, "15/05/2025", x), filaMed("74" + s, "16/05/2025", y)), "agregar");
+        long id = b.path("id").asLong();
+        assertThat(b.path("estado").asText()).isEqualTo("fallido");
+        assertThat(pendientes.get()).as("la etapa dejó el dato nuevo pendiente del cargue").isEqualTo(1);
+        // Nada de la homologación quedó: devolución intacta, sin versión nueva, sin el dato nuevo, sin pares ni meses, X sin tocar
+        Map<String, Object> d = jdbc.sql("SELECT estado, corregida_cargue_id FROM hom_devolucion WHERE origen_id = :o").param("o", origen).query().singleRow();
+        assertThat(d.get("estado")).isEqualTo("devuelta");
+        assertThat(d.get("corregida_cargue_id")).isNull();
+        assertThat(contar("SELECT count(*) FROM hom_version WHERE estado = 'publicada'")).isEqualTo(publicadas);
+        assertThat(contar("SELECT count(*) FROM hom_version WHERE cargue_id = :c", "c", id)).isZero();
+        assertThat(contar("SELECT count(*) FROM hom_tabla_maestra")).isEqualTo(filas);
+        assertThat(jdbc.sql("SELECT count(*) FROM hom_medicamento_origen WHERE descripcion = :d").param("d", y).query(Long.class).single()).isZero();
+        assertThat(contar("SELECT count(*) FROM hom_cargue_origen WHERE cargue_id = :c", "c", id)).isZero();
+        assertThat(contar("SELECT count(*) FROM hom_cargue_mes WHERE cargue_id = :c", "c", id)).isZero();
+        assertThat(jdbc.sql("SELECT ultimo_cargue_id, fecha_referencia FROM hom_medicamento_origen WHERE id = :o").param("o", origen).query().singleRow())
+                .isEqualTo(origenAntes);
+        assertThat(n.get("/api/homologacion/tabla-maestra?q=" + s).json().path("total").asLong()).as("la tabla maestra solo ve X").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("celda larga: un medicamento de más de 1000 caracteres se rechaza con «texto demasiado largo» y el resto del cargue se aplica")
+    void celdaLarga() {
+        Navegador n = como("anlargo", Perfil.ANALISTA);
+        String s = Long.toString(System.nanoTime() % 1_000_000_000L);
+        String largo = "PRODUCTO " + "X".repeat(3000) + s;
+        JsonNode fin = cargar(n, "largo_" + s + ".csv", csv(ENC_MED, filaMed("75" + s, "14/04/2025", largo), filaMed("76" + s, "14/04/2025",
+                "PRODUCTO CORTO " + s)), "agregar");
+        assertThat(fin.path("estado").asText()).as(fin.toString()).isEqualTo("aplicado");
+        long id = fin.path("id").asLong();
+        assertThat(fin.path("procesados").asLong()).isEqualTo(1);
+        assertThat(contar("SELECT count(*) FROM ana_cargue_rechazos WHERE cargue_id = :c AND causa = 'texto_largo' AND columna = 'medicamento'", "c", id))
+                .isEqualTo(1);
+        assertThat(contar("SELECT count(*) FROM ana_dispensaciones WHERE cargue_id = :c AND medicamento_id IS NULL", "c", id)).isZero();
+    }
+
     @Test
     @DisplayName("cola de uno: mientras uno procesa, el siguiente espera «pendiente» en la posición 1; luego se aplican en orden")
     void colaDeUno() throws InterruptedException {
-        Navegador n = como("analistacola", Perfil.ANALISTA);
+        Navegador n = como("ancola", Perfil.ANALISTA);
         long a = subir(n, "cola1.csv", csv(ENC_CORTO, fila("82000001", "15/05/2025")), null).json().path("id").asLong();
         long b = subir(n, "cola2.csv", csv(ENC_CORTO, fila("82000002", "16/05/2025")), null).json().path("id").asLong();
         CountDownLatch llego = new CountDownLatch(1);
@@ -775,7 +839,7 @@ class IngestaApiTest extends PruebaIntegracion {
                 .query(Long.class).single();
         jdbc.sql("SELECT ana_staging_crear(:c)").param("c", id).query().singleRow();
         procesador.correr();
-        Navegador n = como("analistahuerfano", Perfil.ANALISTA);
+        Navegador n = como("anhuerfano", Perfil.ANALISTA);
         JsonNode fin = esperarFin(n, id);
         assertThat(fin.path("estado").asText()).isEqualTo("fallido");
         assertThat(fin.path("error").asText()).isEqualTo(ProcesadorCargues.INTERRUMPIDO);
@@ -791,7 +855,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("cargues abandonados (subida, mapeo y envío sin lote final): vencen tras el plazo y se borran partes, original y lotes")
     void abandonadosVencen() throws IOException {
-        Navegador n = como("analistaabandona", Perfil.ANALISTA);
+        Navegador n = como("anabandona", Perfil.ANALISTA);
         byte[] datos = csv(ENC_CORTO, fila("84000001", "18/05/2025"));
         long subiendo = crear(n, "abandonado.csv", datos, null).json().path("id").asLong();
         enviarPartes(n, subiendo, datos);
@@ -827,9 +891,9 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("descartar: el dueño descarta su cargue en mapeo (queda «descartado», sin original); otro analista 404; el coordinador 403")
     void descartar() {
-        Navegador n = como("analistadescarta", Perfil.ANALISTA);
+        Navegador n = como("andescarta", Perfil.ANALISTA);
         long id = subir(n, "descartar.csv", csv(ENC_CORTO, fila("85000001", "19/05/2025")), null).json().path("id").asLong();
-        assertThat(como("analistaajeno", Perfil.ANALISTA).delete("/api/analitica/cargues/" + id).estado()).isEqualTo(404);
+        assertThat(como("anajeno", Perfil.ANALISTA).delete("/api/analitica/cargues/" + id).estado()).isEqualTo(404);
         assertThat(como("coorddescarta", Perfil.COORDINADOR).delete("/api/analitica/cargues/" + id).estado()).isEqualTo(403);
         Navegador.Respuesta r = n.delete("/api/analitica/cargues/" + id);
         assertThat(r.estado()).as(r.texto()).isEqualTo(200);
@@ -869,7 +933,7 @@ class IngestaApiTest extends PruebaIntegracion {
     @Test
     @DisplayName("reemplazar el periodo: exige el periodo declarado, muestra lo que oculta, rechaza las filas fuera y el corte es reproducible")
     void reemplazoPeriodoYCorte() {
-        Navegador n = como("analistareemplazo", Perfil.ANALISTA);
+        Navegador n = como("anreemplazo", Perfil.ANALISTA);
         String enc = "NUM_DOC;FUERZA;COD_ESM;MODALIDAD;FECHA_DISPENSACION;CUM;CANTIDAD;VALOR_TOTAL;NUM_FORMULA";
         String sello = Long.toString(System.nanoTime());
         JsonNode original = cargar(n, "septiembre.csv", csv(enc,
@@ -947,7 +1011,7 @@ class IngestaApiTest extends PruebaIntegracion {
         assertThat(r1b.texto()).as("lote repetido: misma respuesta").isEqualTo(r1.texto());
         Navegador.Respuesta r2 = opl.postJson("/api/analitica/opl/dispensacion", lote2);
         assertThat(r2.estado()).as(r2.texto()).isEqualTo(200);
-        Navegador analista = como("analistaws", Perfil.ANALISTA);
+        Navegador analista = como("anws", Perfil.ANALISTA);
         JsonNode fin = esperarFin(analista, id);
         assertThat(fin.path("estado").asText()).as(fin.toString()).isEqualTo("aplicado");
         assertThat(fin.path("fuenteTexto").asText()).isEqualTo("API OPL · dispensación");
@@ -1001,7 +1065,7 @@ class IngestaApiTest extends PruebaIntegracion {
         assertThat(distinto.estado()).isEqualTo(409);
         assertThat(distinto.mensaje()).contains("ya se recibió con otro contenido");
         assertThat(opl.postJson(ruta, ServicioWebOpl.cuerpo(JSON, envio, 2, false, List.of(registro(5), registro(6)))).estado()).isEqualTo(200);
-        JsonNode fin = esperarFin(como("analistasecuencia", Perfil.ANALISTA), id);
+        JsonNode fin = esperarFin(como("ansecuencia", Perfil.ANALISTA), id);
         assertThat(fin.path("estado").asText()).as(fin.toString()).isEqualTo("aplicado");
         assertThat(fin.path("recibidos").asLong()).isEqualTo(5);
         // Un final menor que un lote ya recibido: 422

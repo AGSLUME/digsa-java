@@ -17,8 +17,8 @@ import org.springframework.stereotype.Component;
 @Component
 class AplicadorHechos {
 
-    /** Hechos insertados: cuántos, cuántos sin ESM en puntos y el periodo procesado. */
-    record Carga(long procesados, long esmSinCorrespondencia, LocalDate desde, LocalDate hasta) {
+    /** Hechos insertados: cuántos, cuántos sin ESM en puntos, cuántos sin dato original homologado y el periodo procesado. */
+    record Carga(long procesados, long esmSinCorrespondencia, long sinMedicamento, LocalDate desde, LocalDate hasta) {
     }
 
     /** Solo para pruebas: se llama tras insertar los hechos, dentro de la transacción (la de falla lanza aquí). */
@@ -31,23 +31,27 @@ class AplicadorHechos {
                 INSERT INTO ana_dispensaciones (cargue_id, linea_origen, paciente_seudo, anio_nacimiento, grupo_edad, fuerza, disan, regional_id,
                        punto_id, esm_codigo, modalidad, fecha, cum, cum_original, medicamento_original, principio_activo_original, atc_original,
                        cie10, cantidad, valor_total, valor_unitario, codigo_ssfm, profesional_seudo, especialidad, tipo_formula, numero_formula,
-                       id_dispensacion, item, llave)
+                       id_dispensacion, item, llave, medicamento_id, hom_version_id)
                 SELECT s.cargue_id, s.linea_origen, s.paciente_seudo,
                        CASE WHEN s.anio_nacimiento ~ '^\\d{4}$' AND s.anio_nacimiento::int BETWEEN 1900 AND 2100 THEN s.anio_nacimiento::smallint END,
                        s.grupo_edad, s.fuerza, f.sanidad, p.regional_id, p.id, s.esm, s.modalidad, s.fecha::date, s.cum, s.cum_original,
                        s.medicamento, s.principio_activo, s.atc, s.cie10, round(s.cantidad::numeric, 3), round(s.valor::numeric, 2),
                        round(s.valor_unitario::numeric, 2), s.codigo_ssfm, s.profesional_seudo, s.especialidad, s.tipo_formula, s.numero_formula,
-                       s.id_dispensacion, s.item, s.llave
+                       s.id_dispensacion, s.item, s.llave, h.medicamento_id, h.version_id
                 FROM ana_staging_dispensacion s
                 JOIN par_fuerzas f ON f.codigo = s.fuerza
                 LEFT JOIN puntos_sigla p ON p.sigla = s.esm
+                -- Dato original y versión de la tabla maestra (etapa de homologación, A2): pocos miles de pares por cargue
+                LEFT JOIN hom_cargue_origen h ON h.cargue_id = s.cargue_id
+                     AND h.par_llave = encode(sha256(convert_to(coalesce(s.cum_original, '') || chr(1) || coalesce(s.medicamento, ''), 'UTF8')), 'hex')
                 WHERE s.cargue_id = :c
                   AND NOT EXISTS (SELECT 1 FROM ana_cargue_rechazos r WHERE r.cargue_id = :c AND r.orden = s.linea)
-                RETURNING punto_id, fecha, llave
+                RETURNING punto_id, fecha, llave, medicamento_id
             ), llaves AS (
                 INSERT INTO ana_llaves (llave, cargue_id) SELECT DISTINCT llave, CAST(:c AS bigint) FROM ins ON CONFLICT DO NOTHING
             )
-            SELECT count(*) AS procesados, count(*) FILTER (WHERE punto_id IS NULL) AS sin_esm, min(fecha) AS desde, max(fecha) AS hasta
+            SELECT count(*) AS procesados, count(*) FILTER (WHERE punto_id IS NULL) AS sin_esm, count(*) FILTER (WHERE medicamento_id IS NULL)
+                   AS sin_medicamento, min(fecha) AS desde, max(fecha) AS hasta
             FROM ins""";
 
     private final List<PasoAplicacion> pasos;
@@ -81,7 +85,7 @@ class AplicadorHechos {
     Carga cargar(JdbcClient jdbc, long cargueId, List<Long> reemplaza, java.time.OffsetDateTime ahora, Runnable finHechos) {
         jdbc.sql("SET LOCAL work_mem = '256MB'").update();
         Carga c = jdbc.sql(INSERTAR).param("c", cargueId)
-                .query((rs, n) -> new Carga(rs.getLong(1), rs.getLong(2), fecha(rs.getDate(3)), fecha(rs.getDate(4)))).single();
+                .query((rs, n) -> new Carga(rs.getLong(1), rs.getLong(2), rs.getLong(3), fecha(rs.getDate(4)), fecha(rs.getDate(5)))).single();
         trasInsertar.accept(cargueId);
         if (c.desde() != null) {
             jdbc.sql("""

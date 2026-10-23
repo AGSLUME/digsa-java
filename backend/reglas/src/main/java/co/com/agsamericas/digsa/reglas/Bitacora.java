@@ -87,7 +87,13 @@ public final class Bitacora {
             Map.entry("analitica_cargue_bitacora_exportar", Operacion.CONSULTA), Map.entry("analitica_cargue_original_descarga", Operacion.CONSULTA),
             Map.entry("analitica_cargue_original_borrado", Operacion.ELIMINACION), Map.entry("analitica_ws_lote", Operacion.INSERCION),
             Map.entry("analitica_cargue_duplicado", Operacion.ACTUALIZACION), Map.entry("analitica_cargue_vencido", Operacion.ELIMINACION),
-            Map.entry("analitica_cargue_descartado", Operacion.ELIMINACION));
+            Map.entry("analitica_cargue_descartado", Operacion.ELIMINACION),
+            // Homologación (analitica-homologacion): fuentes oficiales, reglas, ejecuciones, revisión y exportación; sin datos personales
+            Map.entry("homologacion_fuente_cargada", Operacion.INSERCION), Map.entry("homologacion_fuente_publicada", Operacion.ACTUALIZACION),
+            Map.entry("homologacion_lista_modificada", Operacion.ACTUALIZACION), Map.entry("homologacion_regla_modificada", Operacion.ACTUALIZACION),
+            Map.entry("homologacion_ejecutada", Operacion.INSERCION), Map.entry("homologacion_aprobada", Operacion.ACTUALIZACION),
+            Map.entry("homologacion_devuelta", Operacion.ACTUALIZACION), Map.entry("homologacion_consulta", Operacion.CONSULTA),
+            Map.entry("homologacion_exportada", Operacion.CONSULTA));
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

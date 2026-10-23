@@ -201,6 +201,8 @@ La homologación DEBE ser una función pura (`reglas/AnaliticaHomologacion`) que
 - **CUANDO** la dispensación es del 2025-03-01 y el registro venció el 2024-12-31
 - **ENTONCES** el estado es «CUM o registro no válido» por R-003, aunque el CUM exista
 
+<!-- decision: revisión A2 2026-10-23 · R-003 compara con la fecha de dispensación más reciente del dato original en cargues aplicados (un estado por dato original y versión; evaluarlo por dispensación exigiría un estado por mes). Ver dudas_pendientes AN.15 -->
+
 #### Scenario: Corrección automática de un incompleto (P1)
 <!-- test: prueba por escribir AnaliticaHomologacionTest#incompletoCorregido -->
 - **CUANDO** el registro trae CUM válido pero sin principio activo ni ATC
@@ -218,6 +220,9 @@ La homologación DEBE ser una función pura (`reglas/AnaliticaHomologacion`) que
 <!-- entidades: HomVersion, HomMedicamentoOrigen, HomTablaMaestra -->
 <!-- impuesto_en: A5 L691 («tabla maestra normalizada que conserve el dato original, la fuente consultada, la regla aplicada y el dato homologado final»); A5 L948 (14.4); RESP L3855; RESP L5689–5693; A4 L788 (11.2.5) -->
 <!-- decision: diseño 2026-10-22 -->
+
+<!-- decision: revisión A2 2026-10-23 · versionado por diferencia y capa de decisiones -->
+Cada versión guarda solo las filas calculadas nuevas o cambiadas (huella SHA-256); la versión N completa es, por dato original, la fila más reciente de las versiones publicadas con número ≤ N más la última decisión de Revisión con número ≤ N (`hom_tabla_maestra_version(v)`; `hom_version_vigente(corte)` da la versión de un corte). Aprobar o devolver crea una versión sin copiar filas; una versión o un corte anterior no ve la decisión.
 
 Cada ejecución DEBE crear una versión de la tabla maestra (`hom_version`: número, fecha, usuario o proceso, versiones de cada fuente y de cada regla usadas) y, por cada dato original distinto, un registro con: dato original (CUM, descripción, principio activo, concentración, forma, presentación, unidad, código SSFM, CIE-10 tal como llegaron), fuente consultada (nombre, versión y fecha de corte), regla que decidió y reglas aplicadas, dato final (las 13 tablas paramétricas del A5 4.7.2: nombre comercial, DCI, principio activo, concentración, forma, presentación, unidad, CUM, código SSFM, ATC, CIE-10, grupo farmacológico = ATC nivel 3, registro sanitario), estado, detalle de las diferencias y ATC.
 
@@ -240,6 +245,8 @@ Cada ejecución DEBE crear una versión de la tabla maestra (`hom_version`: núm
 <!-- decision: diseño 2026-10-22 -->
 
 Al aplicar un cargue, cada hecho DEBE guardar `medicamento_id` = id estable de `hom_medicamento_origen` (llave: CUM normalizado + descripción normalizada del dato original) y la versión de la tabla maestra vigente en ese momento; los datos nuevos se homologan antes de aplicar el cargue. Una re-ejecución NO DEBE actualizar los hechos: crea una versión nueva, y los tableros resuelven el dato final uniendo `medicamento_id` con la versión elegida (por defecto la vigente a la fecha de corte de la consulta).
+<!-- decision: revisión A2 2026-10-23 · incremental, atómica con el cargue, llave por hash -->
+La etapa homologa solo los datos originales nuevos del cargue (y los que comparten su descripción, por R-040): crece con el cargue, no con la historia; los ya existentes conservan su fila hasta una re-ejecución completa. Lo que escribe queda «pendiente del cargue N» (datos originales, versión sin número, pares y meses) y no se ve; en la transacción que marca el cargue «aplicado» se publica la versión, se confirman los datos, se actualizan la fecha de referencia y el último cargue y se hace el seguimiento de devoluciones; si el cargue termina fallido, rechazado o duplicado, lo pendiente se borra. La carga de hechos se une con `hom_cargue_origen` por el SHA-256 en hexadecimal de `cum || chr(1) || medicamento`; la ingesta rechaza medicamento, CUM o principio de más de 1000 caracteres (causa `texto_largo`). Si algún hecho queda sin `medicamento_id`, el cargue falla en «hechos» con el conteo (la cadena no puede quedar rota). Los atributos del dato original (principio, ATC, SSFM) son el valor más frecuente en los registros del cargue, con empate el menor lexicográfico.
 
 #### Scenario: Re-homologar no toca lo procesado
 <!-- test: prueba por escribir HomologacionApiTest#rehomologarNoReescribe -->
@@ -259,6 +266,8 @@ Al aplicar un cargue, cada hecho DEBE guardar `medicamento_id` = id estable de `
 <!-- decision: diseño 2026-10-22 -->
 
 La pestaña «Revisión» DEBE listar los registros inconsistentes, duplicados, sin correspondencia, pendientes y no válidos, y para cada uno comparar campo a campo OPL frente a INVIMA (principio activo, concentración, forma, registro con su vigencia, presentación, ATC) resaltando las diferencias. «Aprobar homologación» DEBE fijar el dato final elegido (el del INVIMA o un CUM buscado) con estado homologado y regla `MANUAL`; «Devolver al OPL» DEBE exigir motivo (≤ 500 caracteres) y dejar el registro en «pendiente de revisión · devuelto al OPL». La sugerencia de la IA, si está disponible, DEBE mostrarse como «Sugerencia (IA)» y nunca aplicarse sola.
+<!-- decision: revisión A2 2026-10-23 -->
+Aprobar y devolver envían la versión revisada (409 si cambió) y esperan el candado como máximo 5 s (luego 409). Un «CUM o registro no válido» solo se aprueba eligiendo un CUM vigente (422), y el CUM del dato final también debe estar vigente. El motivo libre queda solo en la revisión y el seguimiento; la tabla maestra dice «devuelto al OPL · revisión N» (la pantalla avisa que no se escriban datos de pacientes).
 
 #### Scenario: Aprobar con el dato del INVIMA
 <!-- test: prueba por escribir RevisionApiTest#aprobar -->
@@ -289,6 +298,10 @@ La pestaña «Revisión» DEBE listar los registros inconsistentes, duplicados, 
 <!-- decision: diseño 2026-10-22 -->
 
 Desde la pestaña «Reglas» un ANALISTA o ADMINISTRADOR DEBE poder activar o desactivar una regla, cambiar su orden y sus parámetros (tolerancias, equivalencias de forma, abreviaturas, unidades) y editar los catálogos (sinónimos DCI, sales, códigos SSFM, listas normativas) sin tocar código; cada cambio DEBE crear una versión nueva de la regla o catálogo y una fila de historial con usuario, fecha, valor anterior y nuevo (JSON). «Re-ejecutar homologación» DEBE recalcular sobre todos los datos originales del insumo cargado y mostrar el antes y el después por estado.
+<!-- decision: revisión A2 2026-10-23 · re-ejecución diferida -->
+La re-ejecución corre diferida en un hilo (202; estado y avance en `GET …/ejecuciones/actual`; 409 si ya hay una), con espera máxima de 60 s por el candado; reglas y catálogos se editan con su versión (409 si otra persona los cambió).
+<!-- decision: revisión A2 2026-10-23 · tabla maestra desactualizada -->
+Como el cargue solo homologa los datos originales nuevos, el resumen trae `desactualizada` (motivo, p. ej. «Se publicó INVIMA_CUM_VIGENTES v3 después de la versión 4 de la tabla maestra…») cuando la última re-ejecución o un cargue posterior se calculó con otras fuentes publicadas, reglas (por contenido) o catálogos que los de hoy; la pantalla lo avisa arriba con «Re-ejecutar la homologación» (solo quien opera) y al publicar una fuente. Probado en `HomologacionApiTest#desactualizadaTrasPublicarCum`.
 
 #### Scenario: Cambio pedido por el comité
 <!-- test: M8-4 -->
@@ -325,6 +338,7 @@ El tablero de calidad DEBE mostrar los 6 porcentajes del mockup (homologados, in
 <!-- decision: diseño 2026-10-22 -->
 
 Cada devolución DEBE quedar con fuente, periodo, cargue, motivo, fecha, usuario y estado (`devuelta`, `corregida` cuando un cargue posterior trae el dato homologado, `persiste`), y la pantalla DEBE mostrar por fuente y periodo cuántas hay abiertas y la serie mensual de correcciones; la lista DEBE poder exportarse para enviarla al OPL.
+<!-- decision: revisión A2 2026-10-23 --> Solo cuenta un cargue aplicado. También es `corregida` si el cargue trae un dato original nuevo con el mismo CUM o la misma descripción ya homologado (el OPL corrigió el dato); `resuelta` si se aprueba en Revisión. La pantalla muestra 500 y el total; la exportación las trae todas.
 
 #### Scenario: Corrección en un cargue posterior
 <!-- test: prueba por escribir CalidadApiTest#devolucionCorregida -->

@@ -141,6 +141,7 @@ export const NOMBRE_ETAPA: Record<string, string> = {
   subida: 'Subida',
   lectura: 'Lectura y copia',
   validacion: 'Validación',
+  homologacion: 'Homologación',
   hechos: 'Carga de hechos',
   agregados: 'Agregados',
 };

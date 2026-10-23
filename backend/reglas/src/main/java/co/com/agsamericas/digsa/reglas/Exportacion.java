@@ -50,7 +50,13 @@ public final class Exportacion {
             // --- Analítica (rama analitica) ---
             // V60 · ingesta del insumo del OPL: cargues, partes, lotes del servicio web, rechazos, plantillas y dimensión de tiempo (los
             // hechos ana_dispensaciones no van aquí: ver TECNICAS)
-            "ana_cargues", "ana_cargue_partes", "ana_ws_lotes", "ana_cargue_rechazos", "ana_mapeo_plantillas", "ana_dim_tiempo");
+            "ana_cargues", "ana_cargue_partes", "ana_ws_lotes", "ana_cargue_rechazos", "ana_mapeo_plantillas", "ana_dim_tiempo",
+            // V61 · homologación: referencias oficiales versionadas (CUM del INVIMA, CIE-10, precio regulado, vitales, listas normativas y
+            // códigos SSFM), reglas y catálogos con su historial, versiones de la tabla maestra, revisión y devoluciones al OPL
+            "ref_fuente", "ref_version", "ref_cum_presentacion", "ref_cum_principio_activo", "ref_cum_rol", "ref_atc_nombre_nivel", "ref_cie10",
+            "ref_precio_regulado", "ref_vital_no_disponible", "ref_lista_normativa", "ref_codigo_ssfm", "hom_regla", "hom_regla_historial",
+            "hom_catalogo", "hom_version", "hom_medicamento_origen", "hom_tabla_maestra", "hom_cie10_origen", "hom_tabla_cie10",
+            "hom_cargue_origen", "hom_cargue_mes", "hom_revision", "hom_devolucion");
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
     public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes",
@@ -61,7 +67,9 @@ public final class Exportacion {
             // de dispensación (unos 2 M de filas por mes, 24 M al año) no caben en el límite de 10 minutos de la exportación completa
             // (digsa.exportacion.limite-minutos); se entregan por la exportación analítica por periodo (fase A7). ana_llaves es el índice
             // de llaves naturales de esos mismos hechos (se reconstruye de ellos).
-            "ana_dispensaciones", "ana_llaves");
+            "ana_dispensaciones", "ana_llaves",
+            // Staging de la carga del CUM del INVIMA (UNLOGGED, se vacía al terminar cada versión)
+            "ref_cum_staging");
 
     /**
      * Columnas que no salen (secretos y binarios), por tabla. Las firmas (bytea) salen como PNG en la carpeta de la visita; en el CSV no
@@ -275,6 +283,9 @@ public final class Exportacion {
         linea(sb, "COLUMNAS EXCLUIDAS (secretos y binarios)");
         EXCLUIDAS.forEach((t, c) -> linea(sb, "- " + t + ": " + c.stream().sorted().collect(Collectors.joining(", "))));
         linea(sb, "No se exportan las tablas técnicas: " + TECNICAS.stream().sorted().collect(Collectors.joining(", ")) + ".");
+        // --- Analítica (rama analitica) ---
+        linea(sb, "Los hechos de dispensación de analítica (ana_dispensaciones, ana_llaves) NO van en este ZIP: por su volumen se entregan");
+        linea(sb, "aparte, en la exportación analítica por periodo (un archivo por mes), con su propia huella.");
         linea(sb, "Las imágenes de las firmas salen como PNG en la carpeta firmas/ de cada visita.");
         linea(sb, "");
         linea(sb, "SOPORTES");

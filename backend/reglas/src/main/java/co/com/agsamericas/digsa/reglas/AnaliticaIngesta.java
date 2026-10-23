@@ -676,6 +676,9 @@ public final class AnaliticaIngesta {
 
     // ---------- Causas de rechazo ----------
 
+    /** Largo máximo del medicamento, el CUM y el principio activo de un registro (más se rechaza con {@link Causa#TEXTO_LARGO}). */
+    public static final int TEXTO_MAX = 1000;
+
     /** Catálogo cerrado de causas (código que se guarda ⇒ texto que se muestra). */
     public enum Causa {
         OBLIGATORIO_VACIO("obligatorio_vacio", "Obligatorio vacío"),
@@ -691,6 +694,8 @@ public final class AnaliticaIngesta {
         DUPLICADO_LLAVE("duplicado_llave", "Duplicado por llave natural"),
         YA_CARGADO("ya_cargado", "Ya cargado en otro cargue aplicado"),
         CAMPOS_DISTINTOS("campos_distintos", "Número de campos distinto del encabezado"),
+        // A2: medicamento, CUM o principio activo de más de TEXTO_MAX caracteres (no se homologa: sería una columna mal mapeada)
+        TEXTO_LARGO("texto_largo", "Texto demasiado largo (medicamento, CUM o principio activo de más de 1000 caracteres)"),
         // Estructura: rechazan el archivo completo
         ARCHIVO_VACIO("archivo_vacio", "Archivo vacío o sin encabezado"),
         CODIFICACION("codificacion", "Codificación distinta de UTF-8"),

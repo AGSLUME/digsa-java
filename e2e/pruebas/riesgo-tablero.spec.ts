@@ -11,6 +11,22 @@ const INICIAL = 'Inicial.Riesgo.2026';
 const PESOS_BASE = { incumplimiento: 30, recurrencia: 20, inmediata: 15, planes: 20, incidencias: 15 };
 const UMBRALES_BASE = { alto: 60, medio: 30 };
 
+interface Fila {
+  c: number;
+  nc: number;
+  na: number;
+  pendientes: number;
+}
+
+interface DashboardResultados {
+  resultados: {
+    habilitacion: { habilitado: number; tramite: number; no_habilitado: number };
+    porCategoria: (Fila & { codigo: string; nombre: string })[];
+    porPrestador: (Fila & { prestador: string })[];
+    vacios: { codigo: number; nombre: string; nc: number }[];
+  };
+}
+
 interface Creado {
   id: number;
   usuario: string;
@@ -271,21 +287,70 @@ test('coordinador: dashboard de visitas con indicadores, filtro de fecha y desca
   const descarga = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Descargar Excel' }).click();
   expect((await descarga).suggestedFilename()).toMatch(/\.xlsx$/);
+
+  // 25.3: las tablas nuevas en pantalla (todas las categorías y todos los vacíos, también en 0) y el CSV con las mismas cifras del JSON
+  // Los mismos filtros de la pantalla (Desde de este año), para que las filas coincidan con las de las tablas
+  const filtro = 'desde=' + desde;
+  const json = await api<DashboardResultados>(page, 'GET', `/api/dashboard?${filtro}`);
+  expect(json.estado).toBe(200);
+  const r = json.datos.resultados;
+  expect(r.porCategoria.some((x) => x.codigo === 'OBL' && x.nombre === 'Obligaciones del contrato')).toBe(true);
+  expect(r.vacios.length).toBeGreaterThan(0);
+  await expect(page.getByTestId('tabla-categorias').locator('tbody tr')).toHaveCount(r.porCategoria.length);
+  await expect(page.getByTestId('tabla-categorias').getByRole('columnheader', { name: 'Sin calificar' })).toBeVisible();
+  await expect(page.getByTestId('tabla-vacios').locator('tbody tr')).toHaveCount(r.vacios.length);
+  const csv = await page.request.get(`/api/dashboard/exportar?formato=csv&${filtro}`);
+  expect(csv.status()).toBe(200);
+  const lineas = (await csv.text()).split(/\r?\n/);
+  const linea = (...celdas: (string | number)[]) => expect(lineas, celdas.join(';')).toContain(celdas.join(';'));
+  linea('Habilitación', 'Habilitado', r.habilitacion.habilitado, '', '', '', '');
+  linea('Habilitación', 'No habilitado · en trámite', r.habilitacion.tramite, '', '', '', '');
+  linea('Habilitación', 'No habilitado sin soporte', r.habilitacion.no_habilitado, '', '', '', '');
+  for (const x of r.porCategoria) {
+    const etiqueta = x.codigo === 'OBL' || x.nombre === x.codigo ? x.nombre : `${x.codigo} · ${x.nombre}`;
+    linea('Resultados por categoría', etiqueta, '', x.c, x.nc, x.na, x.pendientes);
+  }
+  for (const x of r.porPrestador) linea('Resultados por prestador', x.prestador, '', x.c, x.nc, x.na, x.pendientes);
+  for (const x of r.vacios) linea('Vacíos de mayor riesgo con No cumple', x.nombre, '', '', x.nc, '', '');
 });
 
-test('celular (360 px): /dashboard y /riesgo sin desplazamiento horizontal de la página', async ({ page }) => {
+test('celular (360 px): /dashboard y /riesgo sin desplazamiento horizontal; el riesgo en tarjetas por ESM', async ({ page }) => {
   test.setTimeout(150_000);
-  const coord = await coordinadorNuevo(page, 'coordcel');
+  await ingresar(page, ...ADMIN);
+  const coord = await crearUsuario(page, 'coordcel', 2, 'Coordinadora riesgo');
+  const esm = await crearEsm(page, 'ESM riesgo celular ', 'EJC');
+  await salir(page);
   await page.setViewportSize({ width: 360, height: 800 });
   await ingresarConClaveInicial(page, coord.usuario, INICIAL, 'Coordinadora.Cel.2026');
 
   await page.goto('/dashboard');
   await expect(page.getByTestId('indicadores-dashboard')).toBeVisible();
   await expect(page.getByTestId('grafica-estado')).toBeVisible();
+  await expect(page.getByTestId('tabla-vacios')).toBeVisible();
   await sinScrollHorizontal(page);
 
+  // 25.4: por debajo de 768 px, una tarjeta por ESM (nombre como encabezado, nivel en texto, cinco barras) y la tabla oculta
   await page.goto('/riesgo');
-  await expect(page.getByTestId('tabla-riesgo')).toBeVisible();
+  const tarjetas = page.getByTestId('tarjetas-riesgo');
+  await expect(tarjetas).toBeVisible();
+  await expect(page.getByTestId('tabla-riesgo')).toBeHidden();
+  await expect(page.getByTestId('tabla-riesgo-fuerza')).toBeHidden();
+  await expect(page.getByTestId('tarjetas-riesgo-fuerza')).toBeVisible();
+  const tarjeta = page.getByTestId('tarjeta-riesgo-' + esm.id);
+  await expect(tarjeta).toBeVisible();
+  await expect(tarjeta.getByRole('heading', { name: esm.nombre })).toBeVisible();
+  await expect(tarjeta.getByTestId('nivel-riesgo-' + esm.id)).toHaveText(/^Riesgo (alto|medio|bajo), \d+(,\d+)? de 100$/);
+  await expect(tarjeta.locator('.mantine-Progress-root')).toHaveCount(5);
+  await expect(tarjeta).toContainText('Sin visita cerrada');
+  const n = await tarjetas.locator('[data-testid^="tarjeta-riesgo-"]').count();
+  const tabla = await api<{ esm: unknown[] }>(page, 'GET', '/api/riesgo');
+  expect(n).toBe(tabla.datos.esm.length);
+  const anchas = await tarjetas
+    .locator('[data-testid^="tarjeta-riesgo-"]')
+    .evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.getAttribute('data-testid')));
+  expect(anchas).toEqual([]);
+  await expect(page.getByTestId('lista-incidencias')).toBeVisible();
+  await expect(page.getByTestId('tabla-incidencias')).toBeHidden();
   await expect(page.getByTestId('panel-pesos')).toBeVisible();
   await expect(page.getByTestId('form-incidencia')).toBeVisible();
   await sinScrollHorizontal(page);

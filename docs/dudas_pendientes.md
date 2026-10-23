@@ -510,6 +510,47 @@ Implementado según `docs/especificaciones/riesgo-tablero`, con la decisión 14 
 | 25.7 | **Plan vencido en el dashboard:** ahora usa el mismo criterio del riesgo (no cuenta la visita que ya tiene un seguimiento cerrado) | Hecho. Pendiente: que el plan en «reportado a la DIGSA» se cierre cuando el seguimiento deja todo completado |
 | 25.8 | **Prueba intermitente `IngresoYSesionApiTest.csrf`:** en una corrida completa la última fila de la bitácora fue la del ingreso y no la del 419 | Pasa sola y pasó en las otras corridas completas. Sin cambio de código; si se repite, ordenar la bitácora de la prueba por id |
 
+
+## Fase 10 · Exportación y alertas (2026-10-22)
+
+Implementado según `docs/especificaciones/exportacion-alertas`. Los anexos piden que las alertas críticas se generen «en tiempo real o cuasi real» (respuesta P75) y que vayan por correo y además por SMS (P77 b):
+- **Bandeja de salida:** el aviso se guarda en la misma transacción del cambio y se despacha al confirmarse, en milisegundos. Un barrido cada 15 s hace de respaldo (reintentos a 1, 5 y 30 min y 2 h; tomas con `SKIP LOCKED`; sin doble envío). El correo crítico pasa primero y el SMS va por un hilo propio.
+- **Alertas:** catálogo editable por el administrador y eventos con la latencia de cada envío (p50 y p95 de correos y SMS) en la pantalla «Alertas». Disparadores en el momento del evento: tarea diaria fallida, correo agotado, archivo sin integridad, base o almacén sin respuesta (monitor cada 30 s), bloqueo masivo de cuentas, intervención inmediata al enviar el acta y plan del OPL vencido.
+- **SMS:** construido detrás de un puerto (archivo en local, ninguno en pruebas). Sin proveedor, la aplicación no arranca en producción.
+- **Exportación completa:** ZIP diferido con un CSV por tabla, LEEME y soportes por visita con huella SHA-256, en una sola foto de la base. Además, ZIP de soportes del OPL para la DIGSA, Sanidad y el administrador.
+- **Corregido en el cierre:** el aviso de una solicitud con más de 100 coordinadores daba error 500 (ahora se reparte en lotes de 100 y el registro es atómico); el primer clic en un perfil de Usuarios se perdía tras un teléfono inválido.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 26.1 | **Proveedor de SMS (P77 b lo exige para las alertas críticas):** sin él la aplicación no arranca con `DIGSA_ENTORNO=produccion` | Construido con los modos `archivo` y `ninguno`. Para la prueba en sitio: contratar el proveedor o desplegar con `DIGSA_ENTORNO=pruebas` y `DIGSA_SMS_MODO=ninguno` (las críticas salen igual por correo) |
+| 26.2 | **Correo por ACS (Azure):** no hay geografía Colombia | No se construyó el adaptador. Sigue el SMTP corporativo |
+| 26.3 | **Destinatarios iniciales del catálogo:** críticas al Administrador; plan del OPL vencido a la coordinación, solo por correo | Editables por el administrador en «Alertas» |
+| 26.4 | **Decisión del líder sobre una objeción:** sigue síncrona (va con el aviso de «plan cerrado») | Los demás avisos informativos (solicitudes, cancelación, recordatorios) ya salen por la bandeja |
+| 26.5 | **¿El coordinador descarga los soportes del OPL?** El spec solo nombra a DIGSA y Sanidad | Hoy recibe 403 |
+| 26.6 | **¿Solo descarga la exportación quien la pidió, o cualquier administrador?** | Solo quien la pidió; vence a las 24 h |
+| 26.7 | **Exportación sin redondeo a 2 decimales y archivos eliminados marcados en el índice** | Así quedó |
+| 26.8 | **Retención de la bandeja de salida (Ley 1581)** | Purga diaria de lo terminado con más de 90 días (`bandeja_retencion_dias`) |
+
+## Fase 11 · Pipeline, respaldo, carga inicial y brechas del dashboard (2026-10-22)
+
+Implementado según `docs/especificaciones/despliegue-carga`:
+- **Integración continua:** GitHub Actions (principal) y Azure DevOps (equivalente), ambos llaman a `ci/*.sh`. Secretos (gitleaks), backend, frontend, e2e (Chromium en cada cambio; Firefox y WebKit de noche), dependencias e imagen con Trivy, SBOM, publicación etiquetada por versión y commit (nunca `latest`) y prueba de respaldo y restauración.
+- **Respaldo y restauración:** `docker/respaldar` y `docker/restaurar` (sh y ps1) con verificación de filas y de huellas de archivos; guía `docs/guia_operacion_servidor.md`.
+- **Carga inicial de maestros:** herramienta de línea de comandos dentro de la imagen (`--digsa.carga.*`), plantillas en `herramientas/plantillas/`, simular por defecto, aplicar todo o nada, idempotente; guía `docs/guia_carga_maestros.md`.
+- **Dashboard:** «sin calificar» por categoría, obligaciones como categoría, «Sin prestador», vacíos de mayor riesgo; exportación con las cifras de la pantalla; tarjetas por ESM en celular.
+- **Imagen:** versión y commit en la imagen y en el log de arranque; healthcheck de readiness.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| 27.1 | **Repositorio y registro de imágenes:** ¿GitHub o Azure DevOps? ¿Pueden alojarse fuera de Colombia? | GitHub Actions como principal; cambiar es trivial porque ambos usan los mismos scripts |
+| 27.2 | **Alojamiento del servidor (16.1):** datacenter en Colombia o nube con región en Colombia | La infraestructura como código queda fuera hasta decidirlo. Imagen, compose, respaldo y guía listos |
+| 27.3 | **¿Quién opera el servidor, la carga inicial y los respaldos?** TI de AGS o el proveedor | Las guías sirven para cualquiera de los dos |
+| 27.4 | **Vigencia del enlace de bienvenida en la carga masiva:** hoy 60 minutos | Se recomienda 72 h; sin parámetro todavía |
+| 27.5 | **RPO, RTO y retención de respaldos** | Propuesta: RPO ≤ 24 h, RTO ≤ 8 h, 30 copias diarias y 12 mensuales |
+| 27.6 | **La carga inicial no se corre en la base de la prueba en sitio:** la condición 4 exige las tablas del proceso vacías | Advertido en la guía |
+| 27.7 | **Lo que necesita Docker no se ha probado:** imagen, prueba de humo, Trivy y la ida y vuelta del respaldo | Se prueba en la primera corrida del pipeline o cuando TI instale Docker |
+| 27.8 | **Dashboard:** ¿«Farmacia alterna» en una sola fila o una por farmacia? | Una sola fila. La habilitación en trámite cuenta en los vacíos (D5) |
+
 ## Presupuesto (rama `presupuesto`, 2026-10-22)
 
 Especificación: `docs/especificaciones/presupuesto/spec.md` (Anexo 5 §4.6, Anexo 2 L739 y L741, casos M7 de la prueba en sitio).

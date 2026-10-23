@@ -1,0 +1,28 @@
+# Suite DIGSA · Dependabot: avisos de seguridad y actualizaciones semanales de dependencias (Maven, npm, Docker y acciones).
+# Cada propuesta pasa por el mismo pipeline (ci.yml) antes de fusionarse.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /backend
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Bogota }
+    open-pull-requests-limit: 5
+    groups:
+      spring: { patterns: ["org.springframework*"] }
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Bogota }
+    open-pull-requests-limit: 5
+    groups:
+      mantine: { patterns: ["@mantine/*"] }
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule: { interval: monthly, timezone: America/Bogota }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: America/Bogota }
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: monthly, timezone: America/Bogota }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly, timezone: America/Bogota }

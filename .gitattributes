@@ -6,3 +6,5 @@
 *.jpg binary
 *.pdf binary
 *.xlsx binary
+# Plantillas de la carga inicial: CSV de Windows (CRLF), iguales byte a byte a las que genera la herramienta
+herramientas/plantillas/*.csv text eol=crlf

@@ -1,0 +1,33 @@
+# Suite DIGSA · configuración de gitleaks (trabajo «secretos», ci/secretos.sh).
+# Usa todas las reglas de gitleaks y agrega las de las variables de la aplicación. Se corre con --redact: el informe dice archivo,
+# línea y regla, nunca el valor.
+
+title = "Suite DIGSA"
+
+[extend]
+useDefault = true
+
+# Claves de la aplicación con un valor escrito: DIGSA_DB_CLAVE=…, DIGSA_SMTP_CLAVE=…, DIGSA_TURNSTILE_SECRETA=…, etc.
+# Un valor vacío, una variable ($VAR, ${VAR}, $(…)), el mensaje de ${VAR:?Falta…} o un marcador (<clave fuerte>, …) no cuenta.
+[[rules]]
+id = "digsa-variable-secreta"
+description = "Clave de la Suite DIGSA escrita en un archivo versionado"
+regex = '''(?i)\b(DIGSA_[A-Z0-9_]*(CLAVE|SECRETA|SECRET|PASSWORD|TOKEN)|POSTGRES_PASSWORD)\b\s*[:=]\s*['"]?([^\s'"$<{…#?]{6,})'''
+secretGroup = 3
+keywords = ["digsa_", "postgres_password"]
+
+# Credenciales dentro de una URL de conexión (jdbc:postgresql://usuario:clave@…, postgresql://usuario:clave@…)
+[[rules]]
+id = "digsa-url-con-clave"
+description = "URL de conexión con usuario y clave"
+regex = '''(?i)(jdbc:)?postgres(ql)?://[^:\s/'"]+:([^@\s/'"$<{]{4,})@'''
+secretGroup = 3
+keywords = ["postgres://", "postgresql://"]
+
+[allowlist]
+description = "Archivos sin secretos reales"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)package-lock\.json$''',
+  '''^docs/especificaciones/''',
+]

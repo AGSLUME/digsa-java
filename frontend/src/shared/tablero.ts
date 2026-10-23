@@ -112,6 +112,11 @@ export function decimal(n: number | null | undefined): string {
   return Number.isInteger(r) ? String(r) : r.toFixed(2).replace('.', ',');
 }
 
+/** Nivel y puntaje en texto para lectores de pantalla y tarjetas: «Riesgo alto, 72 de 100». */
+export function textoNivel(nivel: string, total: number): string {
+  return `Riesgo ${nivelRiesgo(nivel).etiqueta.toLowerCase()}, ${decimal(total)} de 100`;
+}
+
 /** Ancho de una barra en % (0 a 100): valor sobre el máximo; sin máximo positivo, 0. */
 export function porcentajeBarra(valor: number, maximo: number): number {
   if (!Number.isFinite(valor) || !Number.isFinite(maximo) || maximo <= 0 || valor <= 0) return 0;
@@ -227,6 +232,23 @@ export interface OpcionesDashboard {
   estados: Record<string, string>;
 }
 
+export interface FilaCategoria {
+  codigo: string;
+  nombre: string;
+  c: number;
+  nc: number;
+  na: number;
+  pendientes: number;
+}
+
+/** Código de la categoría de las obligaciones de la minuta en el resumen. */
+export const CATEGORIA_OBLIGACIONES = 'OBL';
+
+/** Etiqueta de una categoría como en la descarga: «C05 · Nombre»; las obligaciones (y un código sin nombre) solo con su nombre. */
+export function etiquetaCategoria(x: Pick<FilaCategoria, 'codigo' | 'nombre'>): string {
+  return x.codigo === CATEGORIA_OBLIGACIONES || !x.nombre || x.nombre === x.codigo ? x.nombre || x.codigo : `${x.codigo} · ${x.nombre}`;
+}
+
 export interface DatosDashboard {
   indicadores: {
     total: number;
@@ -254,8 +276,12 @@ export interface DatosDashboard {
     inmediata: number;
     planesAbiertos: number;
     habilitacion: { habilitado: number; tramite: number; no_habilitado: number };
-    porComponente: { codigo: string; nombre: string; c: number; nc: number; na: number }[];
-    porPrestador: { prestador: string; c: number; nc: number; na: number }[];
+    /** Componentes de la versión vigente y «Obligaciones del contrato» (código OBL), también en 0; NC descendente (25.3). */
+    porCategoria: FilaCategoria[];
+    /** «Operador logístico» (ESM y nivel central), «Farmacia alterna» y «Sin prestador» si lo hay (25.3). */
+    porPrestador: { prestador: string; c: number; nc: number; na: number; pendientes: number }[];
+    /** Todos los vacíos de mayor riesgo de la versión vigente con sus ítems en No cumple (también en 0). */
+    vacios: { codigo: number; nombre: string; nc: number }[];
   };
   filtros: Record<string, string>;
 }

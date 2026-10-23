@@ -214,17 +214,57 @@ public class ServicioDashboard {
                        count(*) FILTER (WHERE vr.calificacion = 'NC' AND NOT vr.en_tramite) AS no_habilitado""" + DESDE
                 + " JOIN visitas_respuestas vr ON vr.visita_id = v.id JOIN chk_items i ON i.id = vr.item_id JOIN chk_componentes cc ON cc.id = i.componente_id"
                 + w.sql() + " AND v.estado = 'cerrada' AND cc.codigo = 'C00'").params(w.params()).query().singleRow());
-        r.put("porComponente", jdbc.sql("""
-                SELECT cc.codigo, max(cc.nombre) AS nombre, count(*) FILTER (WHERE vr.calificacion = 'C') AS c, count(*) FILTER (WHERE vr.calificacion = 'NC') AS nc,
-                       count(*) FILTER (WHERE vr.calificacion = 'NA') AS na""" + DESDE
-                + " JOIN visitas_respuestas vr ON vr.visita_id = v.id JOIN chk_items i ON i.id = vr.item_id JOIN chk_componentes cc ON cc.id = i.componente_id"
-                + w.sql() + " AND v.estado = 'cerrada' GROUP BY cc.codigo ORDER BY count(*) FILTER (WHERE vr.calificacion = 'NC') DESC, cc.codigo")
-                .params(w.params()).query().listOfRows());
+        r.put("porCategoria", porCategoria(w));
+        // Prestador por unidad (25.3): ESM y nivel central = operador logístico; FA = farmacia alterna; cerrada sin resumen = «Sin prestador»
         r.put("porPrestador", jdbc.sql("""
-                SELECT CASE WHEN p.unidad = 'FA' THEN 'Farmacia alterna' ELSE 'Operador logístico' END AS prestador, coalesce(sum(rs.c), 0) AS c,
-                       coalesce(sum(rs.nc), 0) AS nc, coalesce(sum(rs.na), 0) AS na""" + DESDE + " LEFT JOIN visitas_resumen rs ON rs.visita_id = v.id" + w.sql()
-                + " AND v.estado = 'cerrada' GROUP BY 1 ORDER BY 3 DESC").params(w.params()).query().listOfRows());
+                SELECT CASE WHEN rs.visita_id IS NULL THEN 'Sin prestador' WHEN p.unidad = 'FA' THEN 'Farmacia alterna'
+                            WHEN p.unidad IN ('ESM', 'NC') THEN 'Operador logístico' ELSE 'Sin prestador' END AS prestador,
+                       coalesce(sum(rs.c), 0) AS c, coalesce(sum(rs.nc), 0) AS nc, coalesce(sum(rs.na), 0) AS na,
+                       coalesce(sum(rs.pendientes), 0) AS pendientes""" + DESDE + " LEFT JOIN visitas_resumen rs ON rs.visita_id = v.id" + w.sql()
+                + " AND v.estado = 'cerrada' GROUP BY 1 ORDER BY 3 DESC, 1").params(w.params()).query().listOfRows());
+        r.put("vacios", vacios(w));
         return r;
+    }
+
+    /** Nombre de la categoría de las obligaciones de la minuta (parte OBL del resumen). */
+    static final String OBLIGACIONES = "Obligaciones del contrato";
+
+    /**
+     * Resultados por categoría (25.3): una fila por componente de la versión vigente más «Obligaciones del contrato», también en 0, con
+     * C, NC, NA y sin calificar del resumen guardado al cerrar ({@code por_componente}: los ítems de los componentes asignados y las
+     * obligaciones del prestador; en el seguimiento, solo los hallazgos verificados). Un componente de otra versión que tenga datos
+     * también sale. Una sola consulta agrupada.
+     */
+    private List<Map<String, Object>> porCategoria(Where w) {
+        return jdbc.sql("""
+                WITH datos AS (
+                  SELECT e.key AS codigo, sum((e.value ->> 'c')::int) AS c, sum((e.value ->> 'nc')::int) AS nc, sum((e.value ->> 'na')::int) AS na,
+                         sum((e.value ->> 'pendientes')::int) AS pendientes""" + DESDE + " JOIN visitas_resumen rs ON rs.visita_id = v.id"
+                + " CROSS JOIN LATERAL jsonb_each(rs.por_componente) e" + w.sql() + " AND v.estado = 'cerrada' GROUP BY e.key" + """
+                ), categorias AS (
+                  SELECT cc.codigo, cc.nombre FROM chk_componentes cc JOIN chk_versiones cv ON cv.version = cc.version AND cv.vigente
+                  UNION ALL SELECT 'OBL', :obligaciones
+                )
+                SELECT coalesce(k.codigo, d.codigo) AS codigo,
+                       coalesce(k.nombre, (SELECT max(x.nombre) FROM chk_componentes x WHERE x.codigo = d.codigo), d.codigo) AS nombre,
+                       coalesce(d.c, 0) AS c, coalesce(d.nc, 0) AS nc, coalesce(d.na, 0) AS na, coalesce(d.pendientes, 0) AS pendientes
+                FROM categorias k FULL JOIN datos d ON d.codigo = k.codigo
+                ORDER BY 4 DESC, 2, 1""").params(w.params()).param("obligaciones", OBLIGACIONES).query().listOfRows();
+    }
+
+    /**
+     * Vacíos de mayor riesgo con No cumple (25.3): todos los de la versión vigente, también en 0, con los ítems en No cumple de las
+     * visitas cerradas del filtro cuya prioridad es ese vacío («N · nombre»); el No cumple en trámite cuenta (D5: es hallazgo).
+     */
+    private List<Map<String, Object>> vacios(Where w) {
+        return jdbc.sql("""
+                SELECT vc.codigo, vc.nombre, coalesce(x.nc, 0) AS nc
+                FROM chk_vacios vc JOIN chk_versiones cv ON cv.version = vc.version AND cv.vigente
+                LEFT JOIN (SELECT split_part(i.prioridad, ' ', 1) AS vacio, count(*) AS nc""" + DESDE
+                + " JOIN visitas_respuestas vr ON vr.visita_id = v.id JOIN chk_items i ON i.id = vr.item_id" + w.sql()
+                + " AND v.estado = 'cerrada' AND vr.calificacion = 'NC' AND i.prioridad IS NOT NULL GROUP BY 1" + """
+                ) x ON x.vacio = vc.codigo::text
+                ORDER BY vc.codigo""").params(w.params()).query().listOfRows();
     }
 
     /** Opciones de los filtros: solo código y nombre; auditores activos sin correo; fuerzas del alcance sin «No aplica». */

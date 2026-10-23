@@ -62,10 +62,22 @@ Los comandos `docker compose …` se escriben en PowerShell, dentro de la carpet
 
 Los volúmenes sobreviven a `docker compose stop`, `docker compose down` y a las actualizaciones.
 
-**Copia de seguridad de la base** (genera un archivo en la carpeta actual):
+**Copia de seguridad de la base** (genera `respaldo_digsa.dump` en la carpeta actual). El respaldo se escribe dentro del contenedor y luego se copia: redirigir con `>` en PowerShell 5.1 corrompe el archivo binario y no se podría restaurar.
 ```powershell
-docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -Fc digsa' > respaldo_digsa.dump
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -Fc -f /tmp/respaldo_digsa.dump digsa'
+docker compose cp db:/tmp/respaldo_digsa.dump .\respaldo_digsa.dump
+docker compose exec -T db rm /tmp/respaldo_digsa.dump
 ```
+
+**Restaurar ese respaldo** (reemplaza los datos actuales de la base por los del archivo):
+```powershell
+docker compose stop app
+docker compose cp .\respaldo_digsa.dump db:/tmp/respaldo_digsa.dump
+docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d digsa --clean --if-exists --no-owner /tmp/respaldo_digsa.dump'
+docker compose exec -T db rm /tmp/respaldo_digsa.dump
+docker compose start app
+```
+Los archivos (evidencias y actas) están en el volumen `datos-app` y deben respaldarse junto con la base. Para eso están `dockerespaldar.ps1` y `dockerestaurar.ps1`: hacen las dos cosas, con huellas y conteo de filas. Ver [guia_operacion_servidor.md](guia_operacion_servidor.md), §6 y §7.
 
 **Empezar de cero** (borra **todos** los datos de prueba de este equipo):
 ```powershell
@@ -90,6 +102,6 @@ Es la misma imagen. En el servidor cambian solo las variables del `.env`:
 - `DIGSA_ENTORNO=pruebas` o `produccion`, con **https** y SMTP real. Fuera de `local` el código ya no aparece en pantalla y se exige captcha.
 - `DIGSA_ESCUCHA=0.0.0.0` detrás del proxy https.
 
-Las claves van en el gestor de secretos del servidor (Key Vault en Azure), nunca en el repositorio. El detalle está en el README, en la sección «En contenedores (Docker)».
+Las claves van en el gestor de secretos del servidor (Key Vault en Azure u otro), nunca en el repositorio. En el servidor no se construye la imagen: se usa la que publica el pipeline. El procedimiento completo está en [guia_operacion_servidor.md](guia_operacion_servidor.md).
 
 **Pendiente:** el envío del código por **SMS** espera al proveedor y sus credenciales. Por ahora el código llega solo por correo, y así lo dice la pantalla de ingreso.

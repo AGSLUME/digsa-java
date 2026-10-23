@@ -39,7 +39,8 @@ test('cambiar mi contraseña: con la actual errada avisa; con la correcta sigue 
   await p.getByRole('button', { name: 'Mi contraseña' }).click();
   const dialogo = p.getByRole('dialog', { name: 'Cambiar mi contraseña' });
   await dialogo.getByLabel('Contraseña actual').fill('No.Es.La.Actual.2026');
-  await dialogo.getByLabel('Contraseña nueva', { exact: true }).fill(NUEVA);
+  // La etiqueta lleva el asterisco de obligatorio: por el nombre accesible, como en apoyo.ts
+  await dialogo.getByRole('textbox', { name: 'Contraseña nueva', exact: true }).fill(NUEVA);
   await dialogo.getByLabel('Confirme la contraseña nueva').fill(NUEVA);
   await dialogo.getByRole('button', { name: 'Cambiar contraseña' }).click();
   await expect(p.getByTestId('error-mi-clave')).toHaveText('La contraseña actual no es correcta.');
@@ -51,6 +52,7 @@ test('cambiar mi contraseña: con la actual errada avisa; con la correcta sigue 
   await p.getByRole('link', { name: 'Mis visitas' }).click();
   await expect(p.getByRole('button', { name: 'Salir', exact: true })).toBeVisible();
   await p.getByRole('button', { name: 'Salir', exact: true }).click();
+  await expect(p.getByRole('button', { name: 'Ingresar', exact: true })).toBeVisible(); // «Salir» termina de volver al ingreso
 
   await ingresar(p, usuario, NUEVA);
   await salir(p);

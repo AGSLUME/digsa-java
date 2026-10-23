@@ -7,6 +7,7 @@ import co.com.agsamericas.digsa.reglas.Bitacora;
 import co.com.agsamericas.digsa.reglas.Claves;
 import co.com.agsamericas.digsa.reglas.Correos;
 import co.com.agsamericas.digsa.reglas.Perfil;
+import co.com.agsamericas.digsa.reglas.Roles;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.EnumSet;
@@ -81,7 +82,8 @@ public class ServicioUsuarios {
         if (documento != null && documento.length() > 30 || telefono != null && telefono.length() > 30) {
             throw ErrorNegocio.validacion("El documento y el teléfono tienen máximo 30 caracteres.");
         }
-        Set<Perfil> perfiles = perfiles(d.perfiles());
+        Asignacion asignacion = asignacion(d.perfiles());
+        Set<Perfil> perfiles = asignacion.efectivos(); // directos más la base de cada rol adicional: datos de alcance y combinaciones
         Alcance.combinacionInvalida(perfiles).ifPresent(m -> {
             throw ErrorNegocio.validacion(m);
         });
@@ -121,7 +123,7 @@ public class ServicioUsuarios {
                 String inicialCodificada = claveInicial == null ? null : claves.codificar(claveInicial);
                 long id = tx.execute(t -> {
                     long nuevoId = usuarios.crear(nombre, documento, telefono, usuario, correo, claveAleatoria, fuerza, punto, regional, ahora);
-                    usuarios.reemplazarPerfiles(nuevoId, perfiles);
+                    usuarios.reemplazarAsignados(nuevoId, asignacion.ids());
                     if (inicialCodificada != null) {
                         usuarios.asignarClaveInicial(nuevoId, inicialCodificada, ahora);
                     }
@@ -129,7 +131,7 @@ public class ServicioUsuarios {
                 });
                 if (inicialCodificada != null) {
                     // Prueba 2 y condición 12: contraseña inicial del administrador, cambio obligatorio al primer ingreso, sin correo
-                    bitacora.registrar("usuario_creado", "Usuario " + usuario + " creado con contraseña inicial; perfiles: " + ids(perfiles),
+                    bitacora.registrar("usuario_creado", "Usuario " + usuario + " creado con contraseña inicial; perfiles: " + ids(asignacion.ids()),
                             quien.id(), quien.usuario());
                     return new Guardado(id, true, true, "Usuario creado con contraseña inicial. Entréguela al usuario por un canal seguro: "
                             + "deberá cambiarla en su primer ingreso.", null);
@@ -137,7 +139,7 @@ public class ServicioUsuarios {
                 Usuario creado = usuarios.porId(id).orElseThrow();
                 ServicioClaves.EnvioEnlace e = claves.enviarEnlace(creado, "Bienvenido a la Suite DIGSA",
                         "Se creó su usuario «" + usuario + "» en la Suite DIGSA. Defina su contraseña con el siguiente enlace.", false);
-                bitacora.registrar("usuario_creado", "Usuario " + usuario + " creado; perfiles: " + ids(perfiles)
+                bitacora.registrar("usuario_creado", "Usuario " + usuario + " creado; perfiles: " + ids(asignacion.ids())
                         + (e.correoOk() ? "" : " (el correo de bienvenida NO salió)"), quien.id(), quien.usuario());
                 String msg = e.correoOk() ? "Usuario creado. Se le envió el enlace para definir su contraseña."
                         : "Usuario creado, pero NO se pudo enviar el correo (" + e.error() + "). Use «Restablecer contraseña» cuando el correo funcione.";
@@ -150,14 +152,14 @@ public class ServicioUsuarios {
             tx.executeWithoutResult(t -> {
                 usuarios.bloquear(actual.id()); // dos administradores editando al mismo usuario: uno espera al otro
                 usuarios.actualizar(actual.id(), nombre, documento, telefono, usuario, correo, fuerza, punto, regional, ahora);
-                usuarios.reemplazarPerfiles(actual.id(), perfiles);
+                usuarios.reemplazarAsignados(actual.id(), asignacion.ids());
                 if (!correo.equals(actual.correo())) {
                     usuarios.anularEnlace(actual.id()); // el enlace enviado al correo anterior deja de servir
                 }
             });
             String cambios = Bitacora.cambios(foto(actual.nombre(), actual.documento(), actual.telefono(), actual.usuario(), actual.correo(),
-                    actual.perfiles(), actual.alcanceFuerza(), actual.alcancePunto(), actual.alcanceRegional()),
-                    foto(nombre, documento, telefono, usuario, correo, perfiles, fuerza, punto, regional), PERSONALES);
+                    actual.asignados(), actual.alcanceFuerza(), actual.alcancePunto(), actual.alcanceRegional()),
+                    foto(nombre, documento, telefono, usuario, correo, asignacion.ids(), fuerza, punto, regional), PERSONALES);
             bitacora.registrar("usuario_editado", "Usuario " + usuario + " editado" + (cambios.isEmpty() ? " (sin cambios)" : ": " + cambios),
                     quien.id(), quien.usuario());
             return new Guardado(actual.id(), false, true, "Usuario actualizado.", null);
@@ -259,14 +261,14 @@ public class ServicioUsuarios {
     }
 
     private static Map<String, Object> foto(String nombre, String documento, String telefono, String usuario, String correo,
-                                            Set<Perfil> perfiles, String fuerza, Long punto, Long regional) {
+                                            Set<Integer> perfiles, String fuerza, Long punto, Long regional) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("nombre", nombre);
         m.put("documento", documento);
         m.put("telefono", telefono);
         m.put("usuario", usuario);
         m.put("correo", correo);
-        m.put("perfiles", perfiles.stream().map(p -> String.valueOf(p.id())).toList());
+        m.put("perfiles", perfiles.stream().map(String::valueOf).toList());
         m.put("fuerza", fuerza);
         m.put("punto", punto);
         m.put("regional", regional);
@@ -296,19 +298,34 @@ public class ServicioUsuarios {
                 "regionales", jdbc.sql("SELECT id, nombre FROM par_regionales WHERE activo ORDER BY nombre").query().listOfRows());
     }
 
-    private Set<Perfil> perfiles(List<Integer> ids) {
+    /** Perfiles y roles marcados: los ids que se guardan y los perfiles de alcance con que se validan los datos y las combinaciones. */
+    private record Asignacion(Set<Integer> ids, Set<Perfil> efectivos) {
+    }
+
+    private Asignacion asignacion(List<Integer> ids) {
         if (ids == null || ids.isEmpty()) {
             throw ErrorNegocio.validacion("Marque al menos un perfil.");
         }
-        Set<Integer> activos = Set.copyOf(jdbc.sql("SELECT id FROM perfiles WHERE activo").query(Integer.class).list());
-        Set<Perfil> r = EnumSet.noneOf(Perfil.class);
+        Map<Integer, Integer> activos = usuarios.activosConBase();
+        Map<Integer, Roles.Adicional> roles = usuarios.rolesActivos();
+        Set<Perfil> directos = EnumSet.noneOf(Perfil.class);
+        List<Roles.Adicional> adicionales = new java.util.ArrayList<>();
+        Set<Integer> marcados = new java.util.TreeSet<>();
         for (Integer id : ids) {
-            if (id == null || !activos.contains(id)) {
+            if (id == null || !activos.containsKey(id)) {
                 throw ErrorNegocio.validacion("Hay un perfil no válido.");
             }
-            r.add(Perfil.deId(id).orElseThrow(() -> ErrorNegocio.validacion("Hay un perfil no válido.")));
+            marcados.add(id);
+            if (activos.get(id) == null) {
+                directos.add(Perfil.deId(id).orElseThrow(() -> ErrorNegocio.validacion("Hay un perfil no válido.")));
+            } else {
+                adicionales.add(java.util.Optional.ofNullable(roles.get(id)).orElseThrow(() -> ErrorNegocio.validacion("Hay un perfil no válido.")));
+            }
         }
-        return r;
+        Roles.asignacionInvalida(directos, adicionales).ifPresent(m -> {
+            throw ErrorNegocio.validacion(m);
+        });
+        return new Asignacion(Set.copyOf(marcados), Roles.deAlcance(directos, adicionales));
     }
 
     /** ¿Existe y está activo? Si la tabla aún no existe (catálogos del sprint 2), no hay a quién asignar. */
@@ -323,8 +340,8 @@ public class ServicioUsuarios {
         return jdbc.sql("SELECT count(*) FROM " + tabla + " WHERE id = :id AND activo").param("id", id).query(Long.class).single() > 0;
     }
 
-    private static String ids(Set<Perfil> perfiles) {
-        return String.join(",", perfiles.stream().map(p -> String.valueOf(p.id())).sorted().toList());
+    private static String ids(Set<Integer> ids) {
+        return String.join(",", new java.util.TreeSet<>(ids).stream().map(String::valueOf).toList());
     }
 
     private static String texto(String s) {

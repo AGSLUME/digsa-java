@@ -31,6 +31,8 @@ public final class Exportacion {
             "perfiles", "usuarios", "usuarios_perfiles", "mfa_codigos", "log_transacciones",
             // V30 · parámetros de seguridad del administrador (sesión 2: usuarios, roles y logs)
             "seg_parametros",
+            // V31 · roles adicionales parametrizables (Anexo 5, 1.12)
+            "perfiles_pantallas",
             // V3 · catálogos, maestros y checklist
             "par_departamentos", "par_municipios", "par_unidades", "par_fuerzas", "par_regionales", "par_modalidades", "par_tipos_visita",
             "par_parametros", "par_festivos", "catalogos", "catalogo_valores", "opl", "puntos", "auditores", "chk_versiones", "chk_vacios",

@@ -77,7 +77,8 @@ public final class Bitacora {
             Map.entry("exportacion_fallida", Operacion.INSERCION), Map.entry("exportacion_vencida", Operacion.ELIMINACION),
             Map.entry("exportacion_completa", Operacion.CONSULTA), Map.entry("soportes_opl_descargados", Operacion.CONSULTA),
             // Usuarios, roles y logs (sesión 2, rama identidad-roles-logs)
-            Map.entry("usuario_desbloqueado", Operacion.ACTUALIZACION), Map.entry("clave_cambio_fallido", Operacion.ACTUALIZACION));
+            Map.entry("usuario_desbloqueado", Operacion.ACTUALIZACION), Map.entry("clave_cambio_fallido", Operacion.ACTUALIZACION),
+            Map.entry("rol_creado", Operacion.INSERCION), Map.entry("rol_editado", Operacion.ACTUALIZACION), Map.entry("rol_estado", Operacion.ACTUALIZACION));
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

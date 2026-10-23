@@ -136,8 +136,9 @@ public class FiltroSesion extends OncePerRequestFilter {
         req.setAttribute(RegistroBitacora.ATR_USUARIO_ID, u.id());
         req.setAttribute(RegistroBitacora.ATR_USUARIO, u.usuario());
         AbstractAuthenticationToken auth = (AbstractAuthenticationToken) UsuarioSesion.autenticacion(
-                new UsuarioSesion(u.id(), u.usuario(), u.nombre()), u.perfiles());
-        auth.setDetails(u.alcance()); // solo para esta petición: no se guarda en la sesión
+                new UsuarioSesion(u.id(), u.usuario(), u.nombre()), u.perfiles()); // solo los directos: un rol no da la identidad de su base
+        // Solo para esta petición (no se guarda en la sesión): un perfil o rol quitado deja de servir de inmediato
+        auth.setDetails(new UsuarioSesion.Acceso(u.alcance(), u.pantallas(), u.asignados()));
         SecurityContext ctx = SecurityContextHolder.createEmptyContext();
         ctx.setAuthentication(auth);
         SecurityContextHolder.setContext(ctx);

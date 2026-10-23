@@ -3,7 +3,6 @@ package co.com.agsamericas.digsa.identidad;
 import co.com.agsamericas.digsa.plataforma.Accion;
 import co.com.agsamericas.digsa.reglas.Bitacora.Declarada;
 import co.com.agsamericas.digsa.reglas.Pantallas;
-import co.com.agsamericas.digsa.reglas.Perfil;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,9 +29,9 @@ public class ControladorSesion {
     @Accion(modulo = "sesion", accion = "datos", operacion = Declarada.SIN_REGISTRO)
     public Map<String, Object> datos() {
         UsuarioSesion u = UsuarioSesion.actual().orElseThrow();
-        Set<Perfil> perfiles = UsuarioSesion.perfilesActuales();
+        Set<Pantallas> permitidas = UsuarioSesion.pantallasActuales(); // perfiles directos y roles adicionales (Anexo 5, 1.12)
         List<Map<String, String>> menu = Arrays.stream(Pantallas.values())
-                .filter(p -> !p.oculta() && p.puedeEntrar(perfiles, true))
+                .filter(p -> !p.oculta() && permitidas.contains(p))
                 .map(p -> {
                     Map<String, String> m = new LinkedHashMap<>();
                     m.put("ruta", p.ruta());
@@ -45,10 +44,12 @@ public class ControladorSesion {
         m.put("usuario", u.usuario());
         m.put("nombre", u.nombre());
         Map<Integer, String> nombres = usuarios.nombresPerfiles(); // configurables por el administrador
-        m.put("perfiles", perfiles.stream().map(p -> nombres.getOrDefault(p.id(), p.nombre())).sorted().toList());
+        // Los asignados (perfiles y roles adicionales) con su nombre visible; los perfiles efectivos solo cuentan para las reglas
+        Set<Integer> asignados = UsuarioSesion.asignadosActuales();
+        m.put("perfiles", asignados.stream().map(id -> nombres.getOrDefault(id, String.valueOf(id))).sorted().toList());
         m.put("menu", menu);
         // Todas las pantallas permitidas, incluidas las que no van en el menú (p. ej. el formulario de la visita)
-        m.put("pantallas", Arrays.stream(Pantallas.values()).filter(p -> p.puedeEntrar(perfiles, true)).map(Pantallas::ruta).toList());
+        m.put("pantallas", Arrays.stream(Pantallas.values()).filter(permitidas::contains).map(Pantallas::ruta).toList());
         m.put("minutosInactividad", parametros.minutosSesion());
         return m;
     }

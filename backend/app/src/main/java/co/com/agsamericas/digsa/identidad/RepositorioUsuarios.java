@@ -1,6 +1,8 @@
 package co.com.agsamericas.digsa.identidad;
 
+import co.com.agsamericas.digsa.reglas.Pantallas;
 import co.com.agsamericas.digsa.reglas.Perfil;
+import co.com.agsamericas.digsa.reglas.Roles;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -21,12 +23,18 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class RepositorioUsuarios {
 
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(RepositorioUsuarios.class);
+
     private static final String COLUMNAS = """
             u.id, u.nombre, u.documento, u.telefono, u.usuario, u.correo, u.clave_hash, u.activo, u.clave_definida, u.clave_vence,
             u.debe_cambiar_clave, u.clave_actualizada, u.token_hash, u.token_vence, u.intentos, u.bloqueado_hasta, u.ultimo_ingreso,
             u.alcance_fuerza, u.alcance_punto, u.alcance_regional, u.sesion_huella, u.sesion_ultimo, u.clave_inicial,
             COALESCE((SELECT string_agg(up.perfil_id::text, ',') FROM usuarios_perfiles up JOIN perfiles p ON p.id = up.perfil_id
-                      WHERE up.usuario_id = u.id AND p.activo), '') AS perfiles""";
+                      WHERE up.usuario_id = u.id AND p.activo AND p.base_id IS NULL), '') AS perfiles,
+            COALESCE((SELECT string_agg(p.id || ':' || p.base_id || ':' || COALESCE(pp.pantalla, ''), ',')
+                      FROM usuarios_perfiles up JOIN perfiles p ON p.id = up.perfil_id JOIN perfiles b ON b.id = p.base_id AND b.activo
+                      LEFT JOIN perfiles_pantallas pp ON pp.perfil_id = p.id
+                      WHERE up.usuario_id = u.id AND p.activo), '') AS roles_adicionales""";
 
     private final JdbcClient jdbc;
 
@@ -236,9 +244,10 @@ public class RepositorioUsuarios {
                 .param("id", id).update();
     }
 
-    /** Perfiles activos que se pueden asignar (Consulta queda fuera). */
+    /** Perfiles y roles adicionales activos que se pueden asignar (Consulta queda fuera); los roles traen su perfil base. */
     public List<Map<String, Object>> perfilesActivos() {
-        return jdbc.sql("SELECT id, nombre, descripcion FROM perfiles WHERE activo ORDER BY id").query().listOfRows();
+        return jdbc.sql("SELECT id, nombre, descripcion, base_id AS \"baseId\" FROM perfiles WHERE activo ORDER BY base_id NULLS FIRST, id")
+                .query().listOfRows();
     }
 
     static Usuario fila(ResultSet rs, int n) throws SQLException {
@@ -254,7 +263,64 @@ public class RepositorioUsuarios {
                 instante(rs, "clave_actualizada"), rs.getString("token_hash"), instante(rs, "token_vence"), rs.getInt("intentos"),
                 instante(rs, "bloqueado_hasta"), instante(rs, "ultimo_ingreso"), rs.getString("alcance_fuerza"),
                 (Long) rs.getObject("alcance_punto"), (Long) rs.getObject("alcance_regional"), rs.getString("sesion_huella"),
-                instante(rs, "sesion_ultimo"), rs.getBoolean("clave_inicial"), Set.copyOf(perfiles));
+                instante(rs, "sesion_ultimo"), rs.getBoolean("clave_inicial"), Set.copyOf(perfiles), roles(rs.getString("roles_adicionales")));
+    }
+
+    /**
+     * Roles adicionales a partir de "id:base:PANTALLA,…". Una pantalla que ya no existe en el código se ignora, y un rol cuya base dejó de
+     * existir no se cuenta: falla cerrado.
+     */
+    static List<Roles.Adicional> roles(String texto) {
+        if (texto == null || texto.isBlank()) {
+            return List.of();
+        }
+        Map<Integer, Perfil> bases = new java.util.TreeMap<>();
+        Map<Integer, Set<Pantallas>> pantallas = new java.util.TreeMap<>();
+        for (String parte : texto.split(",")) {
+            String[] c = parte.split(":", -1);
+            if (c.length != 3) {
+                continue;
+            }
+            int id = Integer.parseInt(c[0]);
+            Optional<Perfil> base = Perfil.deId(Integer.parseInt(c[1])).filter(Roles.BASES::contains);
+            if (base.isEmpty()) {
+                LOG.warn("[roles] Rol {} ignorado: su perfil base {} no es válido", c[0], c[1]);
+                continue;
+            }
+            bases.put(id, base.get());
+            Set<Pantallas> ps = pantallas.computeIfAbsent(id, k -> EnumSet.noneOf(Pantallas.class));
+            java.util.Arrays.stream(Pantallas.values()).filter(p -> p.name().equals(c[2])).findFirst().ifPresent(ps::add);
+        }
+        return bases.entrySet().stream().map(e -> new Roles.Adicional(e.getKey(), e.getValue(), pantallas.get(e.getKey()))).toList();
+    }
+
+    /**
+     * Asignaciones del usuario (perfiles base y roles adicionales, por id): reemplaza las activas. Las de roles inactivos se conservan: si el
+     * rol se reactiva, el usuario lo vuelve a tener.
+     */
+    public void reemplazarAsignados(long id, Collection<Integer> perfilIds) {
+        jdbc.sql("DELETE FROM usuarios_perfiles WHERE usuario_id = :id AND perfil_id IN (SELECT id FROM perfiles WHERE activo)").param("id", id).update();
+        for (Integer p : perfilIds) {
+            jdbc.sql("INSERT INTO usuarios_perfiles (usuario_id, perfil_id) VALUES (:u, :p) ON CONFLICT DO NOTHING").param("u", id).param("p", p).update();
+        }
+    }
+
+    /** Perfiles y roles activos, con la base de cada rol adicional (nula en los perfiles base). */
+    public Map<Integer, Integer> activosConBase() {
+        Map<Integer, Integer> m = new java.util.HashMap<>();
+        jdbc.sql("SELECT id, base_id FROM perfiles WHERE activo").query((rs, n) -> m.put(rs.getInt(1), (Integer) rs.getObject(2))).list();
+        return m;
+    }
+
+    /** Roles adicionales activos, con su base y pantallas, por id. */
+    public Map<Integer, Roles.Adicional> rolesActivos() {
+        Map<Integer, Roles.Adicional> m = new java.util.HashMap<>();
+        roles(jdbc.sql("""
+                SELECT COALESCE(string_agg(p.id || ':' || p.base_id || ':' || COALESCE(pp.pantalla, ''), ','), '')
+                FROM perfiles p JOIN perfiles b ON b.id = p.base_id AND b.activo LEFT JOIN perfiles_pantallas pp ON pp.perfil_id = p.id
+                WHERE p.activo""")
+                .query(String.class).single()).forEach(r -> m.put(r.id(), r));
+        return m;
     }
 
     static Instant instante(ResultSet rs, String columna) throws SQLException {

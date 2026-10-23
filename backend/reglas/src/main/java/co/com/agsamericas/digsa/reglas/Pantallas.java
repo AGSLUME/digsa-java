@@ -14,15 +14,16 @@ public enum Pantallas {
     PROPUESTA("propuesta", "Propuesta de agenda", "Visitas", Set.of(Perfil.COORDINADOR)),
     MIS_VISITAS("mis-visitas", "Mis visitas", "Visitas", Set.of(Perfil.AUDITOR)),
     HALLAZGOS("hallazgos", "Prestadores con hallazgos", "Visitas",
-            union(Set.of(Perfil.AUDITOR, Perfil.COORDINADOR), Alcance.PERFILES_CONSULTA)),
-    CALENDARIO("calendario", "Calendario de visitas", "Visitas", Alcance.PERFILES_CONSULTA),
+            union(Set.of(Perfil.AUDITOR, Perfil.COORDINADOR), Alcance.PERFILES_CONSULTA, Set.of(Perfil.ANALISTA))),
+    CALENDARIO("calendario", "Calendario de visitas", "Visitas", union(Alcance.PERFILES_CONSULTA, Set.of(Perfil.ANALISTA))),
     SOLICITUDES("solicitudes", "Solicitudes de visita", "Visitas", Set.of(Perfil.COORDINADOR, Perfil.DIGSA, Perfil.SANIDAD)),
     /** Prórrogas del plan: las aprueban el coordinador y la DIGSA (decisión 12.1). */
     PRORROGAS("prorrogas", "Prórrogas del plan", "Visitas", Set.of(Perfil.COORDINADOR, Perfil.DIGSA)),
     OPL("opl", "Respuesta a hallazgos", "Visitas", Set.of(Perfil.OPL_NACIONAL, Perfil.OPL_REGIONAL)),
-    RIESGO("riesgo", "Dashboard de riesgo", "Visitas", union(Set.of(Perfil.COORDINADOR), Alcance.PERFILES_CONSULTA)),
-    DASHBOARD("dashboard", "Dashboard", "Visitas", union(Set.of(Perfil.COORDINADOR), Alcance.PERFILES_CONSULTA)),
-    REPORTES("reportes", "Reportes de visitas", "Visitas", union(Set.of(Perfil.COORDINADOR), Alcance.PERFILES_CONSULTA)),
+    // El Analista entra en modo consulta nacional, como la DIGSA, sin solicitar visitas (decisión del usuario del 2026-10-22)
+    RIESGO("riesgo", "Dashboard de riesgo", "Visitas", union(Set.of(Perfil.COORDINADOR, Perfil.ANALISTA), Alcance.PERFILES_CONSULTA)),
+    DASHBOARD("dashboard", "Dashboard", "Visitas", union(Set.of(Perfil.COORDINADOR, Perfil.ANALISTA), Alcance.PERFILES_CONSULTA)),
+    REPORTES("reportes", "Reportes de visitas", "Visitas", union(Set.of(Perfil.COORDINADOR, Perfil.ANALISTA), Alcance.PERFILES_CONSULTA)),
     MAESTROS("maestros", "Puntos y auditores", "Configuración", Set.of(Perfil.COORDINADOR)),
     CATALOGOS("catalogos", "Catálogos", "Configuración", Set.of(Perfil.COORDINADOR)),
     /** Catálogo de alertas (lo edita el administrador) y eventos con la latencia de la bandeja de salida (fase 10; GMI P75 y P77 b). */
@@ -76,10 +77,12 @@ public enum Pantallas {
         return this == VISITA;
     }
 
-    private static Set<Perfil> union(Set<Perfil> a, Set<Perfil> b) {
+    @SafeVarargs
+    private static Set<Perfil> union(Set<Perfil>... conjuntos) {
         EnumSet<Perfil> u = EnumSet.noneOf(Perfil.class);
-        u.addAll(a);
-        u.addAll(b);
+        for (Set<Perfil> c : conjuntos) {
+            u.addAll(c);
+        }
         return Set.copyOf(u);
     }
 }

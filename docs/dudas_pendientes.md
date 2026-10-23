@@ -544,3 +544,24 @@ Hecho:
 | 26.4 | **Ramas 409 sin prueba:** el cambio en el ingreso cuando la contraseña dejó de estar vencida entre los dos pasos, y el cambio concurrente de la propia contraseña | El control optimista (`WHERE clave_hash = :anterior`) está; faltan sus pruebas |
 | 26.5 | **Restablecer el TIME OUT en las e2e:** el servidor de las e2e es compartido; la prueba lo restablece y falla con un mensaje claro si no puede | Hecho |
 | 26.6 | **Coordinación con la exportación (sesión 1):** cada tabla nueva debe ir en `reglas/Exportacion.TABLAS` (lo exige `ExportacionApiTest.tablasContraElEsquema`) | Se agregó `seg_parametros` (V30) con una línea aditiva; las tablas de E2 y E3 se agregarán igual. Avisar a la sesión 1 al integrar |
+
+### E2 · Roles adicionales y Analista
+
+Hecho:
+
+- **Roles adicionales** (Anexo 5, 1.12) en Usuarios › Roles adicionales. Cada rol tiene un perfil base y un subconjunto de sus pantallas, y se asigna en el formulario del usuario.
+- **Autorización:** el menú y `@permisos.pantalla` usan las mismas pantallas calculadas en cada petición. El alcance de los datos sale de los perfiles directos más la base de cada rol.
+- **Falla cerrado (P1 de la revisión de seguridad):**
+  - las autoridades y `perfilesActuales()` llevan **solo los perfiles directos**: un rol no da la identidad de su base en las reglas de los demás módulos (registrar incidencias, decidir prórrogas…);
+  - un usuario con roles no tiene perfiles directos y todos sus roles comparten base; si una mezcla queda por reactivar un rol, el rol no suma nada;
+  - el Auditor no es base, y las pantallas ocultas (Visita) no se eligen;
+  - CHECK en la base: solo bases 2 y 5 a 10.
+- **Analista:** consulta nacional.
+- **Base de datos:** V31 (`perfiles.base_id`, `perfiles_pantallas` y ids desde 100). `perfiles_pantallas` va en `Exportacion.TABLAS`.
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 26.7 | **Analista en visitas:** los anexos no le dan funciones en este módulo | Consulta nacional, como la DIGSA, sin solicitar visitas ni descargar los soportes del OPL (decisión del usuario). Si la adenda dice otra cosa, se ajusta con un rol adicional sin programar |
+| 26.8 | **Un rol da consulta, no las acciones de su perfil base:** los servicios de agenda, tablero, ejecución y solicitudes deciden por el perfil directo (`perfilesActuales()`, `hasAnyAuthority`). Un rol con base Coordinador y la pantalla Agenda la ve, pero no actúa como coordinador | Así falla cerrado (P1 de la revisión). Para que un rol pueda actuar, cada servicio tendría que recibir los perfiles según la pantalla: coordinar con la sesión 1 si la DIGSA pide un rol con acciones |
+| 26.9 | **Usuario cuyo único rol está inactivo:** el formulario no muestra el rol inactivo; para editar al usuario hay que marcarle otro perfil o reactivar el rol | La asignación al rol inactivo se conserva al editar |
+| 26.10 | **`AlertaIntervencionApiTest` (módulo ejecución, sesión 1) falla a veces en la corrida completa:** espera 5 s el aviso de la bandeja de salida y la máquina está cargada con las corridas de las dos sesiones | Pasa sola. Sin cambio de código; avisar a la sesión 1 por si conviene ampliar la espera |

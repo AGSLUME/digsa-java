@@ -1,269 +1,417 @@
-import { Alert, Button, Card, Group, Loader, ScrollArea, Select, SimpleGrid, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Grid,
+  Group,
+  Loader,
+  MultiSelect,
+  NavLink,
+  Pagination,
+  ScrollArea,
+  Select,
+  SimpleGrid,
+  Stack,
+  Table,
+  Tabs,
+  Text,
+  TextInput,
+  Title,
+} from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { type FormEvent, useMemo, useState } from 'react';
 import { api, descargar, ErrorApi } from '../shared/api';
-
-interface Opciones {
-  tipos: Record<string, string>;
-  formatos: string[];
-  puntos: { id: number; nombre: string; sigla: string | null; unidad: string; fuerza: string }[];
-  fuerzas: { codigo: string; nombre: string }[];
-  componentes: { codigo: string; nombre: string }[];
-  estados: Record<string, string>;
-}
-
-interface ReporteVisitas {
-  titulo: string;
-  generado: string;
-  usuario: string;
-  filtros: Record<string, string>;
-  columnas: string[];
-  filas: (string | number | null)[][];
-}
-
-interface Filtros {
-  desde: string;
-  hasta: string;
-  puntoId: string;
-  fuerza: string;
-  unidad: string;
-  estado: string;
-  componente: string;
-}
-
-const FORMATOS: { valor: string; etiqueta: string }[] = [
-  { valor: 'xlsx', etiqueta: 'Excel' },
-  { valor: 'csv', etiqueta: 'CSV' },
-  { valor: 'pdf', etiqueta: 'PDF' },
-  { valor: 'txt', etiqueta: 'TXT' },
-];
+import { VerificarReporte } from './VerificarReporte';
+import {
+  type Catalogo,
+  celda,
+  conservarValores,
+  cuerpoEnvio,
+  type DefReporte,
+  type Eleccion,
+  FILAS_POR_PAGINA,
+  filtrarCatalogo,
+  FORMATOS,
+  type Opcion,
+  parametros,
+  type Resultado,
+  totalPaginas,
+} from '../shared/reportes';
 
 function hoy(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Orden de las pestañas: la distribución auditor–punto (solo coordinación y DIGSA) va al final. */
-const ORDEN_TIPOS = ['detalle', 'lugar', 'proceso', 'distribucion'];
-
-export function ordenTipos(tipos: Record<string, string>): [string, string][] {
-  const pos = (k: string) => (ORDEN_TIPOS.includes(k) ? ORDEN_TIPOS.indexOf(k) : ORDEN_TIPOS.length);
-  return Object.entries(tipos).sort(([a], [b]) => pos(a) - pos(b));
+/** Línea del encabezado 2.9: etiqueta y valor; las largas (código, huella) ocupan la fila entera y se parten donde haga falta. */
+function Dato({ etiqueta, valor, largo = false }: { etiqueta: string; valor: string; largo?: boolean }) {
+  return (
+    <Text size="sm" style={largo ? { gridColumn: '1 / -1', overflowWrap: 'anywhere' } : undefined}>
+      <Text span c="dimmed">
+        {etiqueta}:
+      </Text>{' '}
+      <Text span ff={largo ? 'monospace' : undefined}>
+        {valor}
+      </Text>
+    </Text>
+  );
 }
 
-/** La distribución auditor–punto solo se filtra por el periodo: el lugar, la fuerza, la unidad y el estado no aplican. */
-export function soloPeriodo(tipo: string): boolean {
-  return tipo === 'distribucion';
-}
-
-/** Parámetros de la consulta del reporte (solo los filtros con valor que aplican al tipo). */
-export function parametros(f: Filtros, tipo: string): URLSearchParams {
-  const p = new URLSearchParams();
-  if (f.desde) p.set('desde', f.desde);
-  if (f.hasta) p.set('hasta', f.hasta);
-  if (soloPeriodo(tipo)) return p;
-  if (f.puntoId) p.set('punto_id', f.puntoId);
-  if (f.fuerza) p.set('fuerza', f.fuerza);
-  if (f.unidad) p.set('unidad', f.unidad);
-  if (f.estado) p.set('estado', f.estado);
-  if (tipo === 'proceso' && f.componente) p.set('componente', f.componente);
-  return p;
-}
-
-/** Celda: números con coma decimal (como en la exportación). */
-function celda(v: string | number | null): string {
-  if (v === null || v === undefined) return '';
-  if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(1).replace('.', ',');
-  return v;
-}
-
-/** Reportes de visitas (Anexo 5, prueba 13): detalle, consolidado por lugar y por proceso, con descarga y envío por correo. */
+/**
+ * Módulo de reportes (Anexo 5, 2.7 a 2.12): catálogo por perfil con buscador, filtros de una, varias o todas las opciones, periodo con
+ * presets y agrupación, encabezado con título, periodo, fecha, usuario, establecimiento, filtros, fuente y página, descarga en Excel,
+ * CSV, PDF o TXT y envío por correo.
+ */
 export function Reportes() {
-  const opciones = useQuery({ queryKey: ['reportes', 'opciones'], queryFn: () => api<Opciones>('/api/reportes') });
-  const [tipo, setTipo] = useState('detalle');
-  const [f, setF] = useState<Filtros>({
-    desde: `${new Date().getFullYear()}-01-01`,
-    hasta: hoy(),
-    puntoId: '',
-    fuerza: '',
-    unidad: '',
-    estado: '',
-    componente: '',
-  });
-  const [aplicado, setAplicado] = useState<{ tipo: string; f: Filtros } | null>(null);
+  const catalogo = useQuery({ queryKey: ['reportes', 'catalogo'], queryFn: () => api<Catalogo>('/api/reportes/catalogo') });
+  const [buscar, setBuscar] = useState('');
+  const [elegido, setElegido] = useState<string | null>(null);
+  const [e, setE] = useState<Eleccion>({ desde: `${new Date().getFullYear()}-01-01`, hasta: hoy(), agrupacion: '', valores: {} });
+  const [aplicado, setAplicado] = useState<{ def: DefReporte; e: Eleccion } | null>(null);
+  const [pagina, setPagina] = useState(1);
   const [para, setPara] = useState('');
   const [formatoEnvio, setFormatoEnvio] = useState('xlsx');
+  const [descargando, setDescargando] = useState<string | null>(null);
+  const [pestana, setPestana] = useState('generar');
 
-  const consulta = aplicado ? `/api/reportes/${aplicado.tipo}?${parametros(aplicado.f, aplicado.tipo).toString()}` : null;
+  const todos = useMemo(() => (catalogo.data?.grupos ?? []).flatMap((g) => g.reportes), [catalogo.data]);
+  const def = todos.find((r) => r.id === elegido) ?? todos[0] ?? null;
+  const grupos = useMemo(() => filtrarCatalogo(catalogo.data?.grupos ?? [], buscar), [catalogo.data, buscar]);
+
+  const opciones = useQuery({
+    queryKey: ['reportes', 'opciones', def?.id],
+    queryFn: () => api<Record<string, Opcion[]>>(`/api/reportes/${def!.id}/opciones`),
+    enabled: def !== null && def.filtros.some((f) => f.tipo === 'lista'),
+  });
+  const datosFiltros = useMemo(() => {
+    const m: Record<string, { value: string; label: string }[]> = {};
+    for (const [k, l] of Object.entries(opciones.data ?? {})) m[k] = l.map((o) => ({ value: o.valor, label: o.etiqueta }));
+    return m;
+  }, [opciones.data]);
+
+  const consulta = aplicado ? `/api/reportes/${aplicado.def.id}?${parametros(aplicado.def, aplicado.e).toString()}` : null;
   const reporte = useQuery({
     queryKey: ['reportes', consulta],
-    queryFn: () => api<ReporteVisitas>(consulta!),
+    queryFn: () => api<Resultado>(consulta!),
     enabled: consulta !== null,
   });
 
+  // Descarga y envío usan siempre los filtros del reporte que se está viendo (aplicado), no los que se están editando
   const enviar = useMutation({
-    mutationFn: () => {
-      const a = aplicado ?? { tipo, f };
-      const cuerpo: Record<string, unknown> = { para, formato: formatoEnvio };
-      parametros(a.f, a.tipo).forEach((v, k) => {
-        cuerpo[k === 'punto_id' ? 'puntoId' : k] = k === 'punto_id' ? Number(v) : v;
-      });
-      return api<{ mensaje: string }>(`/api/reportes/${a.tipo}/enviar`, { cuerpo });
-    },
+    mutationFn: (a: { def: DefReporte; e: Eleccion }) =>
+      api<{ mensaje: string }>(`/api/reportes/${a.def.id}/enviar`, { cuerpo: cuerpoEnvio(a.def, a.e, para, formatoEnvio) }),
     onSuccess: (r) => notifications.show({ color: 'green', message: r.mensaje }),
-    onError: (e) => notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo enviar el reporte.' }),
+    onError: (err) => notifications.show({ color: 'red', message: err instanceof ErrorApi ? err.message : 'No se pudo enviar el reporte.' }),
   });
 
-  const puntos = useMemo(
-    () => (opciones.data?.puntos ?? []).map((p) => ({ value: String(p.id), label: `${p.sigla ? p.sigla + ' · ' : ''}${p.nombre}` })),
-    [opciones.data],
-  );
-
   const bajar = async (formato: string) => {
-    const a = aplicado ?? { tipo, f };
+    if (!aplicado || descargando) return;
+    setDescargando(formato);
     try {
-      await descargar(`/api/reportes/${a.tipo}/exportar?formato=${formato}&${parametros(a.f, a.tipo).toString()}`);
-    } catch (e) {
-      notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo descargar el reporte.' });
+      await descargar(`/api/reportes/${aplicado.def.id}/exportar?formato=${formato}&${parametros(aplicado.def, aplicado.e).toString()}`);
+    } catch (err) {
+      notifications.show({ color: 'red', message: err instanceof ErrorApi ? err.message : 'No se pudo descargar el reporte.' });
+    } finally {
+      setDescargando(null);
     }
   };
 
-  if (opciones.isLoading) return <Loader />;
-  if (opciones.error) return <Alert color="red">{(opciones.error as Error).message}</Alert>;
-  const o = opciones.data!;
+  const elegir = (id: string) => {
+    const nuevo = todos.find((r) => r.id === id);
+    if (!nuevo) return;
+    setElegido(id);
+    setE((x) => ({
+      ...x,
+      agrupacion: nuevo.agrupaciones.some((a) => a.clave === x.agrupacion) ? x.agrupacion : '',
+      valores: conservarValores(nuevo, x.valores),
+    }));
+  };
+
+  const generar = () => {
+    if (!def) return;
+    setPagina(1);
+    const nuevo = { def, e: { ...e, valores: { ...e.valores } } };
+    // Con los mismos filtros la clave de la consulta no cambia: se vuelve a pedir para traer las cifras de ahora
+    if (aplicado && `/api/reportes/${def.id}?${parametros(def, nuevo.e).toString()}` === consulta) void reporte.refetch();
+    setAplicado(nuevo);
+  };
+
+  if (catalogo.isLoading) return <Loader />;
+  if (catalogo.error) return <Alert color="red">{catalogo.error.message}</Alert>;
+  const cat = catalogo.data!;
+  if (!def) return <Alert color="yellow">No hay reportes disponibles para su perfil.</Alert>;
+
+  const r = reporte.data;
+  const paginas = r ? totalPaginas(r.filas.length) : 1;
+  const filasPagina = r ? r.filas.slice((pagina - 1) * FILAS_POR_PAGINA, pagina * FILAS_POR_PAGINA) : [];
+  const otrosFiltros = r ? Object.entries(r.filtros).filter(([k]) => k !== 'Periodo' && k !== 'Agrupado por') : [];
+  const faltaFecha = def.periodo !== 'ninguno' && (!e.desde || !e.hasta);
 
   return (
     <Stack>
-      <Title order={3}>Reportes de visitas</Title>
-      <Tabs value={tipo} onChange={(v) => setTipo(v ?? 'detalle')}>
+      <Title order={3}>Reportes</Title>
+      <Tabs value={pestana} onChange={(v) => setPestana(v ?? 'generar')} keepMounted={false}>
         <Tabs.List>
-          {ordenTipos(o.tipos).map(([k, v]) => (
-            <Tabs.Tab key={k} value={k}>
-              {v}
-            </Tabs.Tab>
-          ))}
+          <Tabs.Tab value="generar">Generar</Tabs.Tab>
+          <Tabs.Tab value="verificar">Verificar reporte</Tabs.Tab>
         </Tabs.List>
-      </Tabs>
-      <Card withBorder data-testid="filtros-reporte">
-        <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }}>
-          <TextInput label="Desde" type="date" value={f.desde} onChange={(e) => setF({ ...f, desde: e.currentTarget.value })} />
-          <TextInput label="Hasta" type="date" value={f.hasta} onChange={(e) => setF({ ...f, hasta: e.currentTarget.value })} />
-          {!soloPeriodo(tipo) && (
-            <>
-              <Select label="Lugar" searchable clearable data={puntos} value={f.puntoId || null} onChange={(v) => setF({ ...f, puntoId: v ?? '' })} />
-              <Select
-                label="Fuerza"
-                clearable
-                data={o.fuerzas.map((x) => ({ value: x.codigo, label: x.nombre }))}
-                value={f.fuerza || null}
-                onChange={(v) => setF({ ...f, fuerza: v ?? '' })}
-              />
-              <Select
-                label="Unidad"
-                clearable
-                data={['ESM', 'FA', 'NC']}
-                value={f.unidad || null}
-                onChange={(v) => setF({ ...f, unidad: v ?? '' })}
-              />
-              <Select
-                label="Estado"
-                clearable
-                data={Object.entries(o.estados).map(([value, label]) => ({ value, label }))}
-                value={f.estado || null}
-                onChange={(v) => setF({ ...f, estado: v ?? '' })}
-              />
-            </>
-          )}
-          {tipo === 'proceso' && (
-            <Select
-              label="Componente"
-              clearable
-              data={o.componentes.map((c) => ({ value: c.codigo, label: `${c.codigo} · ${c.nombre}` }))}
-              value={f.componente || null}
-              onChange={(v) => setF({ ...f, componente: v ?? '' })}
-            />
-          )}
-        </SimpleGrid>
-        {soloPeriodo(tipo) && (
-          <Text size="sm" c="dimmed" mt="sm" data-testid="ayuda-distribucion">
-            Por auditor activo: los puntos que tiene asignados o que visita en el periodo, la distancia en línea recta de su municipio base al
-            municipio de acceso del punto (coordenadas del DANE) y sus visitas agendadas y cerradas. Justifica el reparto de la propuesta de agenda
-            por cercanía y carga.
-          </Text>
-        )}
-        <Group mt="md">
-          <Button onClick={() => setAplicado({ tipo, f: { ...f } })}>Generar reporte</Button>
-        </Group>
-      </Card>
-
-      {reporte.isFetching && <Loader />}
-      {reporte.error && <Alert color="red">{(reporte.error as Error).message}</Alert>}
-      {reporte.data && (
-        <Card withBorder data-testid="reporte">
-          <Stack gap={4} data-testid="encabezado-reporte">
-            <Title order={4}>{reporte.data.titulo}</Title>
-            <Text size="sm">Generado: {reporte.data.generado}</Text>
-            <Text size="sm">Usuario: {reporte.data.usuario}</Text>
-            {Object.entries(reporte.data.filtros).map(([k, v]) => (
-              <Text size="sm" key={k}>
-                {k}: {v}
-              </Text>
-            ))}
-            <Text size="sm">Registros: {reporte.data.filas.length}</Text>
-          </Stack>
-          <Group mt="sm" gap="xs">
-            {FORMATOS.map((x) => (
-              <Button key={x.valor} size="xs" variant="light" onClick={() => void bajar(x.valor)}>
-                Descargar {x.etiqueta}
-              </Button>
-            ))}
-          </Group>
-          <ScrollArea type="auto" mt="sm">
-            <Table striped miw={900} data-testid="tabla-reporte">
-              <Table.Thead>
-                <Table.Tr>
-                  {reporte.data.columnas.map((c) => (
-                    <Table.Th key={c}>{c}</Table.Th>
-                  ))}
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {reporte.data.filas.length === 0 && (
-                  <Table.Tr>
-                    <Table.Td colSpan={reporte.data.columnas.length}>Sin registros con estos filtros.</Table.Td>
-                  </Table.Tr>
+        <Tabs.Panel value="verificar" pt="md">
+          <VerificarReporte />
+        </Tabs.Panel>
+        <Tabs.Panel value="generar" pt="md">
+          <Grid>
+            <Grid.Col span={{ base: 12, md: 3 }}>
+              <Card withBorder data-testid="catalogo-reportes">
+                <Title order={5} mb="xs">
+                  Catálogo
+                </Title>
+                <TextInput
+                  placeholder="Buscar reporte"
+                  aria-label="Buscar reporte"
+                  value={buscar}
+                  onChange={(x) => setBuscar(x.currentTarget.value)}
+                />
+                {grupos.length === 0 && (
+                  <Text size="sm" c="dimmed" mt="sm">
+                    Ningún reporte coincide con la búsqueda.
+                  </Text>
                 )}
-                {reporte.data.filas.map((fila, i) => (
-                  <Table.Tr key={i}>
-                    {fila.map((v, j) => (
-                      <Table.Td key={j}>{celda(v)}</Table.Td>
+                {grupos.map((g) => (
+                  <Stack key={g.clave} gap={0} mt="sm">
+                    <Text size="xs" fw={700} c="dimmed" tt="uppercase">
+                      {g.nombre}
+                    </Text>
+                    {g.reportes.map((x) => (
+                      <NavLink
+                        key={x.id}
+                        component="button"
+                        type="button"
+                        label={x.titulo}
+                        active={x.id === def.id}
+                        aria-current={x.id === def.id ? 'true' : undefined}
+                        onClick={() => elegir(x.id)}
+                        data-testid={`reporte-${x.id}`}
+                      />
                     ))}
-                  </Table.Tr>
+                  </Stack>
                 ))}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea>
-          <Group mt="md" align="flex-end" wrap="wrap">
-            <TextInput
-              label="Enviar a"
-              type="email"
-              placeholder="correo@sanidad.mil.co"
-              value={para}
-              onChange={(e) => setPara(e.currentTarget.value)}
-            />
-            <Select
-              label="Formato"
-              data={FORMATOS.map((x) => ({ value: x.valor, label: x.etiqueta }))}
-              value={formatoEnvio}
-              onChange={(v) => setFormatoEnvio(v ?? 'xlsx')}
-            />
-            <Button loading={enviar.isPending} disabled={!para} onClick={() => enviar.mutate()}>
-              Enviar por correo
-            </Button>
-          </Group>
-        </Card>
-      )}
+              </Card>
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 9 }}>
+              <Stack>
+                <Card
+                  withBorder
+                  data-testid="filtros-reporte"
+                  component="form"
+                  onSubmit={(ev: FormEvent) => {
+                    ev.preventDefault();
+                    if (!faltaFecha) generar();
+                  }}
+                >
+                  <Group justify="space-between" align="flex-start">
+                    <div>
+                      <Title order={4}>{def.titulo}</Title>
+                      <Text size="sm" c="dimmed" data-testid="descripcion-reporte">
+                        {def.descripcion}
+                      </Text>
+                    </div>
+                    <Badge variant="light" color={def.clase === 'general' ? 'blue' : 'grape'}>
+                      {def.clase === 'general' ? 'General (agregado)' : 'Operativo (detalle)'}
+                    </Badge>
+                  </Group>
+                  <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} mt="sm">
+                    {def.periodo !== 'ninguno' && (
+                      <>
+                        <Select
+                          label="Periodo"
+                          placeholder="Personalizado"
+                          data={cat.presets.map((p) => ({ value: p.clave, label: p.nombre }))}
+                          value={
+                            e.preset && cat.presets.some((p) => p.clave === e.preset && p.desde === e.desde && p.hasta === e.hasta) ? e.preset : null
+                          }
+                          onChange={(v) => {
+                            const p = cat.presets.find((x) => x.clave === v);
+                            if (p) setE({ ...e, preset: p.clave, desde: p.desde, hasta: p.hasta });
+                          }}
+                        />
+                        <TextInput
+                          label="Desde"
+                          type="date"
+                          value={e.desde}
+                          onChange={(x) => setE({ ...e, preset: undefined, desde: x.currentTarget.value })}
+                        />
+                        <TextInput
+                          label="Hasta"
+                          type="date"
+                          value={e.hasta}
+                          onChange={(x) => setE({ ...e, preset: undefined, hasta: x.currentTarget.value })}
+                        />
+                      </>
+                    )}
+                    {def.agrupaciones.length > 0 && (
+                      <Select
+                        label="Agrupar por"
+                        placeholder="Sin agrupar"
+                        clearable
+                        data={def.agrupaciones.map((a) => ({ value: a.clave, label: a.nombre }))}
+                        value={e.agrupacion || null}
+                        onChange={(v) => setE({ ...e, agrupacion: v ?? '' })}
+                      />
+                    )}
+                    {def.filtros.map((f) =>
+                      f.tipo === 'texto' ? (
+                        <TextInput
+                          key={f.clave}
+                          label={f.etiqueta}
+                          value={e.valores[f.clave]?.[0] ?? ''}
+                          onChange={(x) => setE({ ...e, valores: { ...e.valores, [f.clave]: [x.currentTarget.value] } })}
+                        />
+                      ) : (
+                        <MultiSelect
+                          key={f.clave}
+                          label={f.etiqueta}
+                          description="Una, varias o todas"
+                          placeholder={(e.valores[f.clave]?.length ?? 0) === 0 ? 'Todas' : undefined}
+                          searchable
+                          clearable
+                          hidePickedOptions
+                          maxDropdownHeight={260}
+                          limit={100}
+                          disabled={opciones.isLoading}
+                          rightSection={opciones.isLoading ? <Loader size="xs" /> : undefined}
+                          nothingFoundMessage="Sin opciones dentro de su alcance"
+                          data={datosFiltros[f.clave] ?? []}
+                          value={e.valores[f.clave] ?? []}
+                          onChange={(v) => setE({ ...e, valores: { ...e.valores, [f.clave]: v } })}
+                          data-testid={`filtro-${f.clave}`}
+                        />
+                      ),
+                    )}
+                  </SimpleGrid>
+                  {opciones.error && (
+                    <Alert color="red" mt="sm">
+                      No se pudieron cargar las opciones de los filtros: {opciones.error.message}
+                    </Alert>
+                  )}
+                  <Group mt="md">
+                    <Button type="submit" disabled={faltaFecha}>
+                      Generar reporte
+                    </Button>
+                    {faltaFecha && (
+                      <Text size="sm" c="red">
+                        Escriba las fechas «Desde» y «Hasta» o elija un periodo.
+                      </Text>
+                    )}
+                  </Group>
+                </Card>
+
+                {reporte.isFetching && <Loader />}
+                {reporte.error && <Alert color="red">{reporte.error.message}</Alert>}
+                {r && !reporte.isFetching && !reporte.isError && (
+                  <Card withBorder data-testid="reporte">
+                    {aplicado && aplicado.def.id !== def.id && (
+                      <Alert color="blue" mb="sm" data-testid="aviso-otro-reporte">
+                        Este es el resultado de «{aplicado.def.titulo}». Pulse «Generar reporte» para ver «{def.titulo}».
+                      </Alert>
+                    )}
+                    <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="xs" data-testid="encabezado-reporte">
+                      <Dato etiqueta="Título" valor={r.titulo} />
+                      <Dato etiqueta="Periodo" valor={(r.periodo || 'Sin periodo') + (r.agrupacion ? ` · agrupado por ${r.agrupacion}` : '')} />
+                      <Dato etiqueta="Generado" valor={r.generado} />
+                      <Dato etiqueta="Usuario" valor={r.usuario} />
+                      <Dato etiqueta="Establecimiento" valor={r.establecimiento} />
+                      <Dato
+                        etiqueta="Filtros"
+                        valor={otrosFiltros.length === 0 ? 'Ninguno' : otrosFiltros.map(([k, v]) => `${k}: ${v}`).join(' · ')}
+                      />
+                      <Dato etiqueta="Fuente" valor={r.fuente} />
+                      <Dato
+                        etiqueta="Registros"
+                        valor={`${r.registros}${r.truncado ? '+' : ''} · generado en ${(r.ms / 1000).toFixed(1).replace('.', ',')} s`}
+                      />
+                      <Dato etiqueta="Página" valor={`${pagina} de ${paginas}`} />
+                      <Dato etiqueta="Código de verificación" valor={r.codigo} largo />
+                      <Dato etiqueta="Huella de los datos" valor={r.huella ?? 'Sin huella: descargue el archivo para verlas todas'} largo />
+                    </SimpleGrid>
+                    {r.truncado && (
+                      <Alert color="yellow" mt="sm" data-testid="aviso-truncado">
+                        En pantalla se muestran las primeras {r.registros} filas. Descargue el archivo para verlas todas.
+                      </Alert>
+                    )}
+                    <Group mt="sm" gap="xs">
+                      {FORMATOS.map((x) => (
+                        <Button
+                          key={x.valor}
+                          size="xs"
+                          variant="light"
+                          loading={descargando === x.valor}
+                          disabled={descargando !== null && descargando !== x.valor}
+                          onClick={() => void bajar(x.valor)}
+                        >
+                          Descargar {x.etiqueta}
+                        </Button>
+                      ))}
+                    </Group>
+                    <ScrollArea type="auto" mt="sm">
+                      <Table striped miw={900} data-testid="tabla-reporte">
+                        <Table.Thead>
+                          <Table.Tr>
+                            {r.columnas.map((c) => (
+                              <Table.Th key={c}>{c}</Table.Th>
+                            ))}
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {r.filas.length === 0 && (
+                            <Table.Tr>
+                              <Table.Td colSpan={r.columnas.length}>Sin registros con estos filtros.</Table.Td>
+                            </Table.Tr>
+                          )}
+                          {filasPagina.map((fila, i) => (
+                            <Table.Tr key={(pagina - 1) * FILAS_POR_PAGINA + i}>
+                              {fila.map((v, j) => (
+                                <Table.Td key={j}>{celda(v)}</Table.Td>
+                              ))}
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                    </ScrollArea>
+                    {paginas > 1 && (
+                      <nav aria-label="Páginas del reporte">
+                        <Pagination mt="sm" total={paginas} value={pagina} onChange={setPagina} />
+                      </nav>
+                    )}
+                    <Text size="xs" c="dimmed" mt="sm">
+                      Las cifras no cambian al generar el mismo reporte con los mismos filtros, sea cual sea el usuario.
+                    </Text>
+                    <Group mt="md" align="flex-end" wrap="wrap">
+                      <TextInput
+                        label="Enviar a"
+                        type="email"
+                        placeholder="correo@sanidad.mil.co"
+                        value={para}
+                        onChange={(x) => setPara(x.currentTarget.value)}
+                      />
+                      <Select
+                        label="Formato"
+                        data={FORMATOS.map((x) => ({ value: x.valor, label: x.etiqueta }))}
+                        value={formatoEnvio}
+                        onChange={(v) => setFormatoEnvio(v ?? 'xlsx')}
+                      />
+                      <Button loading={enviar.isPending} disabled={!para || !aplicado} onClick={() => aplicado && enviar.mutate(aplicado)}>
+                        Enviar por correo
+                      </Button>
+                    </Group>
+                  </Card>
+                )}
+              </Stack>
+            </Grid.Col>
+          </Grid>
+        </Tabs.Panel>
+      </Tabs>
     </Stack>
   );
 }

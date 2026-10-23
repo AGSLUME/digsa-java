@@ -550,3 +550,52 @@ Implementado según `docs/especificaciones/despliegue-carga`:
 | 27.6 | **La carga inicial no se corre en la base de la prueba en sitio:** la condición 4 exige las tablas del proceso vacías | Advertido en la guía |
 | 27.7 | **Lo que necesita Docker no se ha probado:** imagen, prueba de humo, Trivy y la ida y vuelta del respaldo | Se prueba en la primera corrida del pipeline o cuando TI instale Docker |
 | 27.8 | **Dashboard:** ¿«Farmacia alterna» en una sola fila o una por farmacia? | Una sola fila. La habilitación en trámite cuenta en los vacíos (D5) |
+
+
+## Reportes · módulo transversal (sesión de reportes, 2026-10-22)
+
+Especificación en `docs/especificaciones/reportes/spec.md`, plan en `plan.md` y contrato para los demás módulos en `contrato-proveedor.md`. La sesión 1 aprobó el plan y las dudas R.1 a R.5 el 2026-10-22, por delegación del usuario.
+
+**R1 · Motor, contrato, catálogo y filtros:** contrato `ProveedorReporte` y registro por módulo; catálogo por perfil con buscador; filtros de una, varias o todas las opciones, validados contra las opciones del alcance; periodos con presets y agrupación de horas a años; los 4 reportes de visitas en el motor, con el contenido mínimo de la prueba 13.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| R.1 | **Prueba 13 · forma de las filas** | **Aprobado:** el detalle lleva una fila por visita, con los componentes y los hallazgos del acta más reciente en una celda separados por « · ». El consolidado por lugar lleva una fila por lugar y componente; ahí «Hallazgos» es el número de No cumple de ese componente |
+| R.2 | **2.10 entre alcances distintos** | **Aprobado:** misma huella entre usuarios con el mismo alcance. Si un perfil no ve una columna (por ejemplo, el auditor), su reporte es otra variante |
+| R.3 | **Envío síncrono o por la bandeja** | **Aprobado:** síncrono, con el resultado en pantalla, porque el comité verifica la llegada en el momento. En R4 pasa a varios destinatarios, con el adjunto del almacén |
+| R.4 | **Tope del adjunto** | **Aprobado:** 10 MB, configurable (R4) |
+| R.5 | **BouncyCastle para el PDF cifrado** | **Aprobado:** `bcprov-jdk18on` 1.78.1 (R2) |
+| R.6 | **Un valor de filtro fuera del alcance** | Hoy (R1) la fuerza o la unidad fuera del alcance ya no devuelven vacío en silencio: dan 422. El mensaje es el mismo si no existe o si está fuera del alcance, para no revelar lo que el perfil no ve |
+| R.7 | **`FiltroBitacora` toma solo el primer valor de un parámetro repetido** (plataforma, fuera de esta sesión) | El motor escribe en la misma fila de la petición (anotación `reporte_generado`, `reporte_descargado` o `reporte_enviado`) todos los valores de cada filtro. No se tocó `FiltroBitacora` |
+| R.8 | **Filas en pantalla** | Hasta 5.000 (`digsa.reportes.filas-pantalla`), con aviso; el archivo trae todas. La pantalla pagina de a 100 |
+| R.9 | **Año de contrato** | El preset sale del parámetro `inicio_contrato` (Catálogos › Parámetros) que ya usa la propuesta de agenda; sin él no se ofrece |
+| R.10 | **Semana ISO** | Etiqueta `2026-W29`, para no confundirla con el semestre (`2026-S2`) |
+| R.11 | **Proceso sin filtro de estado** | El consolidado por proceso cuenta solo las visitas cerradas: el filtro de estado ya no aplica y devuelve 422 «no aplica» |
+| R.12 | **Rango por horas** | El rango se elige en días. La agrupación por horas queda para los reportes con fecha y hora (logs, R4) |
+| R.13 | **«Por proceso» frente al tablero** | El consolidado por proceso cuenta las respuestas del checklist de las visitas cerradas, como antes (19.9). El tablero y el consolidado por lugar leen el resumen del acta, que en los seguimientos guarda solo los hallazgos verificados. En un seguimiento las cifras pueden diferir. Mientras tanto se deja así y se documenta en el reporte. Propuesta: que la sesión 1 decida si «Por proceso» pasa al resumen |
+| R.14 | **Título del menú «Reportes de visitas»** (`Pantallas.REPORTES`, compartido) | No se cambió para no chocar con la sesión de identidad, que edita `Pantallas`. La pantalla ya dice «Reportes». Propuesta: que quien integre `Pantallas` lo cambie a «Reportes» |
+| R.15 | **Textos libres del acta en el detalle (Ley 1581)** | El objeto y los hallazgos los redacta el auditor y pueden nombrar personas, y los ven DIGSA, Sanidad y ESM (el detalle es OPERATIVO). Mientras tanto los ven, como el acta que ya reciben. Si no deben verlos, basta con marcar esas columnas con `soloPara` |
+| R.16 | **Módulos** | El contrato (`reportes`) quedó aparte del motor (`motorreportes`), para que identidad, auditoría, catálogos, agenda y presupuesto puedan aportar reportes sin ciclos (revisión de Java de R1) |
+| R.17 | **Consolidado por lugar: obligaciones y visitas sin componentes** | Además de una fila por componente, lleva la fila «OBL Obligaciones del contrato» (visitas cerradas) y «Sin componente», para que Cumple y No cumple de un lugar cuadren con el detalle. «Hallazgos» es el No cumple de esa fila |
+| R.18 | **Detalle con visitas no cerradas** | Los resultados y los hallazgos solo salen de visitas cerradas, con el último acta enviada (o enviada en parte). Una visita reabierta sale sin resultados hasta que se vuelva a cerrar, como en los consolidados y el tablero (revisión de base de datos de R1) |
+| R.19 | **Tope del archivo hasta R2** | Los 4 reportes de visitas admiten hasta 200.000 filas por archivo, como los logs; más es 422. En R2 la exportación va en flujo y el tope se revisa |
+
+**R2 · Formatos en flujo, encabezado 2.9 e integridad 2.10:** el archivo se arma así: cursor del proveedor, temporal en disco, archivo en el almacén. Lleva el encabezado completo (periodo, generado, usuario, establecimiento, filtros, fuente, registros, código de verificación, huella de los datos y página). El PDF va cifrado con AES-256 y sin permiso de modificar. Cada generación queda en `reportes_generados` (V50), y se puede verificar por archivo o por código, con regeneración.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| R.20 | **Huella impresa completa o recortada** | La spec proponía imprimir los primeros 16 caracteres. Se imprimen los 64: así se coteja sin entrar al sistema |
+| R.21 | **Alcance real del «PDF no editable»** | Los permisos del PDF los respeta el lector (Acrobat, navegadores), no una herramienta que los ignore. La garantía de 2.10 es la huella: un archivo modificado ya no coincide con ningún registro. La contraseña de propietario es aleatoria por archivo y no se guarda en ningún lado |
+| R.22 | **Excel y CSV sin protección de edición** | RESPUESTAS l.555 solo la exige en PDF. Llevan código y huella |
+| R.23 | **Quién verifica** | Cualquier usuario con sesión verifica por archivo o por código, y ve el usuario de otro enmascarado. Regenerar exige poder generar ese reporte, con el mismo alcance y las mismas columnas |
+| R.24 | **El reporte en pantalla también queda registrado** | Con código y huella si caben todas las filas. Con más de 5.000 filas en pantalla no hay huella, y el aviso pide descargar el archivo |
+| R.25 | **V51 no se usó** | V50 trae ya las columnas de R3 (estado, ruta, vence y tiempos). Quedan libres V51 a V59 |
+| R.26 | **Tope de filas del PDF** | 5.000 filas (`digsa.reportes.max-filas-pdf`). Con más, responde 422 y sugiere Excel o CSV: un PDF de cientos de miles de filas no se puede leer y tardaría más de los 10 minutos de 2.7 |
+| R.27 | **Celdas de Excel de más de 32.767 caracteres** | Salen recortadas con la marca «…[recortado por el límite de Excel; el CSV y el TXT traen el texto completo]». Una lista larga del encabezado va completa en la hoja «Filtros» |
+| R.28 | **Tope de verificaciones** | 30 por usuario y minuto (`digsa.reportes.verificaciones-por-minuto`); más es 429 y queda en la bitácora. El conteo vive en la memoria de cada instancia: con varias réplicas, el tope es por réplica |
+| R.29 | **Largo del código** | `RPT-aaaammdd-` y 8 caracteres (32⁸ ≈ 10¹² por día): con el tope por minuto, no se puede adivinar enumerando |
+| R.30 | **Caracteres fuera de cp1252 en el PDF** (≤, ≥, →…) | No se ven en el PDF (letra Helvetica sin incrustar); el CSV, el TXT y el Excel sí los traen. Propuesta: incrustar una letra Unicode (DejaVu) cuando se apruebe agregar el archivo de la letra al repositorio |
+| R.31 | **Lo que ve de la verificación quien no generó el reporte** | Título, fecha, periodo, formato, filas, huellas y el usuario con iniciales. No ve los valores de los filtros, que pueden ser búsquedas con datos personales o de otro alcance (Ley 1581) |
+| R.32 | **TXT con textos largos** | La alineación llega hasta 60 caracteres por columna: un objeto o un hallazgo largo sale completo y solo descuadra su fila, sin inflar el archivo |
+| R.33 | **Retención de `reportes_generados`** | No se purga (es la evidencia para verificar) y guarda el nombre de quien generó. Decidir la retención con la DIGSA junto con la de la bitácora (decisión 7.5) |
+| R.34 | **Pruebas intermitentes ajenas a reportes** (cierre de R1 y R2, 2026-10-23) | `SeguimientoApiTest.accionVencidaEsPlanIncumplido` falló una vez en la batería completa y pasa sola (9/9). `riesgo-tablero.spec.ts:149` falla en Firefox al esperar el aviso «Pesos guardados»; en la corrida de R1 había pasado. Ninguna toca código de reportes: se avisó a la sesión 1 |

@@ -46,7 +46,9 @@ public final class Exportacion {
             // V18 · las solicitudes de exportación (quién exportó y cuándo)
             "exportaciones",
             // V17 · alertas de la fase 10: bandeja de correo, SMS y alertas críticas
-            "correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos");
+            "correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos",
+            // V50 · sesión de reportes: registro de los reportes generados (código de verificación y huellas, Anexo 5 2.10)
+            "reportes_generados");
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
     public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes");

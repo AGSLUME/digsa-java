@@ -133,5 +133,11 @@ La operación del servidor (instalación, respaldo, restauración, actualizació
 | `DIGSA_SMTP_HOST`, `DIGSA_SMTP_PUERTO`, `DIGSA_SMTP_USUARIO`, `DIGSA_SMTP_CLAVE`, `DIGSA_CORREO_REMITENTE` | Correo SMTP |
 | `DIGSA_TURNSTILE_SITIO`, `DIGSA_TURNSTILE_SECRETA` | Captcha Cloudflare Turnstile. Sin clave secreta nadie ingresa, salvo en local |
 | `DIGSA_CORREO_REPORTES` | Correo por defecto para enviar reportes (prueba en sitio: el del comité) |
+| `digsa.reportes.*` (opcionales) | Módulo de reportes: `filas-pantalla` (5000), `max-filas-pdf` (5000), `adjunto-max-mb` (10), `verificaciones-por-minuto` (30) |
+
+**Módulo de reportes** (`docs/especificaciones/reportes`):
+- `backend/app/.../reportes` tiene solo el contrato `ProveedorReporte`: cada módulo aporta así sus reportes (`contrato-proveedor.md`).
+- `motorreportes` tiene el motor, el catálogo, los filtros, los formatos en flujo, la huella con su código de verificación, el
+  registro `reportes_generados` y la verificación.
 
 El primer administrador se crea solo por línea de comandos (`--digsa.crear-admin.correo=… --digsa.crear-admin.nombre=…`). No hay contraseñas en el repositorio. Los demás usuarios de la carga inicial entran con `--digsa.carga.*` (`docs/guia_carga_maestros.md`) y reciben el enlace para definir su contraseña.

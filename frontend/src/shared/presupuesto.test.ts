@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   anchoBarra,
+  consultaReporte,
+  FILTROS_REPORTE,
   consultaPresupuesto,
   consultaTablero,
   etiquetaUmbral,
@@ -157,5 +159,22 @@ describe('tablero', () => {
     expect(anchoBarra(null)).toBe(100);
     expect(anchoBarra('x')).toBe(0);
     expect(etiquetaUmbral(50, 'notificado')).toBe('50 % notificado');
+  });
+});
+
+describe('consultaReporte', () => {
+  const f = {
+    ...FILTROS_REPORTE,
+    vigencia: '3',
+    corte: '2027-03',
+    modalidades: ['dispensacion', 'suministro'],
+    desde: '2027-01-01',
+    agrupacion: 'trimestre',
+  };
+  it('solo los filtros del tipo', () => {
+    expect(consultaReporte('ejecucion', f)).toBe('vigencia=3&corte=2027-03&modalidad=dispensacion%2Csuministro');
+    expect(consultaReporte('mensual', f)).toBe('vigencia=3&modalidad=dispensacion%2Csuministro&agrupacion=trimestre');
+    expect(consultaReporte('movimientos', f)).toBe('vigencia=3&modalidad=dispensacion%2Csuministro&desde=2027-01-01');
+    expect(consultaReporte('alertas', f)).toBe('vigencia=3&desde=2027-01-01');
   });
 });

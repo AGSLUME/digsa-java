@@ -279,9 +279,7 @@ public class ServicioEjecucion implements PuertoEjecucion {
         for (Map.Entry<Long, List<CorteResuelto>> e : porVigencia.entrySet()) {
             Lineas.Vigencia v = lineas.abierta(e.getKey());
             // Cada línea se asegura una sola vez y en un orden fijo: dos cargas que crean las mismas líneas no se bloquean entre sí
-            Map<String, Long> porClave = new TreeMap<>();
-            e.getValue().stream().map(CorteResuelto::destino).sorted(Comparator.comparing(Lineas.Destino::clave))
-                    .forEach(d -> porClave.computeIfAbsent(d.clave(), k -> lineas.asegurar(d)));
+            Map<String, Long> porClave = lineas.asegurarTodas(e.getValue().stream().map(CorteResuelto::destino).toList());
             Map<CorteResuelto, Long> linea = new LinkedHashMap<>();
             for (CorteResuelto c : e.getValue()) {
                 linea.put(c, porClave.get(c.destino().clave()));
@@ -289,21 +287,38 @@ public class ServicioEjecucion implements PuertoEjecucion {
             List<Long> ids = linea.values().stream().distinct().sorted().toList();
             lineas.bloquear(ids);
             Set<YearMonth> periodos = new LinkedHashSet<>();
+            int n = linea.size();
+            Long[] ls = new Long[n];
+            Long[] os = new Long[n];
+            String[] ps = new String[n];
+            BigDecimal[] fs = new BigDecimal[n];
+            BigDecimal[] rs = new BigDecimal[n];
+            String[] refs = new String[n];
+            int i = 0;
             for (Map.Entry<CorteResuelto, Long> x : linea.entrySet()) {
                 CorteResuelto c = x.getKey();
-                LocalDate periodo = c.periodo().atDay(1);
-                jdbc.sql("""
-                        UPDATE presupuesto_ejecucion SET vigente = false, reemplazada_en = :ahora
-                        WHERE linea_id = :l AND periodo = :p AND punto_origen_id = :o AND vigente""")
-                        .param("ahora", ahora).param("l", x.getValue()).param("p", periodo).param("o", c.destino().puntoOrigenId()).update();
-                jdbc.sql("""
-                        INSERT INTO presupuesto_ejecucion (linea_id, punto_origen_id, periodo, facturado, reconocido, fuente, referencia, lote_id, registrado_por, creado)
-                        VALUES (:l, :o, :p, :f, :r, :fuente, :ref, :lote, :u, :ahora)""")
-                        .param("l", x.getValue()).param("o", c.destino().puntoOrigenId()).param("p", periodo).param("f", c.facturado()).param("r", c.reconocido())
-                        .param("fuente", fuente).param("ref", c.referencia()).param("lote", loteId).param("u", quien == null ? null : quien.id())
-                        .param("ahora", ahora).update();
+                ls[i] = x.getValue();
+                os[i] = c.destino().puntoOrigenId();
+                ps[i] = c.periodo().atDay(1).toString();
+                fs[i] = c.facturado();
+                rs[i] = c.reconocido();
+                refs[i] = c.referencia();
                 periodos.add(c.periodo());
+                i++;
             }
+            // Dos sentencias para todo el lote: la versión vigente de cada mes pasa a reemplazada y entra la nueva
+            jdbc.sql("""
+                    UPDATE presupuesto_ejecucion e SET vigente = false, reemplazada_en = :ahora
+                    FROM unnest(CAST(:l AS bigint[]), CAST(:o AS bigint[]), CAST(:p AS date[])) AS x(l, o, p)
+                    WHERE e.linea_id = x.l AND e.punto_origen_id = x.o AND e.periodo = x.p AND e.vigente""")
+                    .param("ahora", ahora).param("l", ls).param("o", os).param("p", ps).update();
+            jdbc.sql("""
+                    INSERT INTO presupuesto_ejecucion (linea_id, punto_origen_id, periodo, facturado, reconocido, fuente, referencia, lote_id, registrado_por, creado)
+                    SELECT x.l, x.o, x.p, x.f, x.r, :fuente, x.ref, :lote, :u, :ahora
+                    FROM unnest(CAST(:l AS bigint[]), CAST(:o AS bigint[]), CAST(:p AS date[]), CAST(:f AS numeric[]), CAST(:r AS numeric[]),
+                                CAST(:ref AS text[])) AS x(l, o, p, f, r, ref)""")
+                    .param("l", ls).param("o", os).param("p", ps).param("f", fs).param("r", rs).param("ref", refs).param("fuente", fuente).param("lote", loteId)
+                    .param("u", quien == null ? null : quien.id()).param("ahora", ahora).update();
             // El saldo es la suma de las versiones vigentes (invariante de la spec): se recalcula, no se acumula
             jdbc.sql("""
                     UPDATE presupuesto_saldos s SET facturado = x.f, reconocido = x.r, version = s.version + 1, actualizado = :ahora

@@ -147,7 +147,11 @@ class PresupuestoTableroApiTest extends PruebaIntegracion {
         // Vista «Contrato»: sin corte ni proyección; corte inválido 422
         JsonNode contrato = n.get("/api/presupuesto/tablero?punto=" + c.id()).json();
         assertThat(contrato.path("vigencia").isNull()).isTrue();
-        assertThat(contrato.path("cajas").path("ejecutado").asText()).as("la vista «Contrato» cuenta todo lo ejecutado a la fecha").isEqualTo("600000000,00");
+        // La vista «Contrato» suma todas las vigencias del punto (otras pruebas de la clase comparten la base): igual a la suma de sus saldos
+        BigDecimal todo = jdbc.sql("SELECT coalesce(sum(s.facturado), 0) FROM presupuesto_saldos s JOIN presupuesto_lineas l ON l.id = s.linea_id WHERE l.punto_id = :p")
+                .param("p", c.id()).query(BigDecimal.class).single();
+        assertThat(new BigDecimal(contrato.path("cajas").path("ejecutado").asText().replace(',', '.'))).as("la vista «Contrato» cuenta todo lo ejecutado a la fecha")
+                .isEqualByComparingTo(todo).isGreaterThanOrEqualTo(new BigDecimal("600000000"));
         assertThat(contrato.path("cajas").has("esmSobreProyeccion")).isFalse();
         assertThat(n.get("/api/presupuesto/tablero?vigencia=" + vig + "&corte=marzo").estado()).isEqualTo(422);
         assertThat(n.get("/api/presupuesto/tablero?vigencia=999999").estado()).isEqualTo(422);

@@ -27,6 +27,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect, useMemo, useState } from 'react';
 import { api, descargar, ErrorApi, subirArchivos } from '../shared/api';
 import { CargaArchivo, Ejecucion, Notificaciones } from './PresupuestoEjecucion';
+import { ReportesPresupuesto } from './PresupuestoReportes';
 import { TableroPresupuesto } from './PresupuestoTablero';
 import {
   AYUDA_TIPO,
@@ -100,6 +101,7 @@ export function Presupuesto() {
             <Tabs.Tab value="ejecucion">Ejecución</Tabs.Tab>
             <Tabs.Tab value="historial">Historial</Tabs.Tab>
             <Tabs.Tab value="notificaciones">Notificaciones</Tabs.Tab>
+            <Tabs.Tab value="reportes">Reportes</Tabs.Tab>
             {o.puedeRegistrar && <Tabs.Tab value="cargas">Cargas</Tabs.Tab>}
             {o.puedeRegistrar && <Tabs.Tab value="configuracion">Configuración</Tabs.Tab>}
           </Tabs.List>
@@ -123,6 +125,9 @@ export function Presupuesto() {
         )}
         <Tabs.Panel value="ejecucion" pt="md">
           <Ejecucion o={o} />
+        </Tabs.Panel>
+        <Tabs.Panel value="reportes" pt="md">
+          <ReportesPresupuesto o={o} />
         </Tabs.Panel>
         <Tabs.Panel value="notificaciones" pt="md">
           <Notificaciones o={o} />

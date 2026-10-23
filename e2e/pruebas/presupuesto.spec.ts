@@ -307,3 +307,67 @@ test('F5: tablero con cajas, ejecución por Fuerza y modalidad, ESM con mayor ej
   await sinDesplazamientoHorizontal(page);
   await page.setViewportSize({ width: 1280, height: 720 });
 });
+
+test('F6: reportes de presupuesto: ver los movimientos con el rebalanceo y descargar en Excel y PDF; a 360 px', async ({ page }) => {
+  await ingresar(page, ...ADMIN);
+  const coordinador = await crearUsuario(page, 'coordrep', 2);
+  await salir(page);
+  await ingresarConClaveInicial(page, coordinador, INICIAL, NUEVA);
+  await page.goto('/presupuesto');
+
+  const o = await api<{ puntos: Punto[]; vigencias: { anio: number }[] }>(page, 'GET', '/api/presupuesto/opciones');
+  const siglas = new Map<string, number>();
+  o.datos.puntos.forEach((p) => p.sigla && siglas.set(p.sigla, (siglas.get(p.sigla) ?? 0) + 1));
+  const ejc = o.datos.puntos.filter((p) => p.fuerza === 'EJC' && p.modalidad === 'Dispensación' && p.sigla && siglas.get(p.sigla) === 1);
+  const [x, y] = [ejc[4]!, ejc[5]!];
+  const usados = new Set(o.datos.vigencias.map((v) => v.anio));
+  let anio = 2030 + ((Date.now() + 89) % 70);
+  for (let k = 0; usados.has(anio) && k < 70; k++) anio = 2030 + ((anio - 2029) % 70);
+  const v = await api<{ id: number }>(page, 'POST', '/api/presupuesto/vigencias', { anio });
+  expect(v.estado).toBe(201);
+  const base = { vigenciaId: v.datos.id, soporte: 'Oficio DIGSA de prueba de reportes' };
+  expect(
+    await novedadApi(page, {
+      ...base,
+      tipo: 'asignacion_inicial',
+      items: [
+        { puntoId: x.id, modalidad: 'dispensacion', valor: '900000000' },
+        { puntoId: y.id, modalidad: 'dispensacion', valor: '1000000000' },
+      ],
+    }),
+  ).toBe(201);
+  expect(
+    await novedadApi(page, {
+      ...base,
+      tipo: 'rebalanceo',
+      items: [
+        { puntoId: x.id, modalidad: 'dispensacion', valor: '450000000' },
+        { puntoId: y.id, modalidad: 'dispensacion', valor: '450000000' },
+      ],
+    }),
+  ).toBe(201);
+  await page.reload();
+
+  await page.getByRole('tab', { name: 'Reportes' }).click();
+  await elegir(page, page, 'Reporte', '', 'Movimientos presupuestales');
+  await elegir(page, page.getByRole('tabpanel'), 'Vigencia', '', new RegExp(`^${anio}$`));
+  await page.getByTestId('reporte-ver').click();
+  const tabla = page.getByTestId('reporte-tabla');
+  await expect(tabla).toContainText('Rebalanceo');
+  await expect(tabla.getByRole('row', { name: new RegExp(x.sigla!) }).filter({ hasText: 'Rebalanceo' })).toContainText('450000000,00');
+  await expect(page.getByTestId('reporte-resultado')).toContainText(`Periodo: ${anio}-01-01 a ${anio}-12-31`);
+
+  for (const [formato, extension] of [
+    ['xlsx', '.xlsx'],
+    ['pdf', '.pdf'],
+  ]) {
+    const descarga = page.waitForEvent('download');
+    await page.getByTestId(`reporte-descargar-${formato}`).click();
+    const nombre = (await descarga).suggestedFilename();
+    expect(nombre.startsWith('presupuesto_movimientos_') && nombre.endsWith(extension!), nombre).toBe(true);
+  }
+
+  await page.setViewportSize({ width: 360, height: 740 });
+  await sinDesplazamientoHorizontal(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+});

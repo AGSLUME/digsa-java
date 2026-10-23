@@ -551,3 +551,18 @@ No bloqueantes:
 9. **`Reporte`/`Exportador`:** periodo, establecimiento y número de página en el PDF (Anexo 5 2.9).
 
 <!-- pendiente: el contrato del OPL 173-MDN-COGFM-JEMCO-DIGSA-2026 (estructura presupuestal real, plazo, modalidades presupuestadas) y el «anexo técnico financiero, módulo presupuesto»; el texto oficial del protocolo M7 (no está en FUENTE DE VERDAD/md); formato del archivo de ejecución que entregaría la DIGSA. -->
+
+## Cambios durante la construcción (F1 a F6, 2026-10-22)
+
+Lo que se ajustó frente a lo escrito arriba, con la revisión de los agentes y la sesión integradora:
+
+1. **Buzón de la DIGSA:** se usa el parámetro existente `correo_digsa` (no `presupuesto_correos_digsa`).
+2. **Estados de la notificación:** `encolada`, `sin_buzon_fuerza`, `sin_buzon_digsa` (V43) y `sin_destinatarios`; la lista muestra «fallida» si el correo agotó sus intentos en la bandeja, y cualquiera de ellas se puede reenviar.
+3. **Desviación:** la fuerza y el país suman solo las líneas que reportaron el mes del corte (duda P.26); el corte es el **mes más reciente de la carga** (los meses anteriores de un mismo archivo no alarman uno por uno).
+4. **Notificación consolidada (V44):** si en un mismo cambio cruzan un umbral o se desvían varias líneas de una fuerza, sale una sola notificación formal por fuerza (y sentido) con su detalle y una alerta del catálogo; con una sola línea, igual que antes. Cada umbral y cada desviación siguen registrados por línea y se notifican una sola vez. El perfil ESM ve que hay una consolidada de su fuerza, sin las cifras de otros ESM.
+5. **Bloqueo consultivo por vigencia** al empezar toda escritura del presupuesto (novedades, ejecución y proyección): sin interbloqueos entre cargas.
+6. **Tablero:** con vigencia, todas las cifras se miden al corte; la vista «Contrato» cuenta lo ejecutado a la fecha.
+7. **Reportes:** `GET /api/presupuesto/reportes/{ejecucion|mensual|movimientos|alertas}` con `/exportar` (xlsx, csv, pdf, txt) y `/enviar`; filtros de lista para fuerza y modalidad (una, varias o todas); alineados al contrato `ProveedorReporte` de la sesión de reportes (`ServicioReportesPresupuesto.DEFINICIONES`), que los registrará en el catálogo de `/api/reportes` al integrar. El número de página del PDF lo aporta la sesión de reportes (el bloque de esta rama en `Exportador` se descarta al integrar).
+8. **Rendimiento:** creación de líneas, líneas de movimiento, versiones de ejecución y umbrales por lote (`unnest`); una carga de 4.428 filas tarda unos 5 s y el reporte mensual en Excel unos 5 s (prueba `PresupuestoReportesApiTest.rendimiento`).
+
+Pruebas que cubren los escenarios: `PresupuestoTest` (reglas), `PresupuestoApiTest` (vigencias, M7-1, M7-2, alcance, concurrencia), `PresupuestoEjecucionApiTest` (ejecución, umbrales, notificación), `PresupuestoDesviacionApiTest` (M7-3, proyección, concurrencia), `PresupuestoTableroApiTest`, `PresupuestoReportesApiTest` y la e2e `e2e/pruebas/presupuesto.spec.ts`.

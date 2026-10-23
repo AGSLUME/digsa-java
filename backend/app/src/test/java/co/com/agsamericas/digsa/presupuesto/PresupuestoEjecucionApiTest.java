@@ -170,7 +170,7 @@ class PresupuestoEjecucionApiTest extends PruebaIntegracion {
         assertThat(versiones.path("items").get(0).path("vigente").asBoolean()).isTrue();
         assertThat(versiones.path("items").get(1).path("facturado").asText()).isEqualTo("100000000,00");
         assertThat(versiones.path("items").get(1).path("reemplazada").isNull()).isFalse();
-        assertThat(bitacoraDe(idDe(ultimo))).anyMatch(f -> f.contains("presupuesto_ejecucion_manual") && f.contains("facturado 90000000,00"));
+        assertThat(bitacoraDe(idDe(ultimo))).anyMatch(f -> f.contains("Ejecución manual") && f.contains("facturado 90000000,00"));
 
         String malo = "vigencia;fuerza;esm;modalidad;periodo;facturado;reconocido\n"
                 + anio + ";;" + ejc1.sigla() + ";Dispensación;" + (anio - 1) + "-12;1;\n"

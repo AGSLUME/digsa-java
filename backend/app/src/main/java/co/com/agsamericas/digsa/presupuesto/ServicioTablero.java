@@ -53,11 +53,36 @@ public class ServicioTablero {
         this.reloj = reloj;
     }
 
+    /** Las líneas del alcance y los filtros, con lo ejecutado y lo proyectado al corte (lo mismo usan el tablero y los reportes). */
+    record Consulta(Optional<Lineas.Vigencia> vigencia, YearMonth corte, String base, List<Fila> filas, Map<String, Object> parametros, StringBuilder where) {
+    }
+
     @Transactional(readOnly = true)
     public Map<String, Object> tablero(Filtros f, Ambito a) {
-        String base = presupuesto.base();
         BigDecimal tolExceso = presupuesto.tolerancia("presupuesto_tolerancia_exceso", Presupuesto.TOLERANCIA_EXCESO);
         BigDecimal tolSub = presupuesto.tolerancia("presupuesto_tolerancia_subejecucion", Presupuesto.TOLERANCIA_SUBEJECUCION);
+        Consulta q = consulta(f, a);
+        Optional<Lineas.Vigencia> vig = q.vigencia();
+        YearMonth corte = q.corte();
+        String base = q.base();
+        List<Fila> filas = q.filas();
+        Map<String, Object> p = q.parametros();
+        StringBuilder w = q.where();
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("vigencia", vig.map(Lineas.Vigencia::anio).orElse(null));
+        r.put("corte", corte == null ? null : corte.toString());
+        r.put("cortes", vig.map(v -> Presupuesto.meses(v.inicio(), v.fin()).stream().map(YearMonth::toString).toList()).orElse(List.of()));
+        r.put("base", base);
+        r.put("ambito", a.descripcion());
+        r.put("cajas", cajas(filas, vig.orElse(null), p, w, tolExceso));
+        r.put("porFuerza", porFuerza(filas));
+        r.put("mayorEjecucion", mayorEjecucion(filas));
+        r.put("detalle", filas.stream().map(x -> detalle(x, tolExceso, tolSub)).toList());
+        return r;
+    }
+
+    Consulta consulta(Filtros f, Ambito a) {
+        String base = presupuesto.base();
         Optional<Lineas.Vigencia> vig = Optional.ofNullable(f == null ? null : f.vigencia())
                 .map(id -> lineas.vigencia(id).orElseThrow(() -> ErrorNegocio.validacion("La vigencia no existe.")));
         YearMonth corte = vig.map(v -> corte(v, f.corte())).orElse(null);
@@ -69,16 +94,18 @@ public class ServicioTablero {
             p.put("f_vigencia", vig.get().id());
         }
         if (f != null && f.fuerza() != null && !f.fuerza().isBlank()) {
-            w.append(" AND l.fuerza = :f_fuerza");
-            p.put("f_fuerza", f.fuerza().strip());
+            // Una o varias fuerzas («EJC,ARC» o el parámetro repetido, que Spring une con coma)
+            w.append(" AND l.fuerza = ANY(:f_fuerzas)");
+            p.put("f_fuerzas", lista(f.fuerza()));
         }
         if (f != null && f.punto() != null) {
             w.append(" AND l.punto_id = :f_punto");
             p.put("f_punto", f.punto());
         }
         if (f != null && f.modalidad() != null && !f.modalidad().isBlank()) {
-            w.append(" AND l.modalidad = :f_modalidad");
-            p.put("f_modalidad", f.modalidad().strip());
+            // Una o varias modalidades («dispensacion,suministro»)
+            w.append(" AND l.modalidad = ANY(:f_modalidades)");
+            p.put("f_modalidades", lista(f.modalidad()));
         }
         Map<Long, Proyecciones.AlCorte> alCorte = vig.map(v -> proyecciones.alCorte(v, corte, base)).orElse(Map.of());
         List<Fila> filas = jdbc.sql("""
@@ -86,7 +113,7 @@ public class ServicioTablero {
                        m.orden, s.asignado, s.facturado, s.reconocido, (SELECT max(u.umbral) FROM presupuesto_umbrales u WHERE u.linea_id = l.id) AS umbral
                 FROM presupuesto_lineas l JOIN presupuesto_saldos s ON s.linea_id = l.id JOIN puntos p ON p.id = l.punto_id
                 JOIN presupuesto_modalidades m ON m.codigo = l.modalidad JOIN presupuesto_vigencias v ON v.id = l.vigencia_id""" + w
-                + " ORDER BY l.fuerza, esm, m.orden").params(p).query((rs, n) -> {
+                + " ORDER BY l.fuerza, esm, m.orden, l.id").params(p).query((rs, n) -> {
                     long id = rs.getLong("id");
                     BigDecimal facturado = rs.getBigDecimal("facturado");
                     BigDecimal reconocido = rs.getBigDecimal("reconocido");
@@ -99,18 +126,12 @@ public class ServicioTablero {
                             c == null ? aFecha : c.ejecutado(), c == null ? null : c.proyectado(),
                             c == null ? null : c.ejecutado(), (Integer) rs.getObject("umbral", Integer.class));
                 }).list();
+        return new Consulta(vig, corte, base, filas, p, w);
+    }
 
-        Map<String, Object> r = new LinkedHashMap<>();
-        r.put("vigencia", vig.map(Lineas.Vigencia::anio).orElse(null));
-        r.put("corte", corte == null ? null : corte.toString());
-        r.put("cortes", vig.map(v -> Presupuesto.meses(v.inicio(), v.fin()).stream().map(YearMonth::toString).toList()).orElse(List.of()));
-        r.put("base", base);
-        r.put("ambito", a.descripcion());
-        r.put("cajas", cajas(filas, vig.orElse(null), p, w, tolExceso));
-        r.put("porFuerza", porFuerza(filas));
-        r.put("mayorEjecucion", mayorEjecucion(filas));
-        r.put("detalle", filas.stream().map(x -> detalle(x, tolExceso, tolSub)).toList());
-        return r;
+    /** Valores de un filtro de lista: separados por coma, sin vacíos ni repetidos, en orden. */
+    static String[] lista(String valores) {
+        return java.util.Arrays.stream(valores.split(",")).map(String::strip).filter(x -> !x.isEmpty()).distinct().sorted().toArray(String[]::new);
     }
 
     /** El corte pedido (AAAA-MM) o, si no, el mes actual en Bogotá; siempre dentro de la vigencia. */

@@ -635,3 +635,17 @@ Revisión de los agentes: sin P1. Corregidos: cifras al corte en todo el tablero
 | P.34 | Faltan en el tablero el filtro por ESM y la elección de varias modalidades (spec L376) | La pestaña «Líneas» filtra por ESM; varias modalidades queda para F6 |
 | P.35 | `Proyecciones.alCorte` calcula toda la vigencia aunque el usuario tenga alcance de fuerza o ESM (también al abrir el inicio) | Correcto en cifras; se optimiza en F6 |
 | P.36 | La tabla por fuerza muestra el umbral alcanzado (la spec habla de notificado); «Mayor ejecución» muestra el umbral notificado más alto de las líneas del ESM | Se rotula «alcanzado» y «notificado»; confirmar |
+
+### F6 de presupuesto: reportes y rendimiento (2026-10-22)
+
+Hecho: 4 reportes (ejecución por fuerza, ESM y modalidad con totales; mensual frente a la proyección con agrupación por mes, bimestre, trimestre, semestre o año; movimientos con antes y después; umbrales y desviaciones notificados), en pantalla y en xlsx, csv, pdf y txt, con envío por correo y bitácora; filtros de una, varias o todas las fuerzas y modalidades. Rendimiento: operaciones por lote y notificación consolidada por fuerza (V44): una carga de 4.428 filas pasó de 463 s a 5 s.
+
+Revisión de los agentes: P1 corregidos (el perfil ESM no ve el detalle de otros ESM en una notificación consolidada; pruebas de la consolidación y del ESM). También: totales visibles en pantalla aunque el reporte pase de 2.000 filas, detalle consolidado dentro del tope de texto, reporte de alertas por ESM con las consolidadas, descarga con los filtros de la tabla vista.
+
+| # | Pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| P.37 | Registrar los 4 reportes como `ProveedorReporte` del módulo de reportes | Alineados al contrato (`DEFINICIONES`); se registran cuando reportes llegue a develop (aviso de la sesión integradora) |
+| P.38 | Número de página del PDF | Bloque aislado en `Exportador.pdf`; al integrar se queda la versión de la sesión de reportes («Página N de M») |
+| P.39 | El establecimiento admite un solo ESM en los reportes (la spec pide «una, varias o todas» también para ESM) | Fuerza y modalidad ya admiten varias; ESM queda con uno, como el filtro de establecimiento del contrato de reportes |
+| P.40 | En el reporte de ejecución, la desviación de los totales suma todas las líneas, mientras la alarma suma solo las que reportaron el mes | Documentado; confirmar junto con P.26 |
+| P.41 | Las desviaciones por ESM aún se registran con un INSERT por línea (los umbrales ya van por lote) | Con la consolidación, la carga de 4.428 filas tarda 5 s |

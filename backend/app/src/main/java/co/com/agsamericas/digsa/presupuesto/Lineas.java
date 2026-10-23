@@ -240,6 +240,46 @@ class Lineas {
         return id;
     }
 
+    /**
+     * Ids de muchas líneas (crea las que falten con su saldo en 0) en tres sentencias, sin ir a la base por cada fila de una carga grande.
+     * Se insertan en orden de clave.
+     */
+    Map<String, Long> asegurarTodas(Collection<Destino> destinos) {
+        Map<String, Destino> unicos = new java.util.TreeMap<>();
+        destinos.forEach(d -> unicos.putIfAbsent(d.clave(), d));
+        Map<String, Long> r = new HashMap<>();
+        if (unicos.isEmpty()) {
+            return r;
+        }
+        List<Destino> ds = new ArrayList<>(unicos.values());
+        Long[] v = ds.stream().map(Destino::vigenciaId).toArray(Long[]::new);
+        String[] f = ds.stream().map(Destino::fuerza).toArray(String[]::new);
+        Long[] p = ds.stream().map(Destino::puntoId).toArray(Long[]::new);
+        String[] m = ds.stream().map(Destino::modalidad).toArray(String[]::new);
+        jdbc.sql("""
+                INSERT INTO presupuesto_lineas (vigencia_id, fuerza, punto_id, modalidad)
+                SELECT * FROM unnest(CAST(:v AS bigint[]), CAST(:f AS text[]), CAST(:p AS bigint[]), CAST(:m AS text[]))
+                ON CONFLICT (vigencia_id, punto_id, modalidad, fuerza) DO NOTHING""").param("v", v).param("f", f).param("p", p).param("m", m).update();
+        jdbc.sql("""
+                SELECT l.id, l.vigencia_id, l.fuerza, l.punto_id, l.modalidad FROM presupuesto_lineas l
+                JOIN unnest(CAST(:v AS bigint[]), CAST(:f AS text[]), CAST(:p AS bigint[]), CAST(:m AS text[])) AS x(v, f, p, m)
+                  ON l.vigencia_id = x.v AND l.fuerza = x.f AND l.punto_id = x.p AND l.modalidad = x.m""")
+                .param("v", v).param("f", f).param("p", p).param("m", m)
+                .query((rs, n) -> Map.entry(rs.getLong(2) + "|" + rs.getString(3) + "|" + rs.getLong(4) + "|" + rs.getString(5), rs.getLong(1))).list()
+                .forEach(e -> r.put(e.getKey(), e.getValue()));
+        jdbc.sql("INSERT INTO presupuesto_saldos (linea_id) SELECT unnest(CAST(:ids AS bigint[])) ON CONFLICT (linea_id) DO NOTHING")
+                .param("ids", r.values().toArray(Long[]::new)).update();
+        return r;
+    }
+
+    /** Claves de las líneas de estas vigencias que ya tienen algún movimiento (asignación inicial ya hecha). */
+    java.util.Set<String> conMovimientos(Collection<Long> vigencias) {
+        return new java.util.HashSet<>(jdbc.sql("""
+                SELECT l.vigencia_id || '|' || l.fuerza || '|' || l.punto_id || '|' || l.modalidad FROM presupuesto_lineas l
+                WHERE l.vigencia_id = ANY(:v) AND EXISTS (SELECT 1 FROM presupuesto_movimientos_lineas ml WHERE ml.linea_id = l.id)""")
+                .param("v", vigencias.stream().distinct().toArray(Long[]::new)).query(String.class).list());
+    }
+
     /** Id de la línea si existe (sin crearla). */
     Optional<Long> existente(Destino d) {
         return jdbc.sql("SELECT id FROM presupuesto_lineas WHERE vigencia_id = :v AND fuerza = :f AND punto_id = :p AND modalidad = :m")

@@ -5,6 +5,7 @@ import co.com.agsamericas.digsa.plataforma.Almacen;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.plataforma.ValidadorArchivos;
+import co.com.agsamericas.digsa.reglas.Bitacora;
 import co.com.agsamericas.digsa.reglas.Fechas;
 import co.com.agsamericas.digsa.reglas.Huellas;
 import co.com.agsamericas.digsa.reglas.Presupuesto;
@@ -221,21 +222,36 @@ public class ServicioNovedades {
                 + v.anio() + " · movimiento " + id);
         List<Long> orden = cambios.keySet().stream().sorted().toList();
         String separador = " · ";
-        for (Long linea : orden) {
-            Lineas.SaldoLinea s = saldos.get(linea);
-            BigDecimal valor = cambios.get(linea);
-            BigDecimal despues = s.asignado().add(valor);
-            jdbc.sql("""
-                    INSERT INTO presupuesto_movimientos_lineas (movimiento_id, vigencia_id, linea_id, valor, asignado_antes, asignado_despues, ejecutado_al_momento)
-                    VALUES (:m, :v, :l, :valor, :antes, :despues, :ej)""")
-                    .param("m", id).param("v", v.id()).param("l", linea).param("valor", valor).param("antes", s.asignado()).param("despues", despues)
-                    .param("ej", s.facturado()).update();
-            jdbc.sql("UPDATE presupuesto_saldos SET asignado = :a, version = version + 1, actualizado = :ahora WHERE linea_id = :l")
-                    .param("a", despues).param("ahora", ahora).param("l", linea).update();
-            detalle.append(separador).append(s.nombre()).append(": «").append(Presupuesto.formato(s.asignado()))
-                    .append("» → «").append(Presupuesto.formato(despues)).append("»");
-            separador = "; ";
+        Long[] ids = new Long[orden.size()];
+        BigDecimal[] valores = new BigDecimal[orden.size()];
+        BigDecimal[] antes = new BigDecimal[orden.size()];
+        BigDecimal[] despues = new BigDecimal[orden.size()];
+        BigDecimal[] ejecutado = new BigDecimal[orden.size()];
+        for (int i = 0; i < orden.size(); i++) {
+            Lineas.SaldoLinea s = saldos.get(orden.get(i));
+            ids[i] = orden.get(i);
+            valores[i] = cambios.get(orden.get(i));
+            antes[i] = s.asignado();
+            despues[i] = s.asignado().add(valores[i]);
+            ejecutado[i] = s.facturado();
+            if (detalle.length() < Bitacora.MAX_DETALLE) {
+                detalle.append(separador).append(s.nombre()).append(": «").append(Presupuesto.formato(antes[i])).append("» → «")
+                        .append(Presupuesto.formato(despues[i])).append("»");
+                separador = "; ";
+            }
         }
+        // Una sentencia para todas las líneas del movimiento y otra para sus saldos (una carga de miles de líneas no va fila por fila)
+        jdbc.sql("""
+                INSERT INTO presupuesto_movimientos_lineas (movimiento_id, vigencia_id, linea_id, valor, asignado_antes, asignado_despues, ejecutado_al_momento)
+                SELECT :m, :v, x.l, x.valor, x.antes, x.despues, x.ej
+                FROM unnest(CAST(:l AS bigint[]), CAST(:valor AS numeric[]), CAST(:antes AS numeric[]), CAST(:despues AS numeric[]), CAST(:ej AS numeric[]))
+                  AS x(l, valor, antes, despues, ej)""")
+                .param("m", id).param("v", v.id()).param("l", ids).param("valor", valores).param("antes", antes).param("despues", despues).param("ej", ejecutado)
+                .update();
+        jdbc.sql("""
+                UPDATE presupuesto_saldos s SET asignado = x.despues, version = s.version + 1, actualizado = :ahora
+                FROM unnest(CAST(:l AS bigint[]), CAST(:despues AS numeric[])) AS x(l, despues) WHERE s.linea_id = x.l""")
+                .param("ahora", ahora).param("l", ids).param("despues", despues).update();
         // En una carga, la bitácora la deja la carga (una fila de 500 caracteres no alcanza para miles de líneas)
         if (loteId == null) {
             bitacora.registrar("presupuesto_movimiento", detalle.toString(), quien.id(), quien.usuario());
@@ -295,14 +311,12 @@ public class ServicioNovedades {
                 lineas.serializar(r.validas().stream().map(x -> x.destino().vigenciaId()).toList());
                 // Una carga puede traer varias vigencias: un movimiento de asignación inicial por vigencia
                 Map<Long, Map<Long, BigDecimal>> porVigencia = new TreeMap<>();
+                Map<String, Long> ids = lineas.asegurarTodas(r.validas().stream().map(FilaAsignacion::destino).toList());
                 for (FilaAsignacion fa : r.validas()) {
-                    long linea = lineas.asegurar(fa.destino());
-                    if (tieneMovimientos(linea)) {
-                        throw ErrorNegocio.conflicto("Otra persona asignó presupuesto a " + fa.destino().etiqueta() + " mientras se revisaba el archivo: "
-                                + "vuelva a simular.");
-                    }
+                    long linea = ids.get(fa.destino().clave());
                     porVigencia.computeIfAbsent(fa.destino().vigenciaId(), k -> new LinkedHashMap<>()).put(linea, fa.fila().valor());
                 }
+                // Si alguien asignó una de estas líneas mientras se revisaba el archivo, aplicar() responde 409 con los saldos ya bloqueados
                 List<Long> movimientos = new ArrayList<>();
                 porVigencia.forEach((vid, cambios) -> movimientos.add(aplicar(lineas.abierta(vid), Tipo.ASIGNACION_INICIAL, soporteTexto.strip(), null, lote,
                         null, "Carga de archivo (lote " + lote + ")", cambios, quien)));
@@ -329,6 +343,7 @@ public class ServicioNovedades {
         List<FilaAsignacion> validas = new ArrayList<>();
         Lineas.Catalogo c = lineas.catalogo();
         Map<String, Integer> vistas = new HashMap<>();
+        java.util.Set<String> conPresupuesto = lineas.conMovimientos(c.vigencias().values().stream().map(Lineas.Vigencia::id).toList());
         for (Fila f : l.filas()) {
             List<String> motivos = new ArrayList<>();
             Optional<Lineas.Destino> d = Lineas.resolver(c, f, Clase.ASIGNACION, motivos);
@@ -336,7 +351,7 @@ public class ServicioNovedades {
                 Integer previa = vistas.putIfAbsent(d.get().clave(), f.numero());
                 if (previa != null) {
                     motivos.add("La línea ya viene en la fila " + previa);
-                } else if (lineas.existente(d.get()).map(this::tieneMovimientos).orElse(false)) {
+                } else if (conPresupuesto.contains(d.get().clave())) {
                     motivos.add("La línea ya tiene presupuesto: use una adición, disminución o reajuste");
                 }
             }

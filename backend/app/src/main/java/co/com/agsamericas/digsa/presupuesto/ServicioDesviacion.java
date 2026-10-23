@@ -60,26 +60,49 @@ class ServicioDesviacion implements CorteDeEjecucion {
         String base = presupuesto.base();
         BigDecimal tolExceso = presupuesto.tolerancia("presupuesto_tolerancia_exceso", Presupuesto.TOLERANCIA_EXCESO);
         BigDecimal tolSub = presupuesto.tolerancia("presupuesto_tolerancia_subejecucion", Presupuesto.TOLERANCIA_SUBEJECUCION);
+        if (periodos.isEmpty()) {
+            return;
+        }
+        // El corte es el mes más reciente de la carga: los meses anteriores de un mismo archivo no alarman uno por uno (F6, rendimiento)
+        YearMonth corte = new TreeSet<>(periodos).last();
         Map<Long, String> nombres = nombres(lineas);
-        for (YearMonth corte : new TreeSet<>(periodos)) {
-            Map<Long, Proyecciones.AlCorte> todas = proyecciones.alCorte(v, corte, base);
-            List<Nivel> niveles = new ArrayList<>();
-            Set<String> fuerzas = new TreeSet<>();
-            for (Long id : new TreeSet<>(lineas)) {
-                Proyecciones.AlCorte a = todas.get(id);
-                if (a != null && a.reporto()) {
-                    niveles.add(new Nivel("esm", id, a.fuerza(), nombres.getOrDefault(id, "línea " + id), a.ejecutado(), a.proyectado()));
-                    fuerzas.add(a.fuerza());
-                }
+        Map<Long, Proyecciones.AlCorte> todas = proyecciones.alCorte(v, corte, base);
+        Set<String> fuerzas = new TreeSet<>();
+        // Nivel ESM: cada línea tocada que reportó el mes; las nuevas alarmas se notifican consolidadas por fuerza y sentido
+        Map<String, List<Object[]>> grupos = new TreeMap<>();
+        for (Long id : new TreeSet<>(lineas)) {
+            Proyecciones.AlCorte a = todas.get(id);
+            if (a == null || !a.reporto()) {
+                continue;
             }
-            for (String f : fuerzas) {
-                niveles.add(sumar("fuerza", f, "Fuerza " + f, todas.values().stream().filter(a -> a.reporto() && f.equals(a.fuerza())).toList()));
+            fuerzas.add(a.fuerza());
+            Nivel n = new Nivel("esm", id, a.fuerza(), nombres.getOrDefault(id, "línea " + id), a.ejecutado(), a.proyectado());
+            Sentido s = Presupuesto.sentido(n.ejecutado(), n.proyectado(), tolExceso, tolSub);
+            if (s != Sentido.NINGUNO) {
+                registrar(v, corte, n, s, base).ifPresent(d -> grupos.computeIfAbsent(a.fuerza() + "|" + s.codigo(), k -> new ArrayList<>())
+                        .add(new Object[] {n, s, d}));
             }
-            niveles.add(sumar("nacional", null, "Nacional", todas.values().stream().filter(Proyecciones.AlCorte::reporto).toList()));
-            for (Nivel n : niveles) {
-                Sentido s = Presupuesto.sentido(n.ejecutado(), n.proyectado(), tolExceso, tolSub);
-                if (s != Sentido.NINGUNO) {
-                    alarmar(v, corte, n, s, base, s == Sentido.EXCESO ? tolExceso : tolSub, quien);
+        }
+        for (List<Object[]> g : grupos.values()) {
+            Sentido s = (Sentido) g.get(0)[1];
+            BigDecimal tol = s == Sentido.EXCESO ? tolExceso : tolSub;
+            if (g.size() == 1) {
+                avisar(v, corte, (Nivel) g.get(0)[0], s, base, tol, (Long) g.get(0)[2], quien);
+            } else {
+                avisarGrupo(v, corte, g, s, base, tol, quien);
+            }
+        }
+        List<Nivel> agregados = new ArrayList<>();
+        for (String f : fuerzas) {
+            agregados.add(sumar("fuerza", f, "Fuerza " + f, todas.values().stream().filter(a -> a.reporto() && f.equals(a.fuerza())).toList()));
+        }
+        agregados.add(sumar("nacional", null, "Nacional", todas.values().stream().filter(Proyecciones.AlCorte::reporto).toList()));
+        for (Nivel n : agregados) {
+            Sentido s = Presupuesto.sentido(n.ejecutado(), n.proyectado(), tolExceso, tolSub);
+            if (s != Sentido.NINGUNO) {
+                Optional<Long> d = registrar(v, corte, n, s, base);
+                if (d.isPresent()) {
+                    avisar(v, corte, n, s, base, s == Sentido.EXCESO ? tolExceso : tolSub, d.get(), quien);
                 }
             }
         }
@@ -95,20 +118,27 @@ class ServicioDesviacion implements CorteDeEjecucion {
         return new Nivel(nivel, null, fuerza, nombre, ej, pr);
     }
 
-    private void alarmar(Lineas.Vigencia v, YearMonth corte, Nivel n, Sentido s, String base, BigDecimal tolerancia, UsuarioSesion quien) {
+    /** Registra la desviación; vacío si ya estaba (mismo corte, nivel y sentido: índice único). */
+    private Optional<Long> registrar(Lineas.Vigencia v, YearMonth corte, Nivel n, Sentido s, String base) {
         OffsetDateTime ahora = OffsetDateTime.now(reloj);
         BigDecimal desv = Presupuesto.desviacion(n.ejecutado(), n.proyectado()).orElse(null);
-        Optional<Long> id = jdbc.sql("""
+        return jdbc.sql("""
                 INSERT INTO presupuesto_desviaciones (vigencia_id, corte, nivel, linea_id, fuerza, sentido, ejecutado, proyectado, desviacion, base, creado)
                 VALUES (:v, :corte, :nivel, :linea, :fuerza, :sentido, :ej, :pr, :desv, :base, :ahora)
                 ON CONFLICT DO NOTHING RETURNING id""")
                 .param("v", v.id()).param("corte", corte.atDay(1)).param("nivel", n.nivel()).param("linea", n.lineaId())
                 .param("fuerza", "fuerza".equals(n.nivel()) ? n.fuerza() : null).param("sentido", s.codigo()).param("ej", n.ejecutado())
                 .param("pr", n.proyectado()).param("desv", desv).param("base", base).param("ahora", ahora).query(Long.class).optional();
-        if (id.isEmpty()) {
-            return; // ya se alarmó este corte, nivel y sentido
-        }
-        String porcentaje = desv == null ? "sin proyección al corte" : (desv.signum() > 0 ? "+" : "") + Presupuesto.formato(desv) + " %";
+    }
+
+    private static String porcentaje(Nivel n) {
+        BigDecimal desv = Presupuesto.desviacion(n.ejecutado(), n.proyectado()).orElse(null);
+        return desv == null ? "sin proyección al corte" : (desv.signum() > 0 ? "+" : "") + Presupuesto.formato(desv) + " %";
+    }
+
+    private void avisar(Lineas.Vigencia v, YearMonth corte, Nivel n, Sentido s, String base, BigDecimal tolerancia, long desviacionId, UsuarioSesion quien) {
+        Optional<Long> id = Optional.of(desviacionId);
+        String porcentaje = porcentaje(n);
         String titulo = n.nombre() + ": " + s.texto() + " frente a la proyección a " + corte + " (" + porcentaje + ")";
         List<String[]> d = new ArrayList<>();
         d.add(new String[] {"Nivel", switch (n.nivel()) {
@@ -123,13 +153,40 @@ class ServicioDesviacion implements CorteDeEjecucion {
         d.add(new String[] {"Desviación", porcentaje});
         d.add(new String[] {"Alarma", s.texto() + " (tolerancia " + Presupuesto.formato(tolerancia) + " %)"});
         String fuerzaAviso = "nacional".equals(n.nivel()) ? null : n.fuerza();
-        Notificaciones.Resultado r = notificaciones.notificar(new Notificaciones.Aviso("desviacion", n.nivel(), v, n.lineaId(), fuerzaAviso, corte.atDay(1), titulo,
-                d), quien == null ? null : quien.id(), quien == null ? null : quien.usuario());
+        Notificaciones.Resultado r = notificaciones.notificar(new Notificaciones.Aviso("desviacion", n.nivel(), v, n.lineaId(), List.of(), fuerzaAviso,
+                corte.atDay(1), titulo, d), quien == null ? null : quien.id(), quien == null ? null : quien.usuario());
         String referencia = "esm".equals(n.nivel()) ? String.valueOf(n.lineaId()) : "fuerza".equals(n.nivel()) ? n.fuerza() : "nacional";
         alertas.disparar("presupuesto_desviacion", Presupuesto.claveDesviacion(v.anio(), corte, n.nivel(), referencia, s), r.consecutivo() + " · " + titulo);
         jdbc.sql("UPDATE presupuesto_desviaciones SET notificacion_id = :n WHERE id = :id").param("n", r.id()).param("id", id.get()).update();
         bitacora.registrar("presupuesto_desviacion", "Desviación " + s.codigo() + " · " + n.nivel() + " " + referencia + " · corte " + corte + " · " + porcentaje
                 + " · " + r.consecutivo(), quien == null ? null : quien.id(), quien == null ? null : quien.usuario());
+    }
+
+    /** Varias líneas de una fuerza con la misma alarma en el mismo corte: una sola notificación y una alerta. */
+    private void avisarGrupo(Lineas.Vigencia v, YearMonth corte, List<Object[]> grupo, Sentido s, String base, BigDecimal tolerancia, UsuarioSesion quien) {
+        String fuerza = ((Nivel) grupo.get(0)[0]).fuerza();
+        String titulo = grupo.size() + " líneas de la fuerza " + fuerza + ": " + s.texto() + " frente a la proyección a " + corte;
+        List<String[]> d = new ArrayList<>();
+        d.add(new String[] {"Nivel", "ESM y modalidad"});
+        d.add(new String[] {"Fuerza", fuerza});
+        d.add(new String[] {"Corte", corte.toString()});
+        d.add(new String[] {"Alarma", s.texto() + " (tolerancia " + Presupuesto.formato(tolerancia) + " %; ejecutado = " + base + ")"});
+        grupo.stream().limit(ServicioUmbrales.MAX_DETALLE).forEach(x -> {
+            Nivel n = (Nivel) x[0];
+            d.add(new String[] {n.nombre(), porcentaje(n) + " (ejecutado " + Presupuesto.formato(n.ejecutado()) + ", proyectado " + Presupuesto.formato(n.proyectado())
+                    + ")"});
+        });
+        if (grupo.size() > ServicioUmbrales.MAX_DETALLE) {
+            d.add(new String[] {"…", "y " + (grupo.size() - ServicioUmbrales.MAX_DETALLE) + " línea(s) más: ver el reporte de umbrales y desviaciones"});
+        }
+        List<Long> lineas = grupo.stream().map(x -> ((Nivel) x[0]).lineaId()).toList();
+        Notificaciones.Resultado r = notificaciones.notificar(new Notificaciones.Aviso("desviacion", "esm", v, null, lineas, fuerza, corte.atDay(1), titulo, d),
+                quien == null ? null : quien.id(), quien == null ? null : quien.usuario());
+        alertas.disparar("presupuesto_desviacion", "pd:" + v.anio() + ":" + corte + ":n" + r.id(), r.consecutivo() + " · " + titulo);
+        jdbc.sql("UPDATE presupuesto_desviaciones SET notificacion_id = :n WHERE id = ANY(:ids)").param("n", r.id())
+                .param("ids", grupo.stream().map(x -> (Long) x[2]).toArray(Long[]::new)).update();
+        bitacora.registrar("presupuesto_desviacion", "Desviación " + s.codigo() + " · " + grupo.size() + " líneas de " + fuerza + " · corte " + corte + " · "
+                + r.consecutivo(), quien == null ? null : quien.id(), quien == null ? null : quien.usuario());
     }
 
     private Map<Long, String> nombres(List<Long> lineas) {

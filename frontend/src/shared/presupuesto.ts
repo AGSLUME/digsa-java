@@ -515,3 +515,54 @@ export function anchoBarra(porcentaje: string | null): number {
 export function etiquetaUmbral(umbral: number, como: 'notificado' | 'alcanzado'): string {
   return `${umbral} % ${como}`;
 }
+
+// ---------- Reportes (F6) ----------
+
+export interface FiltrosReporte {
+  vigencia: string;
+  corte: string;
+  fuerzas: string[];
+  punto: string;
+  modalidades: string[];
+  tipoMovimiento: string;
+  desde: string;
+  hasta: string;
+  agrupacion: string;
+}
+
+export const FILTROS_REPORTE: FiltrosReporte = {
+  vigencia: '',
+  corte: '',
+  fuerzas: [],
+  punto: '',
+  modalidades: [],
+  tipoMovimiento: '',
+  desde: '',
+  hasta: '',
+  agrupacion: 'mes',
+};
+
+export interface ReportePresupuesto {
+  titulo: string;
+  generado: string;
+  usuario: string;
+  filtros: Record<string, string>;
+  columnas: string[];
+  total: number;
+  filas: (string | number | null)[][];
+}
+
+/** Parámetros del reporte: solo los filtros que aplican al tipo y tienen valor, en un orden fijo. */
+export function consultaReporte(tipo: string, f: FiltrosReporte): string {
+  const p = new URLSearchParams();
+  if (f.vigencia) p.set('vigencia', f.vigencia);
+  if (tipo === 'ejecucion' && f.vigencia && f.corte) p.set('corte', f.corte);
+  if (f.fuerzas.length) p.set('fuerza', f.fuerzas.join(','));
+  if (f.punto) p.set('punto', f.punto);
+  if (tipo !== 'alertas' && f.modalidades.length) p.set('modalidad', f.modalidades.join(','));
+  if (tipo === 'movimientos' && f.tipoMovimiento) p.set('tipoMovimiento', f.tipoMovimiento);
+  if ((tipo === 'movimientos' || tipo === 'alertas') && f.desde) p.set('desde', f.desde);
+  if ((tipo === 'movimientos' || tipo === 'alertas') && f.hasta) p.set('hasta', f.hasta);
+  if (tipo === 'mensual') p.set('agrupacion', f.agrupacion || 'mes');
+  return p.toString();
+}

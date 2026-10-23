@@ -33,8 +33,12 @@ class Notificaciones {
 
     private static final Logger LOG = LoggerFactory.getLogger(Notificaciones.class);
 
-    /** Lo que se notifica. nivel: esm, fuerza o nacional; fuerza vacía en el nivel nacional (va a todas las sanidades). */
-    record Aviso(String tipo, String nivel, Lineas.Vigencia vigencia, Long lineaId, String fuerza, LocalDate corte, String asunto, List<String[]> datos) {
+    /**
+     * Lo que se notifica. nivel: esm, fuerza o nacional; fuerza vacía en el nivel nacional (va a todas las sanidades). lineas: las líneas
+     * de una notificación consolidada (varias líneas de la fuerza en un mismo cambio); con una sola línea va en lineaId.
+     */
+    record Aviso(String tipo, String nivel, Lineas.Vigencia vigencia, Long lineaId, List<Long> lineas, String fuerza, LocalDate corte, String asunto,
+                 List<String[]> datos) {
     }
 
     record Resultado(long id, String consecutivo, String estado, List<String> para) {
@@ -71,9 +75,11 @@ class Notificaciones {
         Long correoId = d.todos().isEmpty() ? null : bandeja.encolar("presupuesto:" + a.tipo(), consecutivo,
                 new Correo.Mensaje(d.todos(), List.of(), asunto, html, List.of()));
         long id = jdbc.sql("""
-                INSERT INTO presupuesto_notificaciones (consecutivo, tipo, nivel, vigencia_id, linea_id, fuerza, corte, asunto, texto, para, correo_id, estado, creado)
-                VALUES (:c, :t, :n, :v, :l, :f, :corte, :asunto, :texto, :para, :correo, :estado, :ahora) RETURNING id""")
+                INSERT INTO presupuesto_notificaciones (consecutivo, tipo, nivel, vigencia_id, linea_id, lineas, fuerza, corte, asunto, texto, para, correo_id,
+                                                        estado, creado)
+                VALUES (:c, :t, :n, :v, :l, CAST(:lineas AS bigint[]), :f, :corte, :asunto, :texto, :para, :correo, :estado, :ahora) RETURNING id""")
                 .param("c", consecutivo).param("t", a.tipo()).param("n", a.nivel()).param("v", a.vigencia().id()).param("l", a.lineaId())
+                .param("lineas", (a.lineas() == null ? List.<Long>of() : a.lineas()).toArray(Long[]::new))
                 .param("f", a.fuerza() == null || a.fuerza().isBlank() ? null : a.fuerza()).param("corte", a.corte()).param("asunto", cortar(asunto, 300))
                 .param("texto", cortar(texto, 4000)).param("para", d.todos().toArray(String[]::new)).param("correo", correoId).param("estado", estado)
                 .param("ahora", ahora).query(Long.class).single();
@@ -210,7 +216,9 @@ class Notificaciones {
     Map<String, Object> lista(Ambito a, Long vigencia, String tipo, Integer pagina) {
         Map<String, Object> p = new java.util.HashMap<>(a.parametros());
         String condicion = a.parametros().containsKey("ambito_fuerza") ? "(l.fuerza = :ambito_fuerza OR n.fuerza = :ambito_fuerza OR n.nivel = 'nacional')"
-                : a.parametros().containsKey("ambito_punto") ? "l.punto_id = :ambito_punto" : a.condicion();
+                : a.parametros().containsKey("ambito_punto")
+                ? "(l.punto_id = :ambito_punto OR EXISTS (SELECT 1 FROM presupuesto_lineas lc WHERE lc.id = ANY(n.lineas) AND lc.punto_id = :ambito_punto))"
+                : a.condicion();
         StringBuilder w = new StringBuilder(" WHERE " + condicion);
         if (vigencia != null) {
             w.append(" AND n.vigencia_id = :f_vigencia");
@@ -228,7 +236,8 @@ class Notificaciones {
         long total = jdbc.sql("SELECT count(*)" + desde).params(p).query(Long.class).single();
         p.put("limite", 50);
         p.put("desplazamiento", (pag - 1) * 50);
-        List<Map<String, Object>> items = jdbc.sql("SELECT n.id, n.consecutivo, n.tipo, n.nivel, n.fuerza, n.corte, n.asunto, n.texto, n.estado, n.creado, c.estado AS envio"
+        boolean soloSuEsm = a.parametros().containsKey("ambito_punto");
+        List<Map<String, Object>> items = jdbc.sql("SELECT n.id, n.consecutivo, n.tipo, n.nivel, n.fuerza, n.corte, n.asunto, n.texto, n.estado, n.creado, c.estado AS envio, n.linea_id"
                 + desde + " ORDER BY n.creado DESC, n.id DESC LIMIT :limite OFFSET :desplazamiento").params(p).query().listOfRows().stream().map(r -> {
                     Map<String, Object> x = new LinkedHashMap<>();
                     x.put("id", r.get("id"));
@@ -238,7 +247,10 @@ class Notificaciones {
                     x.put("fuerza", r.get("fuerza"));
                     x.put("corte", r.get("corte") == null ? null : r.get("corte").toString().substring(0, 7));
                     x.put("asunto", r.get("asunto"));
-                    x.put("texto", r.get("texto"));
+                    // Una notificación consolidada trae cifras de otros ESM de la fuerza: el perfil ESM no las ve (alcance, Anexo 5 3.7)
+                    x.put("texto", soloSuEsm && r.get("linea_id") == null
+                            ? "Notificación consolidada de la fuerza: incluye una o más líneas de su ESM. Consulte su detalle en el tablero."
+                            : r.get("texto"));
                     // El envío real de la bandeja: una notificación «encolada» cuyo correo agotó los intentos se muestra «fallida» y se puede reenviar
                     x.put("estado", "encolada".equals(r.get("estado")) && "fallido".equals(r.get("envio")) ? "fallida" : r.get("estado"));
                     x.put("envio", r.get("envio"));

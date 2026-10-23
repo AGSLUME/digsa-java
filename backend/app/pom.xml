@@ -87,6 +87,13 @@
             <artifactId>bcprov-jdk18on</artifactId>
             <version>1.78.1</version>
         </dependency>
+        <!-- Sesión de reportes (R3): letra Liberation Sans (SIL OFL) para incrustar en el PDF de los reportes: muestra ≤, ≥, →, °,
+             tildes y eñes (Helvetica sin incrustar no los tiene). Misma versión que OpenPDF. -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf-fonts-extra</artifactId>
+            <version>${openpdf.version}</version>
+        </dependency>
         <!-- Código QR del enlace de respuesta del OPL en el acta (decisión 25) -->
         <dependency>
             <groupId>com.google.zxing</groupId>

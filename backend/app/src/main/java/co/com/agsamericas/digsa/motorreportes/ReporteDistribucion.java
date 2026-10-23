@@ -40,7 +40,7 @@ class ReporteDistribucion implements ProveedorReporte {
             .columna("Municipio base", TipoColumna.TEXTO).columna("Punto", TipoColumna.TEXTO).columna("Unidad", TipoColumna.TEXTO)
             .columna("Modalidad", TipoColumna.TEXTO).columna("Municipio del punto", TipoColumna.TEXTO).columna("Asignado al punto", TipoColumna.TEXTO)
             .columna("Distancia (km)", TipoColumna.ENTERO).columna("Agendadas", TipoColumna.ENTERO).columna("Cerradas", TipoColumna.ENTERO)
-            .orden("nombre e id del auditor, nombre e id del punto").maxFilas(ReporteDetalleVisitas.MAX_FILAS).crear();
+            .orden("nombre e id del auditor, nombre e id del punto").crear();
 
     private final JdbcClient jdbc;
 

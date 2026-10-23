@@ -39,6 +39,9 @@ final class CintaFilas implements ReporteFilas, AutoCloseable {
     private final DataOutputStream salida;
     private long total;
     private boolean cerrada;
+    /** Instante (System.nanoTime) en que vence el tope técnico de la generación; 0 = sin plazo. */
+    private long fin;
+    private long plazoMs;
 
     CintaFilas() throws IOException {
         archivo = ReporteTemporales.nuevo(".cinta");
@@ -121,6 +124,12 @@ final class CintaFilas implements ReporteFilas, AutoCloseable {
         cerrada = true;
     }
 
+    /** Al recorrerla, revisa cada mil filas que la generación no haya pasado el tope técnico (la escritura del archivo también cuenta). */
+    void plazo(long finNanos, long plazoMs) {
+        this.fin = finNanos;
+        this.plazoMs = plazoMs;
+    }
+
     @Override
     public long total() {
         return total;
@@ -137,6 +146,9 @@ final class CintaFilas implements ReporteFilas, AutoCloseable {
                 List<Object> f = new ArrayList<>(n);
                 for (int i = 0; i < n; i++) {
                     f.add(leer(in));
+                }
+                if (fin != 0 && k % 1000 == 999 && System.nanoTime() > fin) {
+                    throw new ReporteCortado(plazoMs, true);
                 }
                 fila.accept(f);
             }

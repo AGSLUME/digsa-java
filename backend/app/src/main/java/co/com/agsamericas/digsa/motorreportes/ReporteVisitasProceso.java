@@ -36,7 +36,7 @@ class ReporteVisitasProceso implements ProveedorReporte {
             .columna("Componente", TipoColumna.TEXTO).columna("Proceso", TipoColumna.TEXTO).columna("Visitas", TipoColumna.ENTERO)
             .columna("Ítems calificados", TipoColumna.ENTERO).columna("Cumple", TipoColumna.ENTERO).columna("No cumple", TipoColumna.ENTERO)
             .columna("No aplica", TipoColumna.ENTERO).columna("% cumplimiento", TipoColumna.PORCENTAJE)
-            .orden("periodo y código del componente").maxFilas(ReporteDetalleVisitas.MAX_FILAS).crear();
+            .orden("periodo y código del componente").crear();
 
     private final JdbcClient jdbc;
     private final FiltrosVisitas filtros;

@@ -5,11 +5,15 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Registro de los reportes generados ({@code reportes_generados}, V50): una fila por cada generación con su código de verificación,
@@ -35,12 +39,18 @@ class RegistroGenerados {
                  List<String> columnas, String formato) {
     }
 
+    /** Clase del candado por usuario del diferido (pg_advisory_xact_lock de dos llaves: no choca con el de la limpieza). */
+    static final int CANDADO_USUARIO = 0x52505447; // «RPTG»
+
     private final JdbcClient jdbc;
     private final ObjectMapper json;
+    private final TransactionTemplate propia;
 
-    RegistroGenerados(JdbcClient jdbc, ObjectMapper json) {
+    RegistroGenerados(JdbcClient jdbc, ObjectMapper json, PlatformTransactionManager transacciones) {
         this.jdbc = jdbc;
         this.json = json;
+        this.propia = new TransactionTemplate(transacciones);
+        this.propia.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     private String aJson(Object o) {
@@ -76,6 +86,22 @@ class RegistroGenerados {
         throw new IllegalStateException("No se obtuvo un código de verificación libre en 5 intentos");
     }
 
+    /**
+     * Inserta la solicitud «pendiente» solo si el usuario tiene menos de {@code tope} en cola o en curso. El conteo y la inserción van
+     * en una transacción con un candado por usuario: dos peticiones a la vez (o en dos réplicas) no pasan las dos el tope.
+     *
+     * @return id y código; vacío si ya llegó al tope
+     */
+    Optional<Map.Entry<Long, String>> pedir(Nuevo n, int tope, OffsetDateTime ahora, OffsetDateTime vence) {
+        return propia.execute(t -> {
+            jdbc.sql("SELECT pg_advisory_xact_lock(:k, :u)").param("k", CANDADO_USUARIO).param("u", (int) n.usuarioId()).query().singleRow();
+            if (enCurso(n.usuarioId()) >= tope) {
+                return Optional.<Map.Entry<Long, String>>empty();
+            }
+            return Optional.of(insertar(n, "pendiente", ahora, vence));
+        });
+    }
+
     private static int ms(long v) {
         return (int) Math.max(0, Math.min(v, Integer.MAX_VALUE));
     }
@@ -101,10 +127,87 @@ class RegistroGenerados {
                 .param("t", terminado).param("vence", venceMinimo).param("id", id).update(), id, "generando");
     }
 
+    /** Falló en la cola (la cola la rechazó) o generándose. */
     void fallida(long id, String error, OffsetDateTime ahora) {
-        cambio(jdbc.sql("UPDATE reportes_generados SET estado = 'fallida', ruta = NULL, error = :e, terminado = :t WHERE id = :id AND estado = 'generando'")
+        cambio(jdbc.sql("""
+                UPDATE reportes_generados SET estado = 'fallida', ruta = NULL, error = :e, terminado = :t
+                WHERE id = :id AND estado IN ('pendiente', 'generando')""")
                 .param("e", error == null || error.isBlank() ? "No se pudo generar el archivo." : error).param("t", ahora).param("id", id).update(), id,
-                "generando");
+                "pendiente» o «generando");
+    }
+
+    /** Al apagar la instancia: lo que tenía en cola o en curso queda «fallida» sin esperar a la limpieza y libera el cupo del usuario. */
+    int interrumpidas(Collection<Long> ids, OffsetDateTime ahora) {
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        return jdbc.sql("""
+                UPDATE reportes_generados SET estado = 'fallida', ruta = NULL, terminado = :t,
+                       error = 'La generación se interrumpió porque el servidor se reinició. Pídalo de nuevo.'
+                WHERE id IN (:ids) AND estado IN ('pendiente', 'generando')""").param("t", ahora).param("ids", ids).update();
+    }
+
+    /** La tarea en segundo plano toma la generación diferida: pendiente → generando. */
+    void iniciar(long id, OffsetDateTime ahora) {
+        cambio(jdbc.sql("UPDATE reportes_generados SET estado = 'generando', iniciado = :t, intentos = intentos + 1 WHERE id = :id AND estado = 'pendiente'")
+                .param("t", ahora).param("id", id).update(), id, "pendiente");
+    }
+
+    /** Generaciones del usuario en cola o en curso (tope por usuario del diferido). */
+    int enCurso(long usuarioId) {
+        return jdbc.sql("SELECT count(*) FROM reportes_generados WHERE usuario_id = :u AND estado IN ('pendiente', 'generando')").param("u", usuarioId)
+                .query(Integer.class).single();
+    }
+
+    /** Una fila de «Descargas del día». */
+    record Descarga(String codigo, String reporte, String titulo, String formato, String estado, OffsetDateTime creado, Long filas, Long tamano,
+                    Integer msTotal, OffsetDateTime vence, String error) {
+    }
+
+    /**
+     * Lo que el usuario pidió para descargar desde el inicio del día (Bogotá) y aún no vence, del más reciente al más antiguo. También lo
+     * pedido ayer que terminó hoy (sigue disponible hasta el fin de este día) y lo que sigue en cola o en curso.
+     */
+    List<Descarga> descargasDelDia(long usuarioId, OffsetDateTime inicioDelDia, OffsetDateTime ahora) {
+        return jdbc.sql("""
+                SELECT codigo, reporte, titulo, formato, estado, creado, filas, tamano, ms_total, vence, error FROM reportes_generados
+                WHERE usuario_id = :u AND formato IS NOT NULL AND estado <> 'vencida'
+                  AND (estado IN ('pendiente', 'generando') OR (vence > :ahora AND (creado >= :desde OR terminado >= :desde)))
+                ORDER BY creado DESC, id DESC LIMIT 200""").param("u", usuarioId).param("desde", inicioDelDia).param("ahora", ahora)
+                .query((rs, n) -> new Descarga(rs.getString("codigo"), rs.getString("reporte"), rs.getString("titulo"), rs.getString("formato"),
+                        rs.getString("estado"), rs.getObject("creado", OffsetDateTime.class), (Long) rs.getObject("filas"), (Long) rs.getObject("tamano"),
+                        (Integer) rs.getObject("ms_total"), rs.getObject("vence", OffsetDateTime.class), rs.getString("error"))).list();
+    }
+
+    /** Pasa a «vencida» lo que terminó su día y devuelve id y ruta de cada archivo por borrar. */
+    List<Map.Entry<Long, String>> vencer(OffsetDateTime ahora) {
+        jdbc.sql("UPDATE reportes_generados SET estado = 'vencida' WHERE estado = 'lista' AND vence <= :ahora").param("ahora", ahora).update();
+        return jdbc.sql("""
+                SELECT id, ruta FROM reportes_generados WHERE estado = 'vencida' AND ruta IS NOT NULL AND archivo_borrado IS NULL ORDER BY id LIMIT 500""")
+                .query((rs, n) -> Map.entry(rs.getLong("id"), rs.getString("ruta"))).list();
+    }
+
+    void archivoBorrado(long id, OffsetDateTime ahora) {
+        jdbc.sql("UPDATE reportes_generados SET archivo_borrado = :t WHERE id = :id AND archivo_borrado IS NULL").param("t", ahora).param("id", id).update();
+    }
+
+    /** Una generación interrumpida (el servidor se reinició o la tarea murió). */
+    record Huerfana(long id, String codigo, String formato, OffsetDateTime creado) {
+    }
+
+    /**
+     * Marca «fallida» lo que quedó «generando» desde antes de {@code generandoDesde} o «pendiente» desde antes de
+     * {@code pendienteDesde} (la cola vive en la memoria de la instancia: si se reinició, se perdió) y lo devuelve para borrar lo que
+     * haya quedado a medias en el almacén.
+     */
+    List<Huerfana> reponerHuerfanas(OffsetDateTime generandoDesde, OffsetDateTime pendienteDesde, OffsetDateTime ahora) {
+        return jdbc.sql("""
+                UPDATE reportes_generados SET estado = 'fallida', ruta = NULL, terminado = :ahora,
+                       error = 'La generación se interrumpió (reinicio o falla del servidor). Pídalo de nuevo.'
+                WHERE (estado = 'generando' AND iniciado < :g) OR (estado = 'pendiente' AND creado < :p)
+                RETURNING id, codigo, formato, creado""").param("g", generandoDesde).param("p", pendienteDesde).param("ahora", ahora)
+                .query((rs, n) -> new Huerfana(rs.getLong("id"), rs.getString("codigo"), rs.getString("formato"), rs.getObject("creado", OffsetDateTime.class)))
+                .list();
     }
 
     /** El cambio debe tocar exactamente una fila: si no, otra tarea cambió el estado mientras tanto y eso no se ignora. */

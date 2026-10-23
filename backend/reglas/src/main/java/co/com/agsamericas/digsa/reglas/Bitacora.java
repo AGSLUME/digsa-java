@@ -80,7 +80,9 @@ public final class Bitacora {
             Map.entry("exportacion_fallida", Operacion.INSERCION), Map.entry("exportacion_vencida", Operacion.ELIMINACION),
             Map.entry("exportacion_completa", Operacion.CONSULTA), Map.entry("soportes_opl_descargados", Operacion.CONSULTA),
             // Módulo de reportes (sesión de reportes, Anexo 5 2.7 a 2.12): cada reporte generado en pantalla y cada verificación
-            Map.entry("reporte_generado", Operacion.CONSULTA), Map.entry("reporte_verificado", Operacion.CONSULTA));
+            Map.entry("reporte_generado", Operacion.CONSULTA), Map.entry("reporte_verificado", Operacion.CONSULTA),
+            Map.entry("reporte_solicitado", Operacion.CONSULTA), Map.entry("reporte_vencido", Operacion.ELIMINACION),
+            Map.entry("reporte_fallido", Operacion.INSERCION));
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

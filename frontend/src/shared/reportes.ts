@@ -231,3 +231,53 @@ export function celda(v: Celda): string {
 export function totalPaginas(filas: number, porPagina = FILAS_POR_PAGINA): number {
   return Math.max(1, Math.ceil(filas / porPagina));
 }
+
+/** Una fila de «Descargas del día» (Anexo 5, 2.7). */
+export interface Descarga {
+  codigo: string;
+  titulo: string;
+  formato: string;
+  estado: 'pendiente' | 'generando' | 'lista' | 'fallida';
+  solicitado: string;
+  filas: number | null;
+  tamano: number | null;
+  ms: number | null;
+  disponibleHasta: string;
+  error: string | null;
+  nombre: string;
+}
+
+/** ¿Hay alguna descarga en cola o generándose? Mientras tanto la pantalla consulta cada pocos segundos. */
+export function hayEnCurso(d: Descarga[]): boolean {
+  return d.some((x) => x.estado === 'pendiente' || x.estado === 'generando');
+}
+
+/**
+ * Las descargas que terminaron (lista o fallida) desde la consulta anterior, para avisar. {@code seguidas} son los códigos de los 202
+ * de esta sesión: se avisan aunque hayan terminado antes de que la lista los viera en curso.
+ */
+export function recienTerminadas(antes: Descarga[], ahora: Descarga[], seguidas: ReadonlySet<string> = new Set()): Descarga[] {
+  const enCurso = new Set(antes.filter((x) => x.estado === 'pendiente' || x.estado === 'generando').map((x) => x.codigo));
+  return ahora.filter((x) => (x.estado === 'lista' || x.estado === 'fallida') && (enCurso.has(x.codigo) || seguidas.has(x.codigo)));
+}
+
+/** Tamaño legible: «1,5 MB», «820 KB». */
+export function tamano(bytes: number | null): string {
+  if (bytes === null || bytes === undefined) return '';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1).replace('.', ',')} MB`;
+}
+
+export const ESTADO_DESCARGA: Record<Descarga['estado'], { texto: string; color: string }> = {
+  pendiente: { texto: 'En cola', color: 'gray' },
+  generando: { texto: 'Generando', color: 'blue' },
+  lista: { texto: 'Listo', color: 'green' },
+  fallida: { texto: 'Falló', color: 'red' },
+};
+
+/** Texto y color del estado; un estado que el servidor agregue después se muestra tal cual, sin romper la tabla. */
+export function estadoDescarga(estado: string): { texto: string; color: string } {
+  return Object.prototype.hasOwnProperty.call(ESTADO_DESCARGA, estado)
+    ? ESTADO_DESCARGA[estado as Descarga['estado']]
+    : { texto: estado, color: 'gray' };
+}

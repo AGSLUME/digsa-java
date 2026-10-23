@@ -98,13 +98,71 @@ class ExportadorFlujoTest {
             int paginas = r.getNumberOfPages();
             assertThat(paginas).isGreaterThan(2);
             PdfTextExtractor texto = new PdfTextExtractor(r);
-            assertThat(texto.getTextFromPage(1)).contains("Detalle de visitas", "RPT-20261022-ABCDEF", "Página 1 de " + paginas);
-            assertThat(texto.getTextFromPage(paginas)).contains("Página " + paginas + " de " + paginas, "Lugar");
+            assertThat(texto.getTextFromPage(1)).contains("Detalle de visitas", "RPT-20261022-ABCDEF", "Página 1 de ");
+            assertThat(texto.getTextFromPage(paginas)).contains("Página " + paginas + " de ", "Lugar");
+            // El total («de M») va en una plantilla que se llena al cerrar: está en el XObject de cada hoja
+            for (int k : new int[] {1, paginas}) {
+                assertThat(textoDeLasPlantillas(r, k)).contains("(" + paginas + ")");
+            }
         } finally {
             r.close();
         }
         // Dos archivos del mismo reporte no comparten la contraseña de propietario (aleatoria): sus bytes difieren
         assertThat(escribir("pdf", 2)).isNotEqualTo(escribir("pdf", 2));
+    }
+
+    /** Contenido (descifrado) de las plantillas que usa la hoja. */
+    private static String textoDeLasPlantillas(PdfReader r, int pagina) throws Exception {
+        com.lowagie.text.pdf.PdfDictionary recursos = r.getPageN(pagina).getAsDict(com.lowagie.text.pdf.PdfName.RESOURCES);
+        com.lowagie.text.pdf.PdfDictionary xobjetos = recursos.getAsDict(com.lowagie.text.pdf.PdfName.XOBJECT);
+        StringBuilder sb = new StringBuilder();
+        for (com.lowagie.text.pdf.PdfName n : xobjetos.getKeys()) {
+            com.lowagie.text.pdf.PdfObject o = com.lowagie.text.pdf.PdfReader.getPdfObject(xobjetos.get(n));
+            if (o instanceof com.lowagie.text.pdf.PRStream flujo) {
+                sb.append(new String(PdfReader.getStreamBytes(flujo), StandardCharsets.ISO_8859_1));
+            }
+        }
+        return sb.toString();
+    }
+
+    @Test
+    @DisplayName("PDF con letra Unicode incrustada: ≤, ≥, →, ° y eñes salen como se escribieron")
+    void pdfUnicode() throws Exception {
+        List<List<Object>> f = List.<List<Object>>of(List.of("Temperatura ≤ 8 °C → nevera ≥ 2 °C · Ñandú", BigDecimal.ONE, LocalDate.of(2026, 1, 1),
+                OffsetDateTime.of(2026, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC)));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        exportador.escribir("pdf", ENCABEZADO, COLUMNAS, ReporteFilas.de(f), out);
+        PdfReader r = new PdfReader(out.toByteArray());
+        try {
+            String texto = new PdfTextExtractor(r).getTextFromPage(1);
+            assertThat(texto).contains("≤", "≥", "→", "°", "Ñandú");
+        } finally {
+            r.close();
+        }
+    }
+
+    @Test
+    @DisplayName("Excel sin tope: al pasar las filas por hoja sigue en «Datos 2» con los títulos (el límite de Excel es 1.048.576)")
+    void excelVariasHojas() throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        exportador.excel(ENCABEZADO, COLUMNAS, ReporteFilas.de(filas(25)), out, 20);
+        try (XSSFWorkbook libro = new XSSFWorkbook(new java.io.ByteArrayInputStream(out.toByteArray()))) {
+            var segunda = libro.getSheet("Datos 2");
+            assertThat(segunda).isNotNull();
+            assertThat(segunda.getRow(0).getCell(0).getStringCellValue()).isEqualTo("Lugar");
+            int enLaPrimera = 0;
+            var hoja = libro.getSheetAt(0);
+            boolean datos = false;
+            for (int i = 0; i <= hoja.getLastRowNum(); i++) {
+                var fila = hoja.getRow(i);
+                if (datos) {
+                    enLaPrimera++;
+                } else if (fila != null && fila.getCell(0) != null && "Lugar".equals(fila.getCell(0).getStringCellValue())) {
+                    datos = true;
+                }
+            }
+            assertThat(enLaPrimera + segunda.getLastRowNum()).as("todas las filas, ninguna perdida").isEqualTo(25);
+        }
     }
 
     @Test

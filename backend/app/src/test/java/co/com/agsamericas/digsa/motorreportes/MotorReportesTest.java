@@ -104,7 +104,7 @@ class MotorReportesTest {
                 return "inicio_contrato".equals(clave) ? inicioContrato : defecto;
             }
         };
-        return new MotorReportes(new RegistroReportes(List.of(p)), new ConfiguracionReportes(filasPantalla, null, null, null), catalogos, RELOJ, tx);
+        return new MotorReportes(new RegistroReportes(List.of(p)), new ConfiguracionReportes(filasPantalla), catalogos, RELOJ, tx, null);
     }
 
     private static Falso sinPeriodo(int maxFilas) {

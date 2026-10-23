@@ -35,8 +35,6 @@ import org.springframework.stereotype.Component;
 class ReporteDetalleVisitas implements ProveedorReporte {
 
     static final String AUDITOR = "Auditor líder";
-    /** Tope del archivo mientras la exportación no va en flujo (R2), como el de los logs: más es 422, nunca un archivo truncado. */
-    static final int MAX_FILAS = 200_000;
     private static final DefinicionReporte DEFINICION = DefinicionReporte.nuevo("detalle", "Detalle de visitas")
             .descripcion("Una fila por visita: inicio y fin reales, objeto, componentes auditados, resultados y hallazgos del acta.")
             .grupo(GrupoReporte.VISITAS).modulo("visitas").clase(ClaseReporte.OPERATIVO).fuente(FiltrosVisitas.FUENTE).posicion(1)
@@ -51,7 +49,7 @@ class ReporteDetalleVisitas implements ProveedorReporte {
             .columna("Cumple", TipoColumna.ENTERO).columna("No cumple", TipoColumna.ENTERO).columna("No aplica", TipoColumna.ENTERO)
             .columna("% cumplimiento", TipoColumna.PORCENTAJE).columna("Hallazgos", TipoColumna.ENTERO)
             .columna("Descripción de los hallazgos", TipoColumna.TEXTO)
-            .orden("fecha programada e id de la visita").maxFilas(MAX_FILAS).crear();
+            .orden("fecha programada e id de la visita").crear();
 
     private final JdbcClient jdbc;
     private final FiltrosVisitas filtros;

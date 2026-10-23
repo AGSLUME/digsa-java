@@ -59,7 +59,7 @@ test('R1: catálogo, varias fuerzas, agrupación por bimestres, encabezado 2.9 y
   // Los valores van ordenados por código (ARC antes que EJC): el mismo reporte da el mismo encabezado sin importar el orden elegido
   await expect(encabezado).toContainText(`Fuerza: ${nombreDe('ARC')}, ${nombreDe('EJC')}`);
   await expect(encabezado).toContainText('Fuente: Suite DIGSA');
-  await expect(encabezado).toContainText('Página: 1 de 1');
+  await expect(encabezado).toContainText(/Página: 1 de \d+/); // la base de las e2e acumula visitas entre navegadores
   await expect(page.getByTestId('tabla-reporte').locator('th').first()).toHaveText('Periodo');
 
   const descarga = page.waitForEvent('download');
@@ -104,7 +104,10 @@ test('R2: el código de verificación del encabezado y el archivo descargado se 
   const fs = await import('node:fs');
   const alterado = info.outputPath('alterado.csv');
   // Se cambia una cifra (los registros del encabezado)
-  fs.writeFileSync(alterado, fs.readFileSync(archivo, 'utf8').replace(/Registros;(\d+)/, (_m, n: string) => `Registros;${Number(n) + 1}`));
+  fs.writeFileSync(
+    alterado,
+    fs.readFileSync(archivo, 'utf8').replace(/Registros;(\d+)/, (_m, n: string) => `Registros;${Number(n) + 1}`),
+  );
   await page.locator('input[type="file"]').setInputFiles(alterado);
   await expect(page.getByTestId('resultado-verificacion')).toHaveCount(0); // el resultado del archivo anterior ya no se ve
   await page.getByRole('button', { name: 'Verificar archivo' }).click();
@@ -112,6 +115,31 @@ test('R2: el código de verificación del encabezado y el archivo descargado se 
   await expect(page.getByTestId('registro-verificado').first()).toContainText('Huella del archivo subido');
 
   // En el celular las huellas de 64 caracteres no desbordan la página
+  await page.setViewportSize({ width: 390, height: 844 });
+  await sinDesplazamientoHorizontal(page);
+});
+
+test('R3: «Descargas del día» lista lo que se pidió hoy y lo vuelve a bajar sin regenerarlo', async ({ page }) => {
+  await ingresar(page, ...ADMIN);
+  await page.goto('/reportes');
+  await page.getByTestId('reporte-proceso').click();
+  await page.getByRole('button', { name: 'Generar reporte' }).click();
+  await expect(page.getByTestId('encabezado-reporte')).toContainText('Código de verificación: RPT-');
+  const descarga = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Descargar TXT' }).click();
+  const primera = await descarga;
+  expect(primera.suggestedFilename()).toMatch(/^reporte_proceso_.*\.txt$/);
+
+  await page.getByRole('tab', { name: 'Descargas del día' }).click();
+  const tabla = page.getByTestId('tabla-descargas');
+  const fila = tabla.getByRole('row').filter({ hasText: 'Consolidado de visitas por proceso' }).first();
+  await expect(fila).toContainText('TXT');
+  await expect(fila).toContainText('Listo');
+  await expect(fila).toContainText('23:59');
+  const otra = page.waitForEvent('download');
+  await fila.getByRole('button', { name: 'Descargar' }).click();
+  expect((await otra).suggestedFilename()).toBe(primera.suggestedFilename());
+
   await page.setViewportSize({ width: 390, height: 844 });
   await sinDesplazamientoHorizontal(page);
 });

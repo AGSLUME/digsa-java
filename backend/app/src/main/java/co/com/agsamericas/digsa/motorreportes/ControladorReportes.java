@@ -22,6 +22,7 @@ import co.com.agsamericas.digsa.reportes.ProveedorReporte;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZonedDateTime;
@@ -33,6 +34,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
@@ -63,6 +67,7 @@ public class ControladorReportes {
 
     private static final Logger LOG = LoggerFactory.getLogger(ControladorReportes.class);
     private static final DateTimeFormatter FECHA_HORA = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter HORA = DateTimeFormatter.ofPattern("HH:mm");
     static final List<String> FORMATOS = List.of("xlsx", "csv", "pdf", "txt");
     /** Nombres sueltos de la pantalla de antes ⇒ filtro del reporte. */
     private static final Map<String, String> ALIAS = Map.of("puntoId", "punto_id");
@@ -77,10 +82,14 @@ public class ControladorReportes {
     private final RegistroBitacora bitacora;
     private final ConfiguracionDigsa cfg;
     private final ConfiguracionReportes cfgReportes;
+    private final RegistroGenerados registro;
+    private final Clock reloj;
 
     public ControladorReportes(MotorReportes motor, ServicioGeneracion generacion, Almacen almacen, Correo correo, RegistroBitacora bitacora,
-                               ConfiguracionDigsa cfg, ConfiguracionReportes cfgReportes) {
+                               ConfiguracionDigsa cfg, ConfiguracionReportes cfgReportes, RegistroGenerados registro, Clock reloj) {
         this.cfgReportes = cfgReportes;
+        this.registro = registro;
+        this.reloj = reloj;
         this.motor = motor;
         this.generacion = generacion;
         this.almacen = almacen;
@@ -91,7 +100,7 @@ public class ControladorReportes {
 
     static ServicioGeneracion.Quien quien() {
         UsuarioSesion u = UsuarioSesion.actual().orElseThrow();
-        return new ServicioGeneracion.Quien(u.id(), u.nombre() + " (" + u.usuario() + ")");
+        return new ServicioGeneracion.Quien(u.id(), u.usuario(), u.nombre() + " (" + u.usuario() + ")");
     }
 
     /** Compatibilidad con la pantalla de antes: los reportes del catálogo por id y título, y los formatos. */
@@ -193,9 +202,13 @@ public class ControladorReportes {
                 .body(new InputStreamResource(contenido));
     }
 
+    /**
+     * Descarga (Anexo 5, 2.7): la generación va a la cola de la instancia. Si termina dentro de la espera se entrega aquí; si no, sigue
+     * en segundo plano, responde 202 con su código y el archivo aparece en «Descargas del día» cuando esté listo.
+     */
     @GetMapping("/{id}/exportar")
     @Accion(modulo = "reportes", accion = "exportar", operacion = Declarada.CONSULTA)
-    public ResponseEntity<Resource> exportar(@PathVariable String id, @RequestParam MultiValueMap<String, String> parametros) throws IOException {
+    public ResponseEntity<?> exportar(@PathVariable String id, @RequestParam MultiValueMap<String, String> parametros) throws IOException {
         Map<String, List<String>> p = new LinkedHashMap<>(parametros);
         List<String> f = p.remove("formato");
         if (f != null && f.size() > 1) {
@@ -204,10 +217,84 @@ public class ControladorReportes {
         String formato = formato(f == null || f.isEmpty() ? null : f.get(0));
         ServicioGeneracion.Quien q = quien();
         MotorReportes.Solicitud s = resolver(id, p);
-        ServicioGeneracion.Archivo a = generacion.exportar(s, formato, q);
+        ServicioGeneracion.Solicitada pedida = generacion.solicitar(s, formato, q);
+        ServicioGeneracion.Archivo a = esperar(pedida, cfgReportes.esperaSincronaMs());
+        if (a == null) {
+            bitacora.registrar("reporte_solicitado", s.definicion().titulo() + " en " + formato + " sigue en segundo plano (" + pedida.codigo() + ") · "
+                    + resumen(s, "?", cfgReportes.esperaSincronaMs()), q.id(), q.usuario());
+            return ResponseEntity.accepted().body(Map.of("codigo", pedida.codigo(), "estado", "generando", "mensaje",
+                    "El reporte se está generando. Lo encontrará en «Descargas del día» cuando esté listo (código " + pedida.codigo() + ")."));
+        }
         InputStream contenido = almacen.leer(a.ruta()); // primero se abre: si falla, la bitácora no dice «descargado»
         bitacora.registrar("reporte_descargado", s.definicion().titulo() + " descargado (" + a.nombre() + ", " + a.codigo() + ") · "
                 + resumen(s, String.valueOf(a.filas()), a.ms()), q.id(), UsuarioSesion.actual().orElseThrow().usuario());
+        return descarga(a, contenido);
+    }
+
+    /** Espera el archivo hasta {@code ms}: null si sigue en segundo plano; el error de la generación sigue hacia el usuario. */
+    private static ServicioGeneracion.Archivo esperar(ServicioGeneracion.Solicitada pedida, long ms) {
+        try {
+            return pedida.trabajo().get(ms, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ErrorNegocio(HttpStatus.SERVICE_UNAVAILABLE, "La petición se interrumpió. Busque el reporte en «Descargas del día».");
+        } catch (ExecutionException e) {
+            // El error de la generación (con su mensaje o el código de la solicitud)
+            if (e.getCause() instanceof RuntimeException r) {
+                throw r;
+            }
+            throw new IllegalStateException(e.getCause());
+        }
+    }
+
+    /** «Descargas del día» (Anexo 5, 2.7; mockup): lo que el usuario pidió hoy, con su estado, hasta las 23:59:59 de Bogotá. */
+    @GetMapping("/descargas")
+    @Accion(modulo = "reportes", accion = "descargas", operacion = Declarada.SIN_REGISTRO)
+    public List<Map<String, Object>> descargas() {
+        OffsetDateTime ahora = OffsetDateTime.now(reloj);
+        return registro.descargasDelDia(quien().id(), ServicioGeneracion.inicioDelDia(ahora), ahora).stream().map(d -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("codigo", d.codigo());
+            m.put("titulo", d.titulo());
+            m.put("formato", d.formato());
+            m.put("estado", d.estado());
+            m.put("solicitado", d.creado().atZoneSameInstant(Fechas.BOGOTA).format(HORA));
+            m.put("filas", d.filas());
+            m.put("tamano", d.tamano());
+            m.put("ms", d.msTotal());
+            m.put("disponibleHasta", d.vence().atZoneSameInstant(Fechas.BOGOTA).format(HORA));
+            m.put("error", d.error());
+            m.put("nombre", ServicioGeneracion.nombre(d.reporte(), d.creado(), d.codigo(), d.formato()));
+            return m;
+        }).toList();
+    }
+
+    /** Vuelve a bajar un archivo del día sin regenerarlo: solo quien lo pidió y mientras no venza (si no, 404 sin revelar que existe). */
+    @GetMapping("/descargas/{codigo}")
+    @Accion(modulo = "reportes", accion = "descargar", operacion = Declarada.CONSULTA)
+    public ResponseEntity<Resource> descargarDelDia(@PathVariable String codigo) throws IOException {
+        ServicioGeneracion.Quien q = quien();
+        String c = CodigoVerificacion.normalizar(codigo);
+        RegistroGenerados.Generado g = c.isEmpty() ? null : registro.porCodigo(c).orElse(null);
+        OffsetDateTime ahora = OffsetDateTime.now(reloj);
+        if (g == null || g.usuarioId() != q.id() || !"lista".equals(g.estado()) || g.vence() == null || !g.vence().isAfter(ahora)) {
+            throw ErrorNegocio.noEncontrado("No está en sus descargas del día.");
+        }
+        ServicioGeneracion.Archivo a = new ServicioGeneracion.Archivo(g.id(), g.codigo(), ServicioGeneracion.nombre(g.reporte(), g.creado(), g.codigo(), g.formato()),
+                ServicioGeneracion.TIPOS.get(g.formato()), g.ruta(), g.tamano(), g.filas() == null ? 0 : g.filas(), g.huellaDatos(), g.huellaArchivo(),
+                g.msTotal() == null ? 0 : g.msTotal());
+        InputStream contenido;
+        try {
+            contenido = almacen.leer(a.ruta());
+        } catch (IOException e) {
+            // La limpieza de medianoche lo borró entre la consulta y la lectura
+            LOG.info("[reportes] {} ya no está en el almacén: {}", a.codigo(), e.getMessage());
+            throw ErrorNegocio.noEncontrado("No está en sus descargas del día.");
+        }
+        bitacora.registrar("reporte_descargado", g.titulo() + " descargado de nuevo desde las descargas del día (" + a.nombre() + ", " + a.codigo() + ")", q.id(),
+                q.usuario());
         return descarga(a, contenido);
     }
 
@@ -235,12 +322,19 @@ public class ControladorReportes {
         String formato = formato((String) pedido);
         ServicioGeneracion.Quien q = quien();
         MotorReportes.Solicitud s = resolver(id, parametrosDelCuerpo(cuerpo));
-        ServicioGeneracion.Archivo a = generacion.exportar(s, formato, q);
-        if (a.tamano() > cfgReportes.adjuntoMaxBytes()) {
-            bitacora.registrar("reporte_enviado", s.definicion().titulo() + " NO enviado a " + Correos.enmascarar(para) + ": el archivo (" + a.codigo() + ") pesa "
-                    + megas(a.tamano()) + " y el tope del adjunto es " + cfgReportes.adjuntoMaxMb() + " MB", q.id(), UsuarioSesion.actual().orElseThrow().usuario());
-            throw ErrorNegocio.validacion("El archivo pesa " + megas(a.tamano()) + " y el correo admite hasta " + cfgReportes.adjuntoMaxMb()
-                    + " MB. Descárguelo (código " + a.codigo() + "), elija otro formato o acote los filtros.");
+        // Por la misma cola y cupo que las descargas; la generación se corta en cuanto el archivo pasa del tope del adjunto
+        ServicioGeneracion.Solicitada pedida = generacion.solicitar(s, formato, q, cfgReportes.adjuntoMaxBytes());
+        ServicioGeneracion.Archivo a;
+        try {
+            a = esperar(pedida, cfgReportes.topeTecnicoMs() + 60_000L);
+        } catch (ServicioGeneracion.AdjuntoGrande e) {
+            bitacora.registrar("reporte_enviado", s.definicion().titulo() + " NO enviado a " + Correos.enmascarar(para) + ": el archivo (" + pedida.codigo()
+                    + ") pasa del tope del adjunto de " + cfgReportes.adjuntoMaxMb() + " MB", q.id(), q.usuario());
+            throw e;
+        }
+        if (a == null) {
+            throw new ErrorNegocio(HttpStatus.SERVICE_UNAVAILABLE, "El reporte no terminó de generarse a tiempo para enviarlo (código " + pedida.codigo()
+                    + "). Búsquelo en «Descargas del día».");
         }
         byte[] contenido;
         try (InputStream in = almacen.leer(a.ruta())) {
@@ -261,15 +355,11 @@ public class ControladorReportes {
             res = new Correo.Resultado(false, List.of(), List.of(para), "error inesperado del servidor de correo");
         }
         bitacora.registrar("reporte_enviado", titulo + " enviado a " + Correos.enmascarar(para) + " (" + a.nombre() + ", " + a.codigo() + ")"
-                + (res.ok() ? "" : " · NO salió") + " · " + resumen(s, String.valueOf(a.filas()), a.ms()), q.id(), UsuarioSesion.actual().orElseThrow().usuario());
+                + (res.ok() ? "" : " · NO salió") + " · " + resumen(s, String.valueOf(a.filas()), a.ms()), q.id(), q.usuario());
         if (!res.ok()) {
             throw new ErrorNegocio(HttpStatus.BAD_GATEWAY, "No se pudo enviar el correo: " + res.error());
         }
         return Map.of("mensaje", "Reporte enviado a " + para + ".", "codigo", a.codigo());
-    }
-
-    static String megas(long bytes) {
-        return String.format(Locale.ROOT, "%.1f MB", bytes / 1024.0 / 1024.0).replace('.', ',');
     }
 
     /** Formato pedido, validado antes de generar el reporte: xlsx por defecto. */

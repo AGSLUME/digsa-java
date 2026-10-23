@@ -20,9 +20,11 @@ import {
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useMemo, useState } from 'react';
-import { api, descargar, ErrorApi } from '../shared/api';
+import { api, ErrorApi } from '../shared/api';
+import { descargarReporte } from '../shared/descargaReporte';
+import { CLAVE_DESCARGAS, DescargasDelDia, seguirDescarga } from './DescargasDelDia';
 import { VerificarReporte } from './VerificarReporte';
 import {
   type Catalogo,
@@ -106,15 +108,25 @@ export function Reportes() {
     onError: (err) => notifications.show({ color: 'red', message: err instanceof ErrorApi ? err.message : 'No se pudo enviar el reporte.' }),
   });
 
+  const clienteConsultas = useQueryClient();
   const bajar = async (formato: string) => {
     if (!aplicado || descargando) return;
     setDescargando(formato);
     try {
-      await descargar(`/api/reportes/${aplicado.def.id}/exportar?formato=${formato}&${parametros(aplicado.def, aplicado.e).toString()}`);
+      const res = await descargarReporte(
+        `/api/reportes/${aplicado.def.id}/exportar?formato=${formato}&${parametros(aplicado.def, aplicado.e).toString()}`,
+      );
+      if (res.diferido) {
+        // Sigue en segundo plano (2.7): aparece en «Descargas del día», que avisa cuando esté listo o si falla
+        seguirDescarga(res.codigo);
+        notifications.show({ color: 'blue', message: res.mensaje });
+      }
     } catch (err) {
       notifications.show({ color: 'red', message: err instanceof ErrorApi ? err.message : 'No se pudo descargar el reporte.' });
     } finally {
       setDescargando(null);
+      // También si falló: la solicitud quedó registrada (fallida) en las descargas del día
+      void clienteConsultas.invalidateQueries({ queryKey: CLAVE_DESCARGAS });
     }
   };
 
@@ -152,11 +164,16 @@ export function Reportes() {
   return (
     <Stack>
       <Title order={3}>Reportes</Title>
-      <Tabs value={pestana} onChange={(v) => setPestana(v ?? 'generar')} keepMounted={false}>
+      <Tabs value={pestana} onChange={(v) => setPestana(v ?? 'generar')}>
         <Tabs.List>
           <Tabs.Tab value="generar">Generar</Tabs.Tab>
+          <Tabs.Tab value="descargas">Descargas del día</Tabs.Tab>
           <Tabs.Tab value="verificar">Verificar reporte</Tabs.Tab>
         </Tabs.List>
+        {/* Las pestañas quedan montadas: «Descargas del día» sigue consultando y avisa aunque se esté en otra */}
+        <Tabs.Panel value="descargas" pt="md">
+          <DescargasDelDia />
+        </Tabs.Panel>
         <Tabs.Panel value="verificar" pt="md">
           <VerificarReporte />
         </Tabs.Panel>

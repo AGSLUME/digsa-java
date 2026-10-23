@@ -31,6 +31,9 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -82,9 +85,12 @@ public class MotorReportes {
     private final ServicioCatalogos catalogos;
     private final Clock reloj;
     private final TransactionTemplate lectura;
+    /** Para fijar el tiempo máximo de las consultas dentro de la transacción de lectura (null en las pruebas unitarias sin base). */
+    private final JdbcClient jdbc;
 
     public MotorReportes(RegistroReportes registro, ConfiguracionReportes cfg, ServicioCatalogos catalogos, Clock reloj,
-                         PlatformTransactionManager transacciones) {
+                         PlatformTransactionManager transacciones, JdbcClient jdbc) {
+        this.jdbc = jdbc;
         this.registro = registro;
         this.cfg = cfg;
         this.catalogos = catalogos;
@@ -263,7 +269,13 @@ public class MotorReportes {
         int limite = paraArchivo ? d.maxFilas() : cfg.filasPantalla();
         ConsultaReporte consulta = s.consulta().conLimite(limite == 0 ? 0 : limite + 1);
         List<List<Object>> filas = new ArrayList<>();
-        lectura.executeWithoutResult(t -> s.proveedor().filas(consulta, recolector(d, columnas, limite, filas)));
+        // Los plazos de 2.7 (3 y 10 minutos) no cortan: disparan la alerta al medir. Solo el tope técnico corta una consulta colgada (en
+        // pantalla, uno más corto: la petición no espera una hora; lo grande se descarga en segundo plano)
+        long plazo = paraArchivo ? cfg.topeTecnicoMs() : cfg.topeTecnicoVerMs();
+        leer(plazo, paraArchivo, () -> s.proveedor().filas(consulta, recolector(d, columnas, limite, filas)));
+        if (System.nanoTime() - inicio > plazo * 1_000_000L) {
+            throw new ReporteCortado(plazo, paraArchivo); // terminó, pero pasado el tope: lo mismo que si se hubiera cortado
+        }
         boolean truncado = limite > 0 && filas.size() > limite;
         if (truncado && paraArchivo) {
             throw ErrorNegocio.validacion("El reporte pasa de " + d.maxFilas() + " filas; acote el periodo o los filtros.");
@@ -300,7 +312,9 @@ public class MotorReportes {
                 : "El reporte pasa de " + limite + " filas; acote el periodo o los filtros.";
         ConsultaReporte consulta = s.consulta().conLimite(limite == 0 ? 0 : limite + 1);
         long[] n = {0};
-        lectura.executeWithoutResult(t -> s.proveedor().filas(consulta, fila -> {
+        long plazo = cfg.topeTecnicoMs();
+        long fin = System.nanoTime() + plazo * 1_000_000L;
+        leer(plazo, true, () -> s.proveedor().filas(consulta, fila -> {
             if (fila.size() != ancho) {
                 throw new IllegalStateException("El reporte «" + d.id() + "» entregó una fila de " + fila.size() + " columnas; esperaba " + ancho);
             }
@@ -308,10 +322,47 @@ public class MotorReportes {
                 throw ErrorNegocio.validacion(mensaje);
             }
             TiposCelda.validar(d.id(), cols, fila);
-            n[0]++;
+            // El tiempo total (consulta, cinta y huella) tampoco puede pasar del plazo: se revisa cada mil filas
+            if (++n[0] % 1000 == 0 && System.nanoTime() > fin) {
+                throw new ReporteCortado(plazo, true);
+            }
             destino.accept(fila);
         }));
+        if (System.nanoTime() > fin) {
+            throw new ReporteCortado(plazo, true);
+        }
         return n[0];
+    }
+
+    /**
+     * Lee en la transacción propia con el tope técnico fijado en PostgreSQL ({@code SET LOCAL statement_timeout}): solo una consulta
+     * colgada llega a él, y entonces PostgreSQL la cancela y el reporte se corta con {@link ReporteCortado}.
+     */
+    private void leer(long plazoMs, boolean archivo, Runnable lectura) {
+        try {
+            this.lectura.executeWithoutResult(t -> {
+                if (jdbc != null) {
+                    // Como SET LOCAL: solo dura la transacción de la lectura
+                    jdbc.sql("SELECT set_config('statement_timeout', :ms, true)").param("ms", String.valueOf(plazoMs)).query(String.class).single();
+                }
+                lectura.run();
+            });
+        } catch (DataAccessException e) {
+            if (cancelada(e)) {
+                throw new ReporteCortado(plazoMs, archivo);
+            }
+            throw e;
+        }
+    }
+
+    /** ¿PostgreSQL canceló la consulta por el tiempo máximo? (SQLState 57014, query_canceled). */
+    static boolean cancelada(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof QueryTimeoutException || t instanceof java.sql.SQLException se && "57014".equals(se.getSQLState())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

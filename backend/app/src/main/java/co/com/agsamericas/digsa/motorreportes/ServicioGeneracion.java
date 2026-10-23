@@ -4,37 +4,47 @@ import co.com.agsamericas.digsa.plataforma.Almacen;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.Exportador;
 import co.com.agsamericas.digsa.plataforma.ExportadorFlujo;
+import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.plataforma.ReporteEncabezado;
 import co.com.agsamericas.digsa.plataforma.ReporteEncabezado.Linea;
 import co.com.agsamericas.digsa.reglas.Fechas;
 import co.com.agsamericas.digsa.reportes.DefinicionReporte;
 import co.com.agsamericas.digsa.reportes.DefinicionReporte.Filtro;
+import jakarta.annotation.PreDestroy;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.UncheckedIOException;
 import java.security.DigestOutputStream;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 /**
- * Generación de los reportes con integridad (Anexo 5, 2.9 y 2.10): cada generación queda en {@code reportes_generados} con su código
- * de verificación y la huella de los datos; el archivo se arma en flujo (cursor del proveedor → temporal → archivo en el almacén) con
- * el encabezado completo y su huella, y queda en el repositorio del día del usuario hasta las 23:59:59 de Bogotá (2.7).
+ * Generación de los reportes con integridad y tiempos (Anexo 5, 2.7, 2.9 y 2.10). Cada generación queda en {@code reportes_generados}
+ * con su código de verificación, la huella de los datos y sus tiempos. El archivo se arma en flujo (cursor del proveedor → temporal →
+ * archivo en el almacén) y queda en las descargas del día del usuario hasta las 23:59:59 de Bogotá. La descarga va a una cola acotada:
+ * si termina pronto se entrega en la misma petición; si no, sigue en segundo plano y aparece en «Descargas del día». Lo que pasa el
+ * 80 % de su plazo o se corta dispara la alerta «reporte lento».
  */
 @Service
 public class ServicioGeneracion {
@@ -44,9 +54,25 @@ public class ServicioGeneracion {
     private static final DateTimeFormatter CARPETA = DateTimeFormatter.ofPattern("yyyy/MM/dd");
     static final Map<String, String> TIPOS = Map.of("xlsx", Exportador.TIPO_XLSX, "csv", Exportador.TIPO_CSV, "pdf", Exportador.TIPO_PDF, "txt",
             Exportador.TIPO_TXT);
+    /**
+     * Solicitudes que pueden esperar turno en la cola de la instancia. Pocas: la espera máxima en cola (cola / concurrencia × tope
+     * técnico) acota cuándo una «pendiente» se da por perdida (LimpiezaReportes).
+     */
+    static final int COLA = 20;
+    /** Lo que se espera al apagar a que terminen las generaciones en curso antes de marcarlas «fallida». */
+    static final long ESPERA_AL_APAGAR_S = 20;
 
-    /** Quién genera: el id para el registro y el texto del encabezado («Nombre (usuario)»). */
-    public record Quien(long id, String texto) {
+    /** Quién genera: el id y el usuario para el registro y la bitácora, y el texto del encabezado («Nombre (usuario)»). */
+    public record Quien(long id, String usuario, String texto) {
+    }
+
+    /** El archivo pasó del tope del adjunto del correo: la generación se corta en ese momento, sin terminar el archivo. */
+    static final class AdjuntoGrande extends ErrorNegocio {
+
+        AdjuntoGrande(int maxMb) {
+            super(HttpStatus.UNPROCESSABLE_ENTITY, "El archivo pasa de " + maxMb + " MB, lo que admite el correo. Descárguelo, elija otro formato "
+                    + "(csv pesa menos) o acote el periodo o los filtros.");
+        }
     }
 
     /** El reporte en pantalla con su código y su huella (null si en pantalla no caben todas las filas). */
@@ -58,21 +84,62 @@ public class ServicioGeneracion {
                           String huellaArchivo, long ms) {
     }
 
+    /** Una descarga pedida: el código y, si ya terminó, el archivo (si no, sigue en segundo plano). */
+    public record Solicitada(String codigo, CompletableFuture<Archivo> trabajo) {
+    }
+
     private final MotorReportes motor;
     private final RegistroGenerados registro;
     private final ExportadorFlujo exportador;
     private final Almacen almacen;
     private final Clock reloj;
     private final ConfiguracionReportes cfg;
+    private final MedicionReportes medicion;
+    private final RegistroBitacora bitacora;
+    private final ExecutorService cola;
+    /** Las solicitudes que esta instancia aceptó y no han terminado: al apagar se marcan «fallida» y liberan el cupo. */
+    private final Set<Long> aceptadas = ConcurrentHashMap.newKeySet();
 
     public ServicioGeneracion(MotorReportes motor, RegistroGenerados registro, ExportadorFlujo exportador, Almacen almacen, Clock reloj,
-                              ConfiguracionReportes cfg) {
-        this.cfg = cfg;
+                              ConfiguracionReportes cfg, MedicionReportes medicion, RegistroBitacora bitacora) {
         this.motor = motor;
         this.registro = registro;
         this.exportador = exportador;
         this.almacen = almacen;
         this.reloj = reloj;
+        this.cfg = cfg;
+        this.medicion = medicion;
+        this.bitacora = bitacora;
+        AtomicInteger n = new AtomicInteger();
+        this.cola = new ThreadPoolExecutor(cfg.concurrencia(), cfg.concurrencia(), 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(COLA), r -> {
+            Thread t = new Thread(r, "reportes-" + n.incrementAndGet());
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    /**
+     * Al apagar: interrumpe la cola, espera un poco a lo que está en curso y marca «fallida» lo que quedó en cola o sin terminar, para
+     * que el usuario no quede bloqueado por su cupo hasta la limpieza. Si la instancia cae sin apagarse, lo repone la limpieza.
+     */
+    @PreDestroy
+    void detener() {
+        cola.shutdownNow();
+        try {
+            if (!cola.awaitTermination(ESPERA_AL_APAGAR_S, TimeUnit.SECONDS)) {
+                LOG.warn("[reportes] Al apagar quedaron generaciones sin terminar: {}", aceptadas);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        try {
+            int n = registro.interrumpidas(Set.copyOf(aceptadas), ahora());
+            if (n > 0) {
+                LOG.warn("[reportes] {} generaciones en cola o en curso quedaron «fallida» al apagar", n);
+            }
+        } catch (RuntimeException e) {
+            LOG.error("[reportes] No se pudieron marcar las generaciones interrumpidas al apagar {}; las repone la limpieza", aceptadas, e);
+        }
     }
 
     private OffsetDateTime ahora() {
@@ -101,7 +168,13 @@ public class ServicioGeneracion {
 
     /** El reporte en pantalla, registrado con su código; la huella solo si están todas las filas. */
     public Vista ver(MotorReportes.Solicitud s, Quien q) {
-        MotorReportes.Resultado r = motor.generar(s, q.texto(), false);
+        MotorReportes.Resultado r;
+        try {
+            r = motor.generar(s, q.texto(), false);
+        } catch (ReporteCortado c) {
+            medicion.revisar(s.definicion(), "en pantalla", c.plazoMs(), c.plazoMs(), true, ControladorReportes.resumen(s, "?", c.plazoMs()));
+            throw c;
+        }
         String huella = null;
         if (!r.truncado()) {
             HuellaDatos h = new HuellaDatos(s.definicion(), s.consulta());
@@ -111,6 +184,8 @@ public class ServicioGeneracion {
         OffsetDateTime t = ahora();
         Map.Entry<Long, String> reg = registro.insertar(nuevo(s, q, null), "vista", t, null);
         registro.vista(reg.getKey(), r.filas().size(), r.truncado(), huella, r.ms(), t);
+        medicion.revisar(s.definicion(), "en pantalla", r.ms(), cfg.plazoVerMs(), false,
+                reg.getValue() + " · " + ControladorReportes.resumen(s, String.valueOf(r.filas().size()), r.ms()));
         return new Vista(r, reg.getValue(), huella);
     }
 
@@ -120,32 +195,73 @@ public class ServicioGeneracion {
         return dia.plusDays(1).atStartOfDay(Fechas.BOGOTA).minusNanos(1_000_000).toOffsetDateTime();
     }
 
-    /** Tope de filas del formato: el PDF admite menos (un PDF de cientos de miles de filas no se puede leer). */
-    int topeFormato(String formato) {
-        return "pdf".equals(formato) ? cfg.maxFilasPdf() : 0;
+    /** Inicio del día de Bogotá. */
+    static OffsetDateTime inicioDelDia(OffsetDateTime t) {
+        return t.atZoneSameInstant(Fechas.BOGOTA).toLocalDate().atStartOfDay(Fechas.BOGOTA).toOffsetDateTime();
+    }
+
+    /** Pide la descarga, sin tope de tamaño (ver {@link #solicitar(MotorReportes.Solicitud, String, Quien, long)}). */
+    public Solicitada solicitar(MotorReportes.Solicitud s, String formato, Quien q) {
+        return solicitar(s, formato, q, 0);
     }
 
     /**
-     * Genera el archivo y lo guarda en el almacén. Si algo falla, el archivo a medias se descarta, el registro queda «fallida» y el
-     * error sigue hacia el usuario: una validación (el tope de filas) con su mensaje; cualquier otro, con el código para buscarlo.
+     * Pide el archivo (descarga o envío por correo): lo deja en la cola de la instancia («pendiente») y devuelve su código y el trabajo.
+     * Más de {@code enCursoPorUsuario} en cola o en curso del mismo usuario es 429; la cola llena, 503.
+     *
+     * @param maxBytes tope del archivo (el adjunto del correo): al pasarlo se corta con {@link AdjuntoGrande}; 0 = sin tope
      */
-    public Archivo exportar(MotorReportes.Solicitud s, String formato, Quien q) {
-        long inicio = System.nanoTime();
+    public Solicitada solicitar(MotorReportes.Solicitud s, String formato, Quien q, long maxBytes) {
         OffsetDateTime creado = ahora();
-        Map.Entry<Long, String> reg = registro.insertar(nuevo(s, q, formato), "generando", creado, finDelDia(creado));
+        Map.Entry<Long, String> reg = registro.pedir(nuevo(s, q, formato), cfg.enCursoPorUsuario(), creado, finDelDia(creado))
+                .orElseThrow(() -> new ErrorNegocio(HttpStatus.TOO_MANY_REQUESTS, "Ya tiene " + cfg.enCursoPorUsuario()
+                        + " reportes generándose. Espere a que terminen (los verá en «Descargas del día»)."));
         long id = reg.getKey();
         String codigo = reg.getValue();
-        String ruta = "reportes/" + creado.atZoneSameInstant(Fechas.BOGOTA).format(CARPETA) + "/" + codigo + "." + formato;
+        aceptadas.add(id);
+        try {
+            CompletableFuture<Archivo> trabajo = CompletableFuture.supplyAsync(() -> {
+                registro.iniciar(id, ahora());
+                return generar(id, codigo, creado, s, formato, q, maxBytes);
+            }, cola);
+            // Nadie lee el resultado de un diferido (la respuesta ya fue 202): lo inesperado queda en el log
+            trabajo.whenComplete((a, ex) -> {
+                aceptadas.remove(id);
+                Throwable causa = ex instanceof java.util.concurrent.CompletionException c && c.getCause() != null ? c.getCause() : ex;
+                if (causa != null && !(causa instanceof ErrorNegocio)) {
+                    LOG.error("[reportes] La generación {} terminó con un error inesperado", codigo, causa);
+                }
+            });
+            return new Solicitada(codigo, trabajo);
+        } catch (RejectedExecutionException e) {
+            aceptadas.remove(id);
+            String mensaje = "El servidor tiene muchos reportes en cola. Intente en unos minutos.";
+            fallo(id, codigo, ruta(codigo, creado, formato), false, mensaje, e, s, formato, q);
+            throw new ErrorNegocio(HttpStatus.SERVICE_UNAVAILABLE, mensaje);
+        }
+    }
+
+    /**
+     * Genera el archivo de una fila «generando» y lo guarda en el almacén. Todo (lectura, cinta y escritura) cabe en el tope técnico:
+     * así la limpieza nunca da por interrumpida una generación viva. Si algo falla, el archivo a medias se descarta, el registro queda
+     * «fallida», la bitácora lo anota y el error sigue: una validación (el tope de tiempo o del adjunto) con su mensaje; cualquier
+     * otro, con el código.
+     */
+    Archivo generar(long id, String codigo, OffsetDateTime creado, MotorReportes.Solicitud s, String formato, Quien q, long maxBytes) {
+        long inicio = System.nanoTime();
+        long plazo = cfg.topeTecnicoMs();
+        long limite = inicio + plazo * 1_000_000L;
+        String ruta = ruta(codigo, creado, formato);
         boolean escrito = false;
         try (CintaFilas cinta = new CintaFilas()) {
             HuellaDatos h = new HuellaDatos(s.definicion(), s.consulta());
-            int tope = topeFormato(formato);
-            long filas = motor.volcar(s, tope, tope == 0 ? null : "El PDF admite hasta " + tope + " filas; descárguelo en Excel o CSV, o acote los filtros.",
-                    f -> {
-                        h.fila(f);
-                        cinta.escribir(f);
-                    });
+            // Sin tope de filas por formato: la DIGSA exige los reportes completos (TAS P12); lo grande va en segundo plano
+            long filas = motor.volcar(s, 0, null, f -> {
+                h.fila(f);
+                cinta.escribir(f);
+            });
             cinta.terminar();
+            cinta.plazo(limite, plazo);
             String huellaDatos = h.hex();
             long msConsulta = (System.nanoTime() - inicio) / 1_000_000;
             ReporteEncabezado e = encabezado(s, q.texto(), creado, filas, codigo, huellaDatos);
@@ -153,17 +269,33 @@ public class ServicioGeneracion {
             long[] tamano = {0};
             try (OutputStream destino = new BufferedOutputStream(almacen.escribir(ruta), 64 * 1024)) {
                 escrito = true;
+                // Cuenta los bytes, corta al pasar el tope del adjunto y revisa el tope técnico cada mega escrito
                 OutputStream contado = new OutputStream() {
+                    private long revisado;
+
                     @Override
                     public void write(int b) throws IOException {
                         destino.write(b);
-                        tamano[0]++;
+                        contar(1);
                     }
 
                     @Override
                     public void write(byte[] b, int off, int len) throws IOException {
                         destino.write(b, off, len);
-                        tamano[0] += len;
+                        contar(len);
+                    }
+
+                    private void contar(int n) {
+                        tamano[0] += n;
+                        if (maxBytes > 0 && tamano[0] > maxBytes) {
+                            throw new AdjuntoGrande(cfg.adjuntoMaxMb());
+                        }
+                        if (tamano[0] - revisado >= 1024 * 1024) {
+                            revisado = tamano[0];
+                            if (System.nanoTime() > limite) {
+                                throw new ReporteCortado(plazo, true);
+                            }
+                        }
                     }
                 };
                 DigestOutputStream salida = new DigestOutputStream(contado, sha);
@@ -174,22 +306,53 @@ public class ServicioGeneracion {
             long total = (System.nanoTime() - inicio) / 1_000_000;
             OffsetDateTime fin = ahora();
             registro.lista(id, ruta, tamano[0], filas, huellaDatos, huellaArchivo, msConsulta, total - msConsulta, fin, finDelDia(fin));
-            String nombre = "reporte_" + s.definicion().id() + "_" + creado.atZoneSameInstant(Fechas.BOGOTA).format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmm"))
-                    + "_" + codigo.substring(codigo.length() - 6) + "." + formato;
-            return new Archivo(id, codigo, nombre, TIPOS.get(formato), ruta, tamano[0], filas, huellaDatos, huellaArchivo, total);
-        } catch (ErrorNegocio e) {
-            // Una validación (p. ej. el tope de filas) conserva su mensaje para el usuario
-            fallo(id, ruta, escrito, recortar(e.getMessage()), e);
-            throw e;
+            medicion.revisar(s.definicion(), "al exportar en " + formato, total, cfg.plazoExportarMs(), false,
+                    codigo + " · " + ControladorReportes.resumen(s, String.valueOf(filas), total));
+            return new Archivo(id, codigo, nombre(s, creado, codigo, formato), TIPOS.get(formato), ruta, tamano[0], filas, huellaDatos, huellaArchivo, total);
         } catch (Exception e) {
+            // Una validación (el tope de tiempo o del adjunto) conserva su mensaje para el usuario, aunque la librería del formato la
+            // haya envuelto al lanzarse desde la salida
+            ErrorNegocio n = validacion(e);
+            if (n != null) {
+                if (n instanceof ReporteCortado c) {
+                    medicion.revisar(s.definicion(), "al exportar en " + formato, c.plazoMs(), c.plazoMs(), true,
+                            codigo + " · " + ControladorReportes.resumen(s, "?", c.plazoMs()));
+                }
+                fallo(id, codigo, ruta, escrito, recortar(n.getMessage()), e, s, formato, q);
+                throw n;
+            }
             LOG.error("[reportes] Falló la generación de {} ({}) en {}", s.definicion().id(), codigo, formato, e);
-            fallo(id, ruta, escrito, "No se pudo generar el archivo.", e);
+            fallo(id, codigo, ruta, escrito, "No se pudo generar el archivo.", e, s, formato, q);
             throw new ErrorNegocio(HttpStatus.INTERNAL_SERVER_ERROR, "No se pudo generar el reporte. Código de la solicitud: " + codigo + ".");
+        } catch (Error e) {
+            // Sin memoria u otro error grave: la fila no queda «generando» hasta la limpieza
+            LOG.error("[reportes] Error grave en la generación de {} ({}) en {}", s.definicion().id(), codigo, formato, e);
+            fallo(id, codigo, ruta, escrito, "No se pudo generar el archivo.", e, s, formato, q);
+            throw e;
         }
     }
 
-    /** Descarta el archivo a medias y marca el registro «fallida»; si eso también falla, queda en el log sin tapar el error original. */
-    private void fallo(long id, String ruta, boolean escrito, String mensaje, Exception original) {
+    /** Ruta del archivo en el almacén: el día de la solicitud y el código (también sirve para borrar lo que quedó a medias). */
+    static String ruta(String codigo, OffsetDateTime creado, String formato) {
+        return "reportes/" + creado.atZoneSameInstant(Fechas.BOGOTA).format(CARPETA) + "/" + codigo + "." + formato;
+    }
+
+    /** Nombre del archivo descargado: reporte, fecha y hora de la solicitud y el final del código. */
+    static String nombre(MotorReportes.Solicitud s, OffsetDateTime creado, String codigo, String formato) {
+        return nombre(s.definicion().id(), creado, codigo, formato);
+    }
+
+    static String nombre(String reporte, OffsetDateTime creado, String codigo, String formato) {
+        return "reporte_" + reporte + "_" + creado.atZoneSameInstant(Fechas.BOGOTA).format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmm")) + "_"
+                + codigo.substring(codigo.length() - 6) + "." + formato;
+    }
+
+    /**
+     * Descarta el archivo a medias, marca el registro «fallida» y lo anota en la bitácora; si eso también falla, queda en el log sin
+     * tapar el error original.
+     */
+    private void fallo(long id, String codigo, String ruta, boolean escrito, String mensaje, Throwable original, MotorReportes.Solicitud s, String formato,
+                       Quien q) {
         if (escrito) {
             almacen.descartar(ruta);
         }
@@ -199,6 +362,18 @@ public class ServicioGeneracion {
             original.addSuppressed(x);
             LOG.error("[reportes] No se pudo marcar como fallida la generación {}", id, x);
         }
+        bitacora.registrar("reporte_fallido", s.definicion().titulo() + " en " + formato + " no se generó (" + codigo + "): " + mensaje, q.id(), q.usuario());
+    }
+
+    /** El error de negocio en la cadena de causas (máximo unas pocas vueltas), o null. */
+    static ErrorNegocio validacion(Throwable e) {
+        int vueltas = 0;
+        for (Throwable t = e; t != null && vueltas++ < 10; t = t.getCause()) {
+            if (t instanceof ErrorNegocio n) {
+                return n;
+            }
+        }
+        return null;
     }
 
     private static String recortar(String s) {

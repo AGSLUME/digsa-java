@@ -133,7 +133,7 @@ La operación del servidor (instalación, respaldo, restauración, actualizació
 | `DIGSA_SMTP_HOST`, `DIGSA_SMTP_PUERTO`, `DIGSA_SMTP_USUARIO`, `DIGSA_SMTP_CLAVE`, `DIGSA_CORREO_REMITENTE` | Correo SMTP |
 | `DIGSA_TURNSTILE_SITIO`, `DIGSA_TURNSTILE_SECRETA` | Captcha Cloudflare Turnstile. Sin clave secreta nadie ingresa, salvo en local |
 | `DIGSA_CORREO_REPORTES` | Correo por defecto para enviar reportes (prueba en sitio: el del comité) |
-| `digsa.reportes.*` (opcionales) | Módulo de reportes: `filas-pantalla` (5000), `max-filas-pdf` (5000), `adjunto-max-mb` (10), `verificaciones-por-minuto` (30) |
+| `digsa.reportes.*` (opcionales) | Módulo de reportes: `filas-pantalla` (5000), `adjunto-max-mb` (10), `verificaciones-por-minuto` (30), `plazo-ver-ms` (180000) y `plazo-exportar-ms` (600000) de 2.7, que solo avisan; `tope-tecnico-ms` (3600000) y `tope-tecnico-ver-ms` (600000), que sí cortan; `espera-sincrona-ms` (15000), `concurrencia` (4), `en-curso-por-usuario` (2), `limpieza-ms` (60000) |
 
 **Módulo de reportes** (`docs/especificaciones/reportes`):
 - `backend/app/.../reportes` tiene solo el contrato `ProveedorReporte`: cada módulo aporta así sus reportes (`contrato-proveedor.md`).

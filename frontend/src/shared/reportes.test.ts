@@ -9,6 +9,11 @@ import {
   filtrarCatalogo,
   type GrupoCatalogo,
   parametros,
+  estadoDescarga,
+  hayEnCurso,
+  recienTerminadas,
+  tamano,
+  type Descarga,
   sePuedeRegenerar,
   totalPaginas,
 } from './reportes';
@@ -193,5 +198,46 @@ describe('verificación por estado', () => {
     );
     expect(g.get('Filtros')).toBe('Solo los ve quien generó el reporte');
     expect(g.get('Estado')).toContain('Vencido');
+  });
+});
+
+describe('descargas del día', () => {
+  const d = (codigo: string, estado: Descarga['estado']): Descarga => ({
+    codigo,
+    titulo: 'Detalle',
+    formato: 'csv',
+    estado,
+    solicitado: '09:10',
+    filas: 1,
+    tamano: 2048,
+    ms: 10,
+    disponibleHasta: '23:59',
+    error: null,
+    nombre: 'reporte_detalle.csv',
+  });
+
+  it('consulta mientras haya algo en cola o generándose, y avisa de las que terminaron (listas o fallidas)', () => {
+    expect(hayEnCurso([d('a', 'lista'), d('b', 'generando')])).toBe(true);
+    expect(hayEnCurso([d('a', 'lista'), d('b', 'fallida')])).toBe(false);
+    const antes = [d('a', 'generando'), d('b', 'pendiente'), d('c', 'lista'), d('e', 'generando')];
+    const ahora = [d('a', 'lista'), d('b', 'fallida'), d('c', 'lista'), d('n', 'lista'), d('e', 'generando')];
+    expect(recienTerminadas(antes, ahora).map((x) => x.codigo)).toEqual(['a', 'b']);
+  });
+
+  it('avisa de un 202 seguido aunque terminó antes de que la lista lo viera en curso', () => {
+    expect(recienTerminadas([], [d('n', 'lista'), d('m', 'lista')], new Set(['n'])).map((x) => x.codigo)).toEqual(['n']);
+  });
+
+  it('un estado desconocido se muestra tal cual', () => {
+    expect(estadoDescarga('lista')).toEqual({ texto: 'Listo', color: 'green' });
+    expect(estadoDescarga('archivada')).toEqual({ texto: 'archivada', color: 'gray' });
+    expect(estadoDescarga('toString').texto).toBe('toString');
+  });
+
+  it('tamaño legible', () => {
+    expect(tamano(2048)).toBe('2 KB');
+    expect(tamano(10)).toBe('1 KB');
+    expect(tamano(1572864)).toBe('1,5 MB');
+    expect(tamano(null)).toBe('');
   });
 });

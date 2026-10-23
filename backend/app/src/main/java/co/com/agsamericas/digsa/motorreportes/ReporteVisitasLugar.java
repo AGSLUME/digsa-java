@@ -43,7 +43,7 @@ class ReporteVisitasLugar implements ProveedorReporte {
             .columna("Por ejecutar", TipoColumna.ENTERO).columna("Canceladas", TipoColumna.ENTERO).columna("Cumple", TipoColumna.ENTERO)
             .columna("No cumple", TipoColumna.ENTERO).columna("% cumplimiento", TipoColumna.PORCENTAJE).columna("Hallazgos", TipoColumna.ENTERO)
             .orden("periodo, nombre e id del lugar y código del componente (OBL y sin componente al final)")
-            .maxFilas(ReporteDetalleVisitas.MAX_FILAS).crear();
+            .crear();
 
     private final JdbcClient jdbc;
     private final FiltrosVisitas filtros;

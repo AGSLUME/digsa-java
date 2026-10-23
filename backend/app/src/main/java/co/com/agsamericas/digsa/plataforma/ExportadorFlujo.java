@@ -13,12 +13,10 @@ import com.lowagie.text.pdf.BaseFont;
 import com.lowagie.text.pdf.PdfContentByte;
 import com.lowagie.text.pdf.PdfPCell;
 import com.lowagie.text.pdf.PdfPTable;
-import com.lowagie.text.pdf.PdfReader;
-import com.lowagie.text.pdf.PdfStamper;
-import com.lowagie.text.pdf.RandomAccessFileOrArray;
+import com.lowagie.text.pdf.PdfPageEventHelper;
+import com.lowagie.text.pdf.PdfTemplate;
 import com.lowagie.text.pdf.PdfWriter;
 import java.awt.Color;
-import java.io.BufferedOutputStream;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -27,8 +25,6 @@ import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.List;
 import org.apache.poi.ss.usermodel.Cell;
@@ -55,6 +51,8 @@ public class ExportadorFlujo {
     private static final SecureRandom AZAR = new SecureRandom();
     /** Ancho máximo de alineación de una columna del TXT: un valor más largo sale completo y solo descuadra su fila. */
     static final int ANCHO_TXT = 60;
+    /** Filas por hoja de Excel antes de seguir en otra (el límite de Excel es 1.048.576). */
+    static final int FILAS_POR_HOJA = 1_000_000;
     /** Tope de una celda de Excel (32.767 caracteres). */
     static final int MAX_CELDA = 32_767;
     /** Un valor del encabezado más largo que esto va completo en la hoja «Filtros» de Excel. */
@@ -67,7 +65,7 @@ public class ExportadorFlujo {
                 case "csv" -> csv(e, columnas, filas, salida);
                 case "txt" -> txt(e, columnas, filas, salida);
                 case "pdf" -> pdf(e, columnas, filas, salida);
-                case "xlsx" -> excel(e, columnas, filas, salida);
+                case "xlsx" -> excel(e, columnas, filas, salida, FILAS_POR_HOJA);
                 default -> throw new IllegalArgumentException("Formato desconocido: " + formato);
             }
         } catch (IOException ex) {
@@ -160,7 +158,7 @@ public class ExportadorFlujo {
      * Un valor del encabezado largo (muchas opciones elegidas) va completo en la hoja «Filtros», una opción por fila. Una celda de datos
      * de más de 32.767 caracteres (límite de Excel) sale recortada con la marca visible; el CSV y el TXT la traen completa.
      */
-    void excel(ReporteEncabezado e, List<String> columnas, ReporteFilas filas, OutputStream salida) throws IOException {
+    void excel(ReporteEncabezado e, List<String> columnas, ReporteFilas filas, OutputStream salida, int filasPorHoja) throws IOException {
         try (SXSSFWorkbook libro = new SXSSFWorkbook(200)) {
             libro.setCompressTempFiles(true); // los temporales de SXSSF ocupan varias veces menos disco
             try {
@@ -199,8 +197,24 @@ public class ExportadorFlujo {
                 hoja.setRepeatingRows(new org.apache.poi.ss.util.CellRangeAddress(filaTitulos, filaTitulos, -1, -1));
                 hoja.getFooter().setLeft((e.titulo() + (e.codigo().isEmpty() ? "" : " · " + e.codigo())).replace("&", "&&")); // «&» es un código del pie
                 hoja.getFooter().setRight("Página &P de &N"); // códigos de página y total de Excel
+                Sheet[] actual = {hoja};
+                int[] parte = {1};
                 filas.recorrer(datos -> {
-                    Row row = hoja.createRow(fila[0]++);
+                    // Una hoja de Excel admite 1.048.576 filas: el reporte completo sigue en «Datos 2», «Datos 3»…, con los títulos
+                    if (fila[0] >= filasPorHoja) {
+                        actual[0] = libro.createSheet("Datos " + ++parte[0]);
+                        Row t2 = actual[0].createRow(0);
+                        for (int i = 0; i < columnas.size(); i++) {
+                            Cell c = t2.createCell(i);
+                            c.setCellValue(columnas.get(i));
+                            c.setCellStyle(negrita);
+                        }
+                        actual[0].setRepeatingRows(new org.apache.poi.ss.util.CellRangeAddress(0, 0, -1, -1));
+                        actual[0].getFooter().setLeft(hoja.getFooter().getLeft()); // el mismo pie de 2.9 en cada hoja
+                        actual[0].getFooter().setRight(hoja.getFooter().getRight());
+                        fila[0] = 1;
+                    }
+                    Row row = actual[0].createRow(fila[0]++);
                     for (int i = 0; i < datos.size(); i++) {
                         Object v = datos.get(i);
                         Cell c = row.createCell(i);
@@ -245,31 +259,84 @@ public class ExportadorFlujo {
         return s.length() <= MAX_CELDA ? s : s.substring(0, MAX_CELDA - RECORTADO.length()) + RECORTADO;
     }
 
-    /**
-     * PDF horizontal, cifrado y sin permiso de modificar; títulos de columna repetidos y «Página N de M» en cada hoja. Se arma en dos
-     * pasos: el cuerpo va a un temporal y luego se estampa la página (el total ya se conoce) y se cifra al copiarlo a la salida. El
-     * temporal se lee por partes y se borra.
-     */
-    void pdf(ReporteEncabezado e, List<String> columnas, ReporteFilas filas, OutputStream salida) throws IOException {
-        Path temporal = ReporteTemporales.nuevo(".pdf");
+    /** Letra Unicode incrustada (Liberation Sans, SIL OFL, de openpdf-fonts-extra): el PDF muestra ≤, ≥, →, °, tildes y eñes. */
+    private static final String LETRA = "liberation/LiberationSans-Regular.ttf";
+    private static final String LETRA_NEGRITA = "liberation/LiberationSans-Bold.ttf";
+
+    private static BaseFont letra(String recurso) {
         try {
-            try (OutputStream cuerpo = new BufferedOutputStream(Files.newOutputStream(temporal), 64 * 1024)) {
-                cuerpoPdf(e, columnas, filas, cuerpo);
-            }
-            estampar(e, temporal, salida);
-        } finally {
-            ReporteTemporales.borrar(temporal); // nunca lanza: no tapa el error original
+            return BaseFont.createFont(recurso, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
+        } catch (DocumentException | IOException e) {
+            throw new IllegalStateException("No se pudo cargar la letra del PDF " + recurso, e);
         }
     }
 
-    private static void cuerpoPdf(ReporteEncabezado e, List<String> columnas, ReporteFilas filas, OutputStream salida) throws IOException {
+    /**
+     * «Página N de M» y el código al pie de cada hoja. El total se escribe en una plantilla al cerrar el documento: así el PDF se arma
+     * en una sola pasada. Las filas no se acumulan; lo único que crece con el reporte es el índice de páginas y objetos del PDF (unos
+     * cientos de bytes por página).
+     */
+    private static final class Paginas extends PdfPageEventHelper {
+        private final String pie;
+        private final BaseFont letra;
+        private PdfTemplate total;
+
+        Paginas(String pie, BaseFont letra) {
+            this.pie = pie;
+            this.letra = letra;
+        }
+
+        @Override
+        public void onOpenDocument(PdfWriter w, Document d) {
+            total = w.getDirectContent().createTemplate(40, 12);
+        }
+
+        @Override
+        public void onEndPage(PdfWriter w, Document d) {
+            PdfContentByte cb = w.getDirectContent();
+            String texto = pie + "Página " + w.getPageNumber() + " de ";
+            float x = d.right() - letra.getWidthPoint(texto, 7) - 20;
+            float y = d.bottom() - 18;
+            cb.beginText();
+            cb.setFontAndSize(letra, 7);
+            cb.setTextMatrix(x, y);
+            cb.showText(texto);
+            cb.endText();
+            cb.addTemplate(total, x + letra.getWidthPoint(texto, 7), y);
+        }
+
+        @Override
+        public void onCloseDocument(PdfWriter w, Document d) {
+            total.beginText();
+            total.setFontAndSize(letra, 7);
+            total.setTextMatrix(0, 0);
+            total.showText(String.valueOf(w.getPageNumber() - 1));
+            total.endText();
+        }
+    }
+
+    /**
+     * PDF horizontal, cifrado (AES-256) y sin permiso de modificar, sin tope de filas (la DIGSA exige reportes completos): la tabla se
+     * pasa al documento por partes y el total de páginas va en una plantilla, así que las filas no se acumulan en memoria (solo el índice
+     * de páginas del PDF crece con el reporte).
+     */
+    void pdf(ReporteEncabezado e, List<String> columnas, ReporteFilas filas, OutputStream salida) throws IOException {
+        BaseFont base = letra(LETRA);
+        BaseFont baseNegrita = letra(LETRA_NEGRITA);
         Document doc = new Document(PageSize.LETTER.rotate(), 30, 30, 36, 40);
-        Font titulo = new Font(Font.HELVETICA, 13, Font.BOLD, new Color(11, 61, 92));
-        Font normal = new Font(Font.HELVETICA, 8);
-        Font negrita = new Font(Font.HELVETICA, 8, Font.BOLD);
+        Font titulo = new Font(baseNegrita, 13, Font.NORMAL, new Color(11, 61, 92));
+        Font normal = new Font(base, 8);
+        Font negrita = new Font(baseNegrita, 8);
         try {
             PdfWriter w = PdfWriter.getInstance(doc, salida);
             w.setCloseStream(false);
+            byte[] propietario = new byte[32];
+            AZAR.nextBytes(propietario); // aleatoria por archivo, nunca guardada ni registrada
+            w.setEncryption(null, java.util.HexFormat.of().formatHex(propietario).getBytes(StandardCharsets.US_ASCII),
+                    PdfWriter.ALLOW_PRINTING | PdfWriter.ALLOW_COPY | PdfWriter.ALLOW_SCREENREADERS | PdfWriter.ALLOW_DEGRADED_PRINTING,
+                    PdfWriter.ENCRYPTION_AES_256_V3);
+            // El pie va en Helvetica WinAnsi (basta para «Página» y el código), así el total de la plantilla queda como texto legible
+            w.setPageEvent(new Paginas(e.codigo().isEmpty() ? "" : e.codigo() + " · ", BaseFont.createFont(BaseFont.HELVETICA, BaseFont.WINANSI, BaseFont.NOT_EMBEDDED)));
             doc.addTitle(e.titulo());
             doc.addCreator("Suite DIGSA");
             doc.open();
@@ -312,45 +379,6 @@ public class ExportadorFlujo {
             doc.close();
         } catch (DocumentException ex) {
             throw new IllegalStateException("No se pudo generar el PDF del reporte", ex);
-        }
-    }
-
-    /** Pone «código · Página N de M» al pie de cada hoja y cifra: imprimir y copiar sí, modificar no; sin contraseña de apertura. */
-    private static void estampar(ReporteEncabezado e, Path cuerpo, OutputStream salida) throws IOException {
-        RandomAccessFileOrArray origen = new RandomAccessFileOrArray(cuerpo.toString(), false, true);
-        PdfReader lector;
-        try {
-            lector = new PdfReader(origen, null);
-        } catch (IOException | RuntimeException ex) {
-            origen.close(); // sin esto, en Windows el temporal no se puede borrar
-            throw ex;
-        }
-        try {
-            PdfStamper sello = new PdfStamper(lector, salida);
-            byte[] propietario = new byte[32];
-            AZAR.nextBytes(propietario); // aleatoria por archivo, nunca guardada ni registrada
-            sello.setEncryption(null, java.util.HexFormat.of().formatHex(propietario).getBytes(StandardCharsets.US_ASCII),
-                    PdfWriter.ALLOW_PRINTING | PdfWriter.ALLOW_COPY | PdfWriter.ALLOW_SCREENREADERS | PdfWriter.ALLOW_DEGRADED_PRINTING,
-                    PdfWriter.ENCRYPTION_AES_256_V3);
-            BaseFont letra = BaseFont.createFont(BaseFont.HELVETICA, BaseFont.WINANSI, BaseFont.NOT_EMBEDDED);
-            int total = lector.getNumberOfPages();
-            String pie = e.codigo().isEmpty() ? "" : e.codigo() + " · ";
-            for (int i = 1; i <= total; i++) {
-                com.lowagie.text.Rectangle hoja = lector.getPageSizeWithRotation(i);
-                String texto = pie + "Página " + i + " de " + total;
-                PdfContentByte cb = sello.getOverContent(i);
-                cb.beginText();
-                cb.setFontAndSize(letra, 7);
-                cb.setTextMatrix(hoja.getRight() - 30 - letra.getWidthPoint(texto, 7), hoja.getBottom() + 20);
-                cb.showText(texto);
-                cb.endText();
-            }
-            sello.setFullCompression();
-            sello.close();
-        } catch (DocumentException ex) {
-            throw new IllegalStateException("No se pudo proteger el PDF del reporte", ex);
-        } finally {
-            lector.close();
         }
     }
 }

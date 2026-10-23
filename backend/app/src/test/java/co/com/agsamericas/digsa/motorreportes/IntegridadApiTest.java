@@ -171,7 +171,7 @@ class IntegridadApiTest extends PruebaIntegracion {
         try {
             assertThat(r.isEncrypted()).isTrue();
             assertThat(r.getPermissions() & com.lowagie.text.pdf.PdfWriter.ALLOW_MODIFY_CONTENTS).isZero();
-            assertThat(new com.lowagie.text.pdf.parser.PdfTextExtractor(r).getTextFromPage(1)).contains("Código de verificación", "Página 1 de 1",
+            assertThat(new com.lowagie.text.pdf.parser.PdfTextExtractor(r).getTextFromPage(1)).contains("Código de verificación", "Página 1 de ",
                     pdf.cabecera("X-Codigo-Verificacion"));
         } finally {
             r.close();
@@ -247,31 +247,41 @@ class IntegridadApiTest extends PruebaIntegracion {
     }
 
     @Test
-    @DisplayName("un PDF de más filas que su tope es 422 con la sugerencia; el registro queda «fallida» sin archivo y su código lo dice")
-    void pdfSobreElTope() {
+    @DisplayName("sin tope de filas (TAS P12): 5.002 visitas salen completas en CSV y en PDF; el código de una generación fallida lo dice")
+    void reportesCompletosYFallida() throws Exception {
         Escenario x = escenario();
         long lider = idDe(crearUsuario("lider", Perfil.AUDITOR));
-        // 5.001 visitas en un punto nuevo (el tope del PDF es 5.000)
         jdbc.sql("""
                 INSERT INTO visitas (numero, tipo, punto_id, fecha, auditor_id, alcance, estado, creado_por)
                 SELECT 'VS-20260715-' || lpad((90000000 + (:p % 1000000) * 10000 + g)::text, 8, '0'), 'anual', :p, DATE '2026-07-15', :a, 'Volumen.', 'programada', :a
                 FROM generate_series(1, 5001) g""").param("p", x.punto()).param("a", lider).update();
-        Respuesta pdf = x.coord().get("/api/reportes/detalle/exportar?formato=pdf&" + x.filtro());
-        assertThat(pdf.estado()).isEqualTo(422);
-        assertThat(pdf.mensaje()).contains("El PDF admite hasta 5000 filas", "Excel o CSV");
-        Map<String, Object> reg = jdbc.sql("""
-                SELECT codigo, estado, ruta, error FROM reportes_generados WHERE usuario_id = :u AND formato = 'pdf' ORDER BY id DESC LIMIT 1""")
-                .param("u", idDe(x.coordinador())).query().singleRow();
-        assertThat(reg.get("estado")).isEqualTo("fallida");
-        assertThat(reg.get("ruta")).isNull();
-        assertThat((String) reg.get("error")).contains("El PDF admite hasta 5000 filas");
-        JsonNode v = x.coord().get("/api/reportes/verificar/" + reg.get("codigo")).json();
-        assertThat(v.path("resultado").asText()).isEqualTo("fallida");
-        assertThat(x.coord().post("/api/reportes/verificar/" + reg.get("codigo") + "/regenerar", Map.of()).estado()).isEqualTo(422);
-        // El mismo reporte en CSV sí sale completo (5.002 filas)
         Respuesta csv = x.coord().get("/api/reportes/detalle/exportar?formato=csv&" + x.filtro());
         assertThat(csv.estado()).isEqualTo(200);
         assertThat(new String(csv.cuerpo(), StandardCharsets.UTF_8)).contains("Registros;5002");
+        Respuesta pdf = x.coord().get("/api/reportes/detalle/exportar?formato=pdf&" + x.filtro());
+        if (pdf.estado() == 202) { // en un equipo cargado puede pasar de la espera y seguir en segundo plano
+            String codigo = pdf.json().path("codigo").asText();
+            esperar(() -> "lista".equals(jdbc.sql("SELECT estado FROM reportes_generados WHERE codigo = :c").param("c", codigo).query(String.class).single()),
+                    "el PDF grande en segundo plano");
+            pdf = x.coord().get("/api/reportes/descargas/" + codigo);
+        }
+        assertThat(pdf.estado()).isEqualTo(200);
+        var r = new com.lowagie.text.pdf.PdfReader(pdf.cuerpo());
+        try {
+            assertThat(new com.lowagie.text.pdf.parser.PdfTextExtractor(r).getTextFromPage(1)).contains("Registros: 5002");
+            assertThat(r.getNumberOfPages()).isGreaterThan(50);
+        } finally {
+            r.close();
+        }
+        // Una generación que falló: su código no se presenta como válido ni se regenera
+        String fallido = CodigoVerificacion.nuevo(java.time.LocalDate.of(2026, 7, 15));
+        jdbc.sql("""
+                INSERT INTO reportes_generados (codigo, reporte, version, titulo, usuario_id, usuario, alcance, parametros, columnas, formato, estado, error, vence, terminado)
+                VALUES (:c, 'detalle', 1, 'Detalle de visitas', :u, 'Persona', 'todo', '{}', '[]', 'csv', 'fallida', 'No se pudo generar el archivo.', now(), now())""")
+                .param("c", fallido).param("u", idDe(x.coordinador())).update();
+        JsonNode v = x.coord().get("/api/reportes/verificar/" + fallido).json();
+        assertThat(v.path("resultado").asText()).isEqualTo("fallida");
+        assertThat(x.coord().post("/api/reportes/verificar/" + fallido + "/regenerar", Map.of()).estado()).isEqualTo(422);
     }
 
     @Test

@@ -52,9 +52,32 @@ public record UsuarioSesion(long id, String usuario, String nombre) implements S
         return s;
     }
 
-    /** Alcance de la petición en curso; lo calcula el filtro de la sesión. */
+    /** Lo que el filtro de la sesión calcula en cada petición (no se guarda en la sesión): alcance de los datos y pantallas permitidas. */
+    public record Acceso(Alcance alcance, Set<co.com.agsamericas.digsa.reglas.Pantallas> pantallas, Set<Integer> asignados) {
+        public Acceso {
+            pantallas = Set.copyOf(pantallas);
+            asignados = Set.copyOf(asignados);
+        }
+    }
+
+    /** Perfiles y roles asignados (ids) de la petición en curso, para mostrarlos con su nombre. */
+    public static Set<Integer> asignadosActuales() {
+        Authentication a = SecurityContextHolder.getContext().getAuthentication();
+        return a != null && a.getDetails() instanceof Acceso ac ? ac.asignados() : Set.of();
+    }
+
+    /** Alcance de la petición en curso; lo calcula el filtro de la sesión. Sin él, ninguno (falla cerrado). */
     public static Alcance alcanceActual() {
         Authentication a = SecurityContextHolder.getContext().getAuthentication();
-        return a != null && a.getDetails() instanceof Alcance al ? al : new Alcance.Ninguno();
+        return a != null && a.getDetails() instanceof Acceso ac ? ac.alcance() : new Alcance.Ninguno();
+    }
+
+    /**
+     * Pantallas de la petición en curso: las de los perfiles directos más las de los roles adicionales (Anexo 5, 1.12). Sin el cálculo del
+     * filtro de la sesión, ninguna (falla cerrado).
+     */
+    public static Set<co.com.agsamericas.digsa.reglas.Pantallas> pantallasActuales() {
+        Authentication a = SecurityContextHolder.getContext().getAuthentication();
+        return a != null && a.getPrincipal() instanceof UsuarioSesion && a.getDetails() instanceof Acceso ac ? ac.pantallas() : Set.of();
     }
 }

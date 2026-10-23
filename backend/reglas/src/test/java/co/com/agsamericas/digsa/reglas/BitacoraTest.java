@@ -227,6 +227,33 @@ class BitacoraTest {
     }
 
     @Test
+    @DisplayName("cambiosDe (ítem 15 b, V32): valores completos hasta 1000 caracteres; los personales ocultos y sin valores; sin correos")
+    void cambiosEstructurados() {
+        String largo = "x".repeat(300);
+        List<Bitacora.Cambio> c = Bitacora.cambiosDe(datos("observacion", "corta", "telefono", "+573001112233", "correo", "a@b.co"),
+                datos("observacion", largo, "telefono", "+573009998877", "correo", "c@d.co"), java.util.Set.of("telefono"));
+        assertThat(c).hasSize(3);
+        assertThat(c.get(0)).isEqualTo(new Bitacora.Cambio("observacion", "corta", largo, false));
+        assertThat(c.get(1)).as("dato personal").isEqualTo(new Bitacora.Cambio("telefono", null, null, true));
+        assertThat(c.get(2).antes() + c.get(2).despues()).doesNotContain("@");
+        assertThat(Bitacora.cambiosDe(datos("a", "y".repeat(1500)), datos("a", "z"), java.util.Set.of()).getFirst().antes())
+                .hasSize(Bitacora.MAX_VALOR_CAMBIO);
+        assertThat(Bitacora.resumen(c)).startsWith("observacion: «corta» → «" + "x".repeat(40) + "»; telefono: modificado");
+    }
+
+    @Test
+    @DisplayName("fila: lleva los cambios de todas las anotaciones de la petición (y ninguno si no hubo)")
+    void filaConCambios() {
+        Bitacora.Cambio uno = new Bitacora.Cambio("estado", "a", "b", false);
+        Bitacora.Cambio dos = new Bitacora.Cambio("nombre", null, null, true);
+        Fila f = Bitacora.fila(pet("usuarios", "PUT", "editar", Declarada.ACTUALIZACION, datos("id", "7"),
+                List.of(new Anotacion("usuario_editado", "Usuario x editado", List.of(uno)), new Anotacion("usuario_estado", "y", List.of(dos)))), 200, false)
+                .orElseThrow();
+        assertThat(f.cambios()).containsExactly(uno, dos);
+        assertThat(Bitacora.fila(pet("usuarios", "GET", "listar", Declarada.CONSULTA, datos(), null), 200, false).orElseThrow().cambios()).isEmpty();
+    }
+
+    @Test
     @DisplayName("sinCorreos: quita las direcciones (Ley 1581); sin correos no cambia nada")
     void sinCorreos() {
         String t = Bitacora.sinCorreos("el correo falló: SMTP Error: The following recipients failed: ana.perez@agsamericas.com.co: 550 no existe; <x_y@dominio.org>");

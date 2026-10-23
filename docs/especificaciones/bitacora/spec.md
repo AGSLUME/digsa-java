@@ -279,3 +279,23 @@ La tabla de la bitácora DEBE tener índices por fecha y por (operación, tipo, 
 
 <!-- duda: 7.3 · la salida por cambio de contraseña o por usuario inactivado no deja fila de "salida" (ver identidad-sesion) -->
 <!-- pendiente: vistas/modulos/logs.php, vistas/js/logs.js (solo se muestreó el escape), tests/ui (sin recorrido propio de logs) -->
+
+---
+
+### Requirement: Antes y después completos y estructurados (Java, sesión 2 · E3)
+<!-- decision: Anexo 5, prueba en sitio ítem 15 b; decisión del 2026-10-20 (ítem 15: valores de antes y después); Ley 1581 -->
+<!-- impuesto_en: reglas/Bitacora.cambiosDe, Cambio; plataforma/RegistroBitacora.registrarCambios; V32 log_transacciones.cambios -->
+
+Toda modificación registrada con `registrarCambios` DEBE guardar, además del resumen en la descripción, los valores completos de antes y después de cada campo que cambió en la columna `cambios` (jsonb, hasta 1000 caracteres por valor y 20.000 bytes por fila); los datos personales DEBEN ir con `oculto=true` y sin valores; ningún valor DEBE llevar direcciones de correo.
+
+#### Scenario: Usuario editado
+- **CUANDO** el administrador cambia el usuario, los perfiles y el nombre de una persona
+- **ENTONCES** la fila `usuario_editado` trae `usuario` y `perfiles` con sus valores de antes y después, y `nombre` oculto («modificado»)
+
+#### Scenario: Pantalla de logs
+- **CUANDO** el administrador filtra por tipo (exacto) y por módulo, y pulsa «Ver» en una fila con cambios
+- **ENTONCES** ve la tabla campo / antes / después; el dato personal dice «Modificado (dato personal…)»; el Excel y el CSV traen la columna «Cambios (antes → después)»
+
+#### Scenario: La fila nunca se pierde por los cambios
+- **CUANDO** los valores no caben en los 20.000 bytes
+- **ENTONCES** se acortan (con «…») hasta caber; si aun así no caben, la fila se escribe sin la columna de cambios

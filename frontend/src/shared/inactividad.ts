@@ -22,3 +22,12 @@ export function mmss(segundos: number): string {
   const s = segundos % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
+
+/**
+ * Última actividad según el servidor (GET /api/sesion/estado): con su plazo vigente y los segundos que le quedan, la actividad fue hace
+ * (plazo - restantes). El administrador puede haber cambiado el TIME OUT con la sesión abierta.
+ */
+export function ultimaActividadDelServidor(ahoraMs: number, minutos: number, restantes: number): number {
+  const transcurridos = Math.max(0, minutos * 60 - Math.max(0, restantes));
+  return ahoraMs - transcurridos * 1000;
+}

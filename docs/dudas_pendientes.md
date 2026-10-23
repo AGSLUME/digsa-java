@@ -649,3 +649,83 @@ Revisión de los agentes: P1 corregidos (el perfil ESM no ve el detalle de otros
 | P.39 | El establecimiento admite un solo ESM en los reportes (la spec pide «una, varias o todas» también para ESM) | Fuerza y modalidad ya admiten varias; ESM queda con uno, como el filtro de establecimiento del contrato de reportes |
 | P.40 | En el reporte de ejecución, la desviación de los totales suma todas las líneas, mientras la alarma suma solo las que reportaron el mes | Documentado; confirmar junto con P.26 |
 | P.41 | Las desviaciones por ESM aún se registran con un INSERT por línea (los umbrales ya van por lote) | Con la consolidación, la carga de 4.428 filas tarda 5 s |
+
+## Usuarios, roles y logs (sesión 2, rama identidad-roles-logs, 2026-10-22)
+
+Decisiones del usuario del 2026-10-22: el MFA por correo **se deja como está** (siempre encendido, sin interruptor); los roles adicionales son **perfil base + subconjunto de sus pantallas**; el **Analista** tiene consulta nacional en visitas (los anexos solo le dan funciones en cuentas médicas). Entregas: E1 contraseñas y sesión, E2 roles adicionales, E3 bitácora con antes y después, E4 guion de la prueba en sitio.
+
+### E1 · Contraseñas y sesión
+
+Hecho:
+
+- **«Cambiar mi contraseña»** en el menú lateral (`POST /api/cuenta/clave`), sin salir al correo (condición 12):
+  - la actual errada suma intento fallido y, al quinto, bloquea y cierra la sesión;
+  - con el usuario ya bloqueado responde 401 y no cambia nada;
+  - la sesión en curso sigue abierta, con identificador y token CSRF nuevos.
+- **Contraseña vencida (30 días):**
+  - se cambia en el ingreso (paso `cambiar_clave`), sin enlace;
+  - si vence con la sesión abierta, la sesión se cierra con «clave_vencida».
+- **TIME OUT editable por el Administrador** en Usuarios › Seguridad (Anexo 5, 3.2: «parametrizable y ajustable»):
+  - se guarda en `seg_parametros` (V30), aplica en la siguiente petición y queda en la bitácora con el antes y el después;
+  - la SPA consulta `GET /api/sesion/estado`, que no renueva la sesión, y adopta el plazo vigente.
+- **Desbloquear** (Administrador): atómico; si el usuario no estaba bloqueado no borra los intentos.
+- **17.16:**
+  - token CSRF nuevo al ingresar;
+  - «olvidé mi contraseña» en un hilo aparte, con el mismo tiempo de respuesta exista o no el usuario;
+  - un enlace cada 5 minutos por usuario; un enlace que no salió no cuenta.
+- **18.17:** el cierre de sesión por el administrador deja una sola fila de salida.
+- La especificación `identidad-sesion` ya dice que el segundo ingreso se rechaza (decisión 7.1), no «gana el último».
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 28.1 | **CSRF de doble envío:** el token se renueva al ingresar y al cambiar la contraseña, pero no está atado a la sesión. Un token viejo junto con su cookie vieja seguiría pasando, aunque un tercero no puede leer la cookie (SameSite=Strict, mismo origen) | Se deja así: es el patrón documentado de Spring para SPA. Atarlo a la sesión exige cambiar el cliente; queda para después de la prueba si TI lo pide |
+| 28.2 | **Tope de «olvidé mi contraseña» con varias instancias:** se decide leyendo `token_vence` y escribiendo después; con dos instancias, dos pedidos simultáneos pueden enviar dos enlaces (el segundo anula el primero) | Con una instancia, el hilo único lo serializa. Pendiente: UPDATE condicional si se despliega en más de una instancia |
+| 28.3 | **El enlace del QR del OPL** (`opl/ServicioOplPublico`) sigue usando `DIGSA_SESION_MINUTOS`, no el TIME OUT editable | No es una sesión de usuario. Coordinar con la sesión 1 si debe seguir al parámetro |
+| 28.4 | **Ramas 409 sin prueba:** el cambio en el ingreso cuando la contraseña dejó de estar vencida entre los dos pasos, y el cambio concurrente de la propia contraseña | El control optimista (`WHERE clave_hash = :anterior`) está; faltan sus pruebas |
+| 28.5 | **Restablecer el TIME OUT en las e2e:** el servidor de las e2e es compartido; la prueba lo restablece y falla con un mensaje claro si no puede | Hecho |
+| 28.6 | **Coordinación con la exportación (sesión 1):** cada tabla nueva debe ir en `reglas/Exportacion.TABLAS` (lo exige `ExportacionApiTest.tablasContraElEsquema`) | Se agregó `seg_parametros` (V30) con una línea aditiva; las tablas de E2 y E3 se agregarán igual. Avisar a la sesión 1 al integrar |
+
+### E2 · Roles adicionales y Analista
+
+Hecho:
+
+- **Roles adicionales** (Anexo 5, 1.12) en Usuarios › Roles adicionales. Cada rol tiene un perfil base y un subconjunto de sus pantallas, y se asigna en el formulario del usuario.
+- **Autorización:** el menú y `@permisos.pantalla` usan las mismas pantallas calculadas en cada petición. El alcance de los datos sale de los perfiles directos más la base de cada rol.
+- **Falla cerrado (P1 de la revisión de seguridad):**
+  - las autoridades y `perfilesActuales()` llevan **solo los perfiles directos**: un rol no da la identidad de su base en las reglas de los demás módulos (registrar incidencias, decidir prórrogas…);
+  - un usuario con roles no tiene perfiles directos y todos sus roles comparten base; si una mezcla queda por reactivar un rol, el rol no suma nada;
+  - el Auditor no es base, y las pantallas ocultas (Visita) no se eligen;
+  - CHECK en la base: solo bases 2 y 5 a 10.
+- **Analista:** consulta nacional.
+- **Base de datos:** V31 (`perfiles.base_id`, `perfiles_pantallas` y ids desde 100). `perfiles_pantallas` va en `Exportacion.TABLAS`.
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 28.7 | **Analista en visitas:** los anexos no le dan funciones en este módulo | Consulta nacional, como la DIGSA, sin solicitar visitas ni descargar los soportes del OPL (decisión del usuario). Si la adenda dice otra cosa, se ajusta con un rol adicional sin programar |
+| 28.8 | **Un rol da consulta, no las acciones de su perfil base:** los servicios de agenda, tablero, ejecución y solicitudes deciden por el perfil directo (`perfilesActuales()`, `hasAnyAuthority`). Un rol con base Coordinador y la pantalla Agenda la ve, pero no actúa como coordinador | Así falla cerrado (P1 de la revisión). Para que un rol pueda actuar, cada servicio tendría que recibir los perfiles según la pantalla: coordinar con la sesión 1 si la DIGSA pide un rol con acciones |
+| 28.9 | **Usuario cuyo único rol está inactivo:** el formulario no muestra el rol inactivo; para editar al usuario hay que marcarle otro perfil o reactivar el rol | La asignación al rol inactivo se conserva al editar |
+| 28.10 | **`AlertaIntervencionApiTest` (módulo ejecución, sesión 1) falla en cada corrida completa (`mvnw verify`) y pasa sola:** espera 5 s el aviso de la bandeja de salida; en la corrida completa la bandeja trae avisos de las pruebas anteriores y la máquina está cargada | **Cerrada:** corregida en develop (fe9c98e, el aviso puede salir en varios lotes); llegó con el merge de develop |
+
+### E3 · Bitácora con antes y después
+
+Hecho:
+
+- **Antes y después completos** (V32, columna `cambios` jsonb) además del resumen de la descripción. Los datos personales quedan ocultos.
+- **Logs:**
+  - filtros por tipo y por módulo;
+  - botón «Ver» con la tabla campo / antes / después;
+  - columna de cambios en Excel y CSV.
+- **Registro estructurado** (`registrarCambios`) en identidad: usuario editado, estado del usuario, perfil renombrado, rol editado y TIME OUT.
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 28.11 | **Otros módulos** (agenda, alertas, catálogos, maestros, ejecución, OPL, hallazgos) siguen con el antes y el después solo en el texto de la descripción (`Bitacora.cambios`), cortado a 40 caracteres | Coordinar con la sesión 1: basta cambiar `bitacora.registrar(tipo, desc + cambios(...))` por `bitacora.registrarCambios(tipo, desc, antes, despues, sinValor, …)` |
+| 28.12 | **Particiones de la bitácora (17.17):** V1 creó particiones mensuales hasta enero de 2031 (el contrato termina a más tardar en julio de 2030) y una partición por defecto | Cubren todo el contrato; no se agregó tarea. Si el contrato se prorroga, crear las particiones en una migración nueva |
+
+### E5 · E2E aisladas entre specs y entre sesiones
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 28.13 | **E2E que se bloquean entre sí:** con la sesión única (decisión 7.1), una sesión de `admin.e2e` que queda abierta bloquea un minuto el ingreso de las specs siguientes | Las specs de usuarios, roles y logs usan un administrador propio (`ingresarComoAdminPropio` en `apoyo.ts`) y cierran siempre la sesión (`afterEach`/`finally`) |
+| 28.14 | **Entorno compartido entre sesiones:** <br>- la limpieza versionada mata lo que esté en 8080/54329, aunque sea de otra sesión; <br>- el servidor de las e2e toma el módulo `reglas` del `~/.m2` compartido; <br>- los puertos chocaban entre sesiones | La sesión 1 lo corrige en develop: `DIGSA_E2E_PUERTO`/`DIGSA_E2E_PGPUERTO`, limpieza solo de esos puertos y `MAVEN_OPTS` heredado. Mientras tanto, este worktree corre con una configuración local no versionada (`e2e/.local`): puertos 18180/54349, repositorio Maven propio y limpieza propia |
+| 28.15 | **`riesgo-tablero` (sesión 1) en Firefox:** la notificación «Pesos guardados» a veces tarda más de los 10 s de espera en la corrida completa | Pasa sola (6/6). Sin cambio (no es de este módulo); avisar a la sesión 1 |

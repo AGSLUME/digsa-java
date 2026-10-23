@@ -51,7 +51,7 @@ class AlcanceYPantallasTest {
     }
 
     @Test
-    @DisplayName("de: falla cerrado (sin perfiles, perfil sin su dato, Consulta retirado, Analista)")
+    @DisplayName("de: falla cerrado (sin perfiles, perfil sin su dato, Consulta retirado)")
     void fallaCerrado() {
         Alcance ninguno = new Alcance.Ninguno();
         assertThat(Alcance.de(List.of(), VACIO)).isEqualTo(ninguno);
@@ -61,7 +61,7 @@ class AlcanceYPantallasTest {
         assertThat(Alcance.de(List.of(OPL_REGIONAL), VACIO)).isEqualTo(ninguno);
         assertThat(Alcance.de(List.of(SANIDAD, ESM, OPL_REGIONAL), VACIO)).isEqualTo(ninguno);
         assertThat(Alcance.de(List.of(CONSULTA), new DatosUsuario(5, "EJC", null, null))).isEqualTo(ninguno);
-        assertThat(Alcance.de(List.of(ANALISTA), VACIO)).as("Analista no ve visitas").isEqualTo(ninguno);
+        assertThat(Alcance.de(List.of(ANALISTA), VACIO)).as("Analista: consulta nacional (decisión del 2026-10-22)").isEqualTo(new Alcance.Todo());
         assertThat(Perfil.deNombre("administrador")).as("otra grafía no cuenta").isEmpty();
     }
 
@@ -111,6 +111,8 @@ class AlcanceYPantallasTest {
         assertThat(Alcance.combinacionInvalida(List.of(AUDITOR, COORDINADOR))).isEmpty();
         assertThat(Alcance.combinacionInvalida(List.of(ADMINISTRADOR, DIGSA))).isEmpty();
         assertThat(Alcance.combinacionInvalida(List.of(SANIDAD))).isEmpty();
+        assertThat(Alcance.combinacionInvalida(List.of(ANALISTA, ESM))).as("el Analista ya ve todo el país: no se mezcla con otro alcance").isPresent();
+        assertThat(Alcance.combinacionInvalida(List.of(ANALISTA, AUDITOR))).isEmpty();
     }
 
     private static boolean entra(Pantallas p, Perfil... perfiles) {
@@ -149,7 +151,12 @@ class AlcanceYPantallasTest {
         assertThat(entra(Pantallas.USUARIOS, ADMINISTRADOR) && entra(Pantallas.AGENDA, ADMINISTRADOR) && entra(Pantallas.MIS_VISITAS, ADMINISTRADOR)
                 && entra(Pantallas.LOGS, ADMINISTRADOR)).isTrue();
         assertThat(entra(Pantallas.INICIO, ANALISTA)).isTrue();
-        assertThat(entra(Pantallas.AGENDA, ANALISTA)).isFalse();
+        for (Pantallas x : List.of(Pantallas.CALENDARIO, Pantallas.DASHBOARD, Pantallas.RIESGO, Pantallas.REPORTES, Pantallas.HALLAZGOS)) {
+            assertThat(entra(x, ANALISTA)).as("Analista entra a " + x.ruta()).isTrue();
+        }
+        for (Pantallas x : List.of(Pantallas.AGENDA, Pantallas.SOLICITUDES, Pantallas.MIS_VISITAS, Pantallas.USUARIOS, Pantallas.LOGS, Pantallas.OPL)) {
+            assertThat(entra(x, ANALISTA)).as("Analista no entra a " + x.ruta()).isFalse();
+        }
         assertThat(Pantallas.INICIO.puedeEntrar(Set.of(), false)).as("sin sesión: nada").isFalse();
     }
 }

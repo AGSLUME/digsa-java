@@ -2,6 +2,7 @@ import { AppShell, Burger, Group, NavLink, ScrollArea, Stack, Text, Title, Unsty
 import { useDisclosure } from '@mantine/hooks';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { AvisoInactividad } from './AvisoInactividad';
+import { CambiarMiClave } from './CambiarMiClave';
 import { LimiteErrores } from './LimiteErrores';
 import { useSesion } from './sesion';
 
@@ -9,6 +10,7 @@ import { useSesion } from './sesion';
 export function Plantilla({ alSalir }: { alSalir: () => void }) {
   const s = useSesion();
   const [abierto, { toggle, close }] = useDisclosure(false);
+  const [claveAbierta, { open: abrirClave, close: cerrarClave }] = useDisclosure(false);
   const { pathname } = useLocation();
   const grupos = Array.from(new Set(s.menu.map((m) => m.grupo)));
 
@@ -34,30 +36,40 @@ export function Plantilla({ alSalir }: { alSalir: () => void }) {
       </AppShell.Header>
       <AppShell.Navbar p="sm">
         <AppShell.Section grow component={ScrollArea} type="auto">
-        <Stack gap={4}>
-          <NavLink component={Link} to="/" label="Inicio" active={pathname === '/'} onClick={close} />
-          {grupos.map((g) => (
-            <div key={g || 'general'}>
-              {g && (
-                <Text size="xs" c="dimmed" tt="uppercase" mt="sm" mb={4} px="sm">
-                  {g}
-                </Text>
-              )}
-              {s.menu
-                .filter((m) => m.grupo === g && m.ruta !== 'inicio')
-                .map((m) => (
-                  <NavLink
-                    key={m.ruta}
-                    component={Link}
-                    to={'/' + m.ruta}
-                    label={m.titulo}
-                    active={pathname.startsWith('/' + m.ruta)}
-                    onClick={close}
-                  />
-                ))}
-            </div>
-          ))}
-        </Stack>
+          <Stack gap={4}>
+            <NavLink component={Link} to="/" label="Inicio" active={pathname === '/'} onClick={close} />
+            {grupos.map((g) => (
+              <div key={g || 'general'}>
+                {g && (
+                  <Text size="xs" c="dimmed" tt="uppercase" mt="sm" mb={4} px="sm">
+                    {g}
+                  </Text>
+                )}
+                {s.menu
+                  .filter((m) => m.grupo === g && m.ruta !== 'inicio')
+                  .map((m) => (
+                    <NavLink
+                      key={m.ruta}
+                      component={Link}
+                      to={'/' + m.ruta}
+                      label={m.titulo}
+                      active={pathname.startsWith('/' + m.ruta)}
+                      onClick={close}
+                    />
+                  ))}
+              </div>
+            ))}
+          </Stack>
+        </AppShell.Section>
+        <AppShell.Section>
+          <NavLink
+            component="button"
+            label="Mi contraseña"
+            onClick={() => {
+              close();
+              abrirClave();
+            }}
+          />
         </AppShell.Section>
       </AppShell.Navbar>
       <AppShell.Main>
@@ -66,6 +78,7 @@ export function Plantilla({ alSalir }: { alSalir: () => void }) {
         </LimiteErrores>
       </AppShell.Main>
       <AvisoInactividad minutos={s.minutosInactividad} alSalir={alSalir} />
+      <CambiarMiClave abierto={claveAbierta} alCerrar={cerrarClave} />
     </AppShell>
   );
 }

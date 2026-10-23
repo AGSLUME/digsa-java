@@ -221,13 +221,15 @@ class IngresoYSesionApiTest extends PruebaIntegracion {
     }
 
     @Test
-    @DisplayName("contraseña vencida a los 30 días: el ingreso pide definirla y envía el enlace")
+    @DisplayName("contraseña vencida a los 30 días: el ingreso pide cambiarla ahí mismo, sin enlace al correo (condición 12)")
     void claveVencida() {
         String u = crearUsuario("vencida", Perfil.COORDINADOR);
         reloj.adelantar(Duration.ofDays(31));
+        int correosAntes = correos().size();
         Respuesta r = navegador().post("/api/auth/ingreso", Map.of("usuario", u, "clave", CLAVE));
-        assertThat(r.json().path("paso").asText()).isEqualTo("definir_clave");
-        assertThat(r.mensaje()).contains("Debe actualizar su contraseña");
+        assertThat(r.json().path("paso").asText()).isEqualTo("cambiar_clave");
+        assertThat(r.mensaje()).contains("Su contraseña venció");
+        assertThat(correos()).hasSize(correosAntes);
     }
 
     @Test

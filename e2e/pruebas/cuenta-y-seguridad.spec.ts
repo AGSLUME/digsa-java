@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, api, ingresar, ingresarConClaveInicial, salir, sinDesplazamientoHorizontal, unico } from './apoyo';
+import { api, ingresar, ingresarComoAdminPropio, ingresarConClaveInicial, salir, sinDesplazamientoHorizontal, unico } from './apoyo';
 
 test.afterEach(async ({ page }) => salir(page));
 
@@ -29,7 +29,7 @@ test('cambiar mi contraseña: con la actual errada avisa; con la correcta sigue 
   page,
   browser,
 }) => {
-  await ingresar(page, ...ADMIN);
+  await ingresarComoAdminPropio(page);
   const usuario = await crearAuditor(page);
   await salir(page);
 
@@ -60,7 +60,7 @@ test('cambiar mi contraseña: con la actual errada avisa; con la correcta sigue 
 });
 
 test('el administrador cambia el TIME OUT en Usuarios › Seguridad y lo restablece', async ({ page }) => {
-  await ingresar(page, ...ADMIN);
+  await ingresarComoAdminPropio(page);
   const antes = (await api<{ minutosSesion: number }>(page, 'GET', '/api/usuarios/seguridad')).datos.minutosSesion;
   const otro = antes === 2 ? 3 : 2;
   try {
@@ -81,7 +81,7 @@ test('el administrador cambia el TIME OUT en Usuarios › Seguridad y lo restabl
 });
 
 test('un usuario bloqueado por 5 intentos aparece «Bloqueado» y el administrador lo desbloquea', async ({ page, browser }) => {
-  await ingresar(page, ...ADMIN);
+  await ingresarComoAdminPropio(page);
   const usuario = await crearAuditor(page);
 
   const ctx = await browser.newContext();
@@ -103,7 +103,7 @@ test('un usuario bloqueado por 5 intentos aparece «Bloqueado» y el administrad
 
 test('celular (360 px): «Mi contraseña» está en el menú y no hay desplazamiento horizontal', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
-  await ingresar(page, ...ADMIN);
+  await ingresarComoAdminPropio(page);
   await sinDesplazamientoHorizontal(page);
   await page.getByRole('button', { name: 'Menú' }).click();
   await page.getByRole('button', { name: 'Mi contraseña' }).click();

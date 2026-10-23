@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { ADMIN, api, ingresar, ingresarConClaveInicial, salir, unico } from './apoyo';
+import { api, ingresar, ingresarComoAdminPropio, ingresarConClaveInicial, salir, unico } from './apoyo';
 
 // Guion de la prueba en sitio (Anexo 5, protocolo de pruebas), ítems 2, 3 y 15, tal como lo hará el Comité:
 //  2. Crear, solo desde la interfaz y de forma simultánea en dos equipos, los usuarios Analista1, Auditor1, Auditor2, Administrador y
@@ -10,6 +10,9 @@ import { ADMIN, api, ingresar, ingresarConClaveInicial, salir, unico } from './a
 // El servidor de las e2e corre con 1 minuto de inactividad (playwright.config.ts).
 
 test.describe.configure({ mode: 'serial' });
+
+// Siempre se cierra la sesión de la página, aunque la prueba falle a mitad: una sesión abierta bloquea un ingreso nuevo (decisión 7.1)
+test.afterEach(async ({ page }) => salir(page));
 
 const SUFIJO = unico('').slice(-6);
 const INICIAL = 'Inicial.Prueba.Sitio.2026';
@@ -83,29 +86,31 @@ async function segundoAdministrador(page: Page, browser: Browser): Promise<Page>
 }
 
 test('ítem 2: dos administradores crean a la vez, por la interfaz, los cinco usuarios de la prueba', async ({ page, browser }) => {
-  await ingresar(page, ...ADMIN);
+  await ingresarComoAdminPropio(page);
   const otro = await segundoAdministrador(page, browser);
-  await page.getByRole('link', { name: 'Usuarios' }).click();
-  // Equipo 1: Analista1, Auditor1 y Administrador; equipo 2: Auditor2 y OPL, al mismo tiempo
-  await Promise.all([
-    (async () => {
-      await crearPorPantalla(page, USUARIOS[0], '80100001');
-      await crearPorPantalla(page, USUARIOS[1], '80100002');
-      await crearPorPantalla(page, USUARIOS[3], '80100004');
-    })(),
-    (async () => {
-      await crearPorPantalla(otro, USUARIOS[2], '80100003');
-      await crearPorPantalla(otro, USUARIOS[4], '80100005');
-    })(),
-  ]);
-  await page.reload();
-  for (const u of USUARIOS) {
-    await expect(page.getByTestId('usuario-' + u.usuario)).toContainText(u.perfil);
-    await expect(page.getByTestId('usuario-' + u.usuario)).toContainText('Contraseña inicial');
+  try {
+    await page.getByRole('link', { name: 'Usuarios' }).click();
+    // Equipo 1: Analista1, Auditor1 y Administrador; equipo 2: Auditor2 y OPL, al mismo tiempo
+    await Promise.all([
+      (async () => {
+        await crearPorPantalla(page, USUARIOS[0], '80100001');
+        await crearPorPantalla(page, USUARIOS[1], '80100002');
+        await crearPorPantalla(page, USUARIOS[3], '80100004');
+      })(),
+      (async () => {
+        await crearPorPantalla(otro, USUARIOS[2], '80100003');
+        await crearPorPantalla(otro, USUARIOS[4], '80100005');
+      })(),
+    ]);
+    await page.reload();
+    for (const u of USUARIOS) {
+      await expect(page.getByTestId('usuario-' + u.usuario)).toContainText(u.perfil);
+      await expect(page.getByTestId('usuario-' + u.usuario)).toContainText('Contraseña inicial');
+    }
+  } finally {
+    await salir(otro);
+    await otro.context().close();
   }
-  await salir(otro);
-  await otro.context().close();
-  await salir(page);
 });
 
 test('ítem 3: ingreso, credenciales inválidas, funcionalidades por rol y sin sesión simultánea', async ({ browser }) => {
@@ -162,7 +167,7 @@ test('ítem 3: TIME OUT, la sesión se cierra sola por inactividad y avisa antes
 });
 
 test('ítem 15: logs en el navegador con las operaciones de los usuarios de prueba; descarga y envío por correo', async ({ page }) => {
-  await ingresar(page, ...ADMIN);
+  await ingresarComoAdminPropio(page);
   await page.getByRole('link', { name: 'Logs del sistema' }).click();
   await page.getByLabel('Texto', { exact: true }).fill(SUFIJO);
   await page.getByRole('button', { name: 'Buscar' }).click();

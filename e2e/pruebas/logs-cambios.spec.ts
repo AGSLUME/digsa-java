@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, api, ingresar, salir, unico } from './apoyo';
+import { api, ingresarComoAdminPropio, salir, unico } from './apoyo';
 
 test.afterEach(async ({ page }) => salir(page));
 
 // Usuarios, roles y logs · E3: valores de antes y después en la bitácora (Anexo 5, prueba en sitio ítem 15 b), filtros por tipo y módulo.
 
 test('el administrador edita un usuario y en Logs ve el antes y el después; el dato personal solo dice «modificado»', async ({ page }) => {
-  await ingresar(page, ...ADMIN);
+  await ingresarComoAdminPropio(page);
   const usuario = unico('logcam');
   const creado = await api<{ id: number }>(page, 'POST', '/api/usuarios', {
     nombre: 'Persona Original de Prueba',

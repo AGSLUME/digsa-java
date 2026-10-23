@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, api, ingresar, ingresarConClaveInicial, salir, unico } from './apoyo';
+import { api, ingresarComoAdminPropio, ingresarConClaveInicial, salir, unico } from './apoyo';
 
 test.afterEach(async ({ page }) => salir(page));
 
@@ -12,7 +12,7 @@ test('el administrador crea un rol con base Coordinador y solo Riesgo y Dashboar
   page,
   browser,
 }) => {
-  await ingresar(page, ...ADMIN);
+  await ingresarComoAdminPropio(page);
   await page.getByRole('link', { name: 'Usuarios' }).click();
   await page.getByRole('button', { name: 'Roles adicionales' }).click();
   const roles = page.getByRole('dialog', { name: 'Roles adicionales' });
@@ -56,7 +56,7 @@ test('el administrador crea un rol con base Coordinador y solo Riesgo y Dashboar
 });
 
 test('Analista (ítem 3): consulta nacional, sin agenda ni solicitudes ni administración', async ({ page, browser }) => {
-  await ingresar(page, ...ADMIN);
+  await ingresarComoAdminPropio(page);
   const usuario = unico('analista');
   const r = await api(page, 'POST', '/api/usuarios', {
     nombre: 'Analista Uno de Prueba',

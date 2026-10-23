@@ -569,3 +569,16 @@ Revisión de los agentes: P1 corregidos (mes con lista de meses de la vigencia, 
 | P.28 | El puerto de cuentas médicas no tiene idempotencia por referencia de lote | Se agrega cuando exista el módulo de cuentas |
 | P.29 | Registrar() hace varias sentencias por corte; consecutivo anual serializa a quienes notifican hasta el commit | Aceptable con el volumen esperado; se mide en F6 |
 | P.30 | El historial de versiones muestra el usuario que registró a Sanidad y ESM | Es el registro de la interventoría; confirmar si debe ocultarse |
+
+### F4 de presupuesto: proyección y desviación (2026-10-22)
+
+Hecho: proyección mensual cargada por archivo (simular y aplicar, versiones, advertencia si no suma el asignado contando lo vigente de los demás meses) o lineal (el asignado repartido en los meses de la vigencia, sin guardarse). Alarma de desviación (M7-3) al corte de cada mes registrado, en tres niveles: ESM × modalidad, fuerza y nacional; exceso por encima de la tolerancia de exceso y subejecución por debajo de la de subejecución (parámetros); una por vigencia, corte, nivel y sentido, con la alerta del catálogo y la notificación formal (la nacional a las tres sanidades y a la DIGSA).
+
+Revisión de los agentes: P1 corregidos (bloqueo consultivo por vigencia al empezar toda escritura del presupuesto: novedades, ejecución y proyección, así dos cargas no se bloquean entre sí ni chocan en el índice de la proyección; prueba de concurrencia). También: con base «reconocido», un mes sin conciliar no cuenta como reportado.
+
+| # | Pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| P.26 (amplía) | La fuerza y el país suman solo las líneas que reportaron el mes del corte. La primera alarma del mes queda fijada aunque luego lleguen las demás líneas, y una línea que nunca reporta no se suma (la spec dice «suma de sus líneas») | Así; alternativa: evaluar fuerza y país solo cuando reporten todas las líneas con asignado, o en una tarea al cierre del mes. Confirmar |
+| P.31 | Al recargar un mes, la alarma anterior no se corrige: si el sentido cambia se crea otra, y si vuelve a la tolerancia la anterior queda | Las alarmas son avisos formales ya enviados; la pantalla muestra todas con su corte |
+| P.32 | La proyección acepta la fuente «OPL» | Se deja: la DIGSA dice que la información la entrega ella, pero el OPL puede aportar la proyección |
+| P.33 | Rendimiento: dos consultas de toda la vigencia por cada mes cargado, dentro de la transacción | Se mide en F6 |

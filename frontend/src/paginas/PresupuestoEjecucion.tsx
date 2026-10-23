@@ -50,41 +50,48 @@ const VACIO: FormEjecucion = { vigenciaId: '', puntoId: '', modalidad: '', fuerz
 export function Ejecucion({ o }: { o: OpcionesPresupuesto }) {
   return (
     <Stack>
-      {o.puedeRegistrar && <CargaEjecucion />}
+      {o.puedeRegistrar && (
+        <CargaArchivo
+          titulo="Carga de la ejecución"
+          ruta="/api/presupuesto/ejecucion"
+          prefijo="ejecucion"
+          ayuda="CSV separado por «;» en UTF-8 o Excel (.xlsx) con vigencia;fuerza;esm;modalidad;periodo;facturado y, opcionales, reconocido;referencia. El periodo es el mes (AAAA-MM). La ejecución de un satélite se suma a su ESM centralizador. Un mes ya cargado se reemplaza por el nuevo."
+        />
+      )}
       {o.puedeRegistrar && <ManualEjecucion o={o} />}
       <Versiones o={o} />
     </Stack>
   );
 }
 
-function CargaEjecucion() {
+/** Carga de un archivo con simular y aplicar (todo o nada): ejecución o proyección. */
+export function CargaArchivo({ titulo, ruta, ayuda, prefijo }: { titulo: string; ruta: string; ayuda: string; prefijo: string }) {
   const qc = useQueryClient();
   const [archivo, setArchivo] = useState<File | null>(null);
   const [fuente, setFuente] = useState('digsa');
   const [resultado, setResultado] = useState<ResultadoCarga | null>(null);
   const errores = (resultado?.errores ?? []).map((e) => `Fila ${e.fila}: ${e.motivo}`);
   const simular = useMutation({
-    mutationFn: () => subirArchivos<ResultadoCarga>('/api/presupuesto/ejecucion/simular', {}, [archivo!], 'archivo'),
+    mutationFn: () => subirArchivos<ResultadoCarga>(`${ruta}/simular`, {}, [archivo!], 'archivo'),
     onSuccess: setResultado,
     onError: (e) => avisarError(e, 'No se pudo revisar el archivo.'),
   });
   const aplicar = useMutation({
-    mutationFn: () => subirArchivos<ResultadoCarga>('/api/presupuesto/ejecucion/aplicar', { fuente }, [archivo!], 'archivo'),
+    mutationFn: () => subirArchivos<ResultadoCarga>(`${ruta}/aplicar`, { fuente }, [archivo!], 'archivo'),
     onSuccess: (r) => {
       notifications.show({ color: r.yaAplicado ? 'yellow' : 'green', message: r.mensaje });
       setResultado({ ...r, errores: [] });
       void qc.invalidateQueries({ queryKey: ['presupuesto'] });
     },
-    onError: (e) => avisarError(e, 'No se pudo aplicar la ejecución.'),
+    onError: (e) => avisarError(e, 'No se pudo aplicar la carga.'),
   });
   const listo = resultado !== null && !resultado.yaAplicado && errores.length === 0 && (resultado.validas ?? 0) > 0;
   return (
     <Card withBorder>
       <Stack>
-        <Title order={5}>Carga de la ejecución</Title>
+        <Title order={5}>{titulo}</Title>
         <Text size="sm" c="dimmed">
-          CSV separado por «;» en UTF-8 o Excel (.xlsx) con vigencia;fuerza;esm;modalidad;periodo;facturado y, opcionales, reconocido;referencia. El
-          periodo es el mes (AAAA-MM). La ejecución de un satélite se suma a su ESM centralizador. Un mes ya cargado se reemplaza por el nuevo.
+          {ayuda}
         </Text>
         <FileInput
           label="Archivo"
@@ -95,6 +102,7 @@ function CargaEjecucion() {
             setArchivo(a);
             setResultado(null);
           }}
+          data-testid={`${prefijo}-archivo`}
         />
         <Group wrap="wrap">
           <SegmentedControl
@@ -105,16 +113,25 @@ function CargaEjecucion() {
             value={fuente}
             onChange={setFuente}
           />
-          <Button variant="light" disabled={!archivo} loading={simular.isPending} onClick={() => simular.mutate()} data-testid="ejecucion-simular">
+          <Button variant="light" disabled={!archivo} loading={simular.isPending} onClick={() => simular.mutate()} data-testid={`${prefijo}-simular`}>
             Simular
           </Button>
-          <Button disabled={!listo} loading={aplicar.isPending} onClick={() => aplicar.mutate()} data-testid="ejecucion-aplicar">
+          <Button disabled={!listo} loading={aplicar.isPending} onClick={() => aplicar.mutate()} data-testid={`${prefijo}-aplicar`}>
             Aplicar
           </Button>
         </Group>
         {resultado && (
-          <Alert color={resultado.yaAplicado ? 'yellow' : errores.length ? 'red' : 'green'} data-testid="ejecucion-resultado">
+          <Alert color={resultado.yaAplicado ? 'yellow' : errores.length ? 'red' : 'green'} data-testid={`${prefijo}-resultado`}>
             {resultado.mensaje}
+          </Alert>
+        )}
+        {(resultado?.advertencias ?? []).length > 0 && (
+          <Alert color="yellow" title="Advertencias (no impiden aplicar)" data-testid={`${prefijo}-advertencias`}>
+            {resultado!.advertencias!.slice(0, 20).map((a, i) => (
+              <Text key={i} size="sm">
+                {a}
+              </Text>
+            ))}
           </Alert>
         )}
         {errores.length > 0 && (

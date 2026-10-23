@@ -16,15 +16,17 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** Ejecución presupuestal (carga, registro manual y versiones) y notificaciones formales de umbrales y desviaciones. */
+/** Ejecución presupuestal (carga, registro manual y versiones), proyección cargada y notificaciones formales de umbrales y desviaciones. */
 @RestController
 public class ControladorEjecucionPresupuesto {
 
     private final ServicioEjecucion ejecucion;
+    private final ServicioProyeccion proyeccion;
     private final Notificaciones notificaciones;
 
-    ControladorEjecucionPresupuesto(ServicioEjecucion ejecucion, Notificaciones notificaciones) {
+    ControladorEjecucionPresupuesto(ServicioEjecucion ejecucion, ServicioProyeccion proyeccion, Notificaciones notificaciones) {
         this.ejecucion = ejecucion;
+        this.proyeccion = proyeccion;
         this.notificaciones = notificaciones;
     }
 
@@ -51,6 +53,20 @@ public class ControladorEjecucionPresupuesto {
     @Accion(modulo = "presupuesto", accion = "ejecucion_manual", operacion = Declarada.INSERCION)
     public ResponseEntity<Map<String, Object>> manual(@RequestBody ServicioEjecucion.Manual m) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ejecucion.manual(m, quien()));
+    }
+
+    @PostMapping("/api/presupuesto/proyeccion/simular")
+    @PreAuthorize(ControladorPresupuesto.REGISTRAN)
+    @Accion(modulo = "presupuesto", accion = "proyeccion_simular", operacion = Declarada.CONSULTA)
+    public Map<String, Object> simularProyeccion(@RequestPart("archivo") MultipartFile archivo) {
+        return proyeccion.simular(archivo, quien());
+    }
+
+    @PostMapping("/api/presupuesto/proyeccion/aplicar")
+    @PreAuthorize(ControladorPresupuesto.REGISTRAN)
+    @Accion(modulo = "presupuesto", accion = "proyeccion_aplicar", operacion = Declarada.INSERCION)
+    public Map<String, Object> aplicarProyeccion(@RequestPart("archivo") MultipartFile archivo, @RequestParam(name = "fuente", required = false) String fuente) {
+        return proyeccion.aplicar(archivo, fuente, quien());
     }
 
     @GetMapping("/api/presupuesto/ejecucion")

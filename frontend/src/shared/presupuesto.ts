@@ -108,6 +108,7 @@ export interface ResultadoCarga {
   totalesPorFuerza?: Record<string, string>;
   totalNacional?: string;
   filas?: { fila: number; linea: string; fuerza: string; valor: string }[];
+  advertencias?: string[];
 }
 
 export type TipoNovedad = 'asignacion_inicial' | 'adicion' | 'disminucion' | 'reajuste' | 'rebalanceo' | 'recomposicion';

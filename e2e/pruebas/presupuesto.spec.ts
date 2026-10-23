@@ -74,13 +74,19 @@ test('M7-1 y M7-2: vigencia, carga del presupuesto, rebalanceo trazado en el his
   await page.getByRole('tab', { name: 'Cargas' }).click();
   const panel = page.getByRole('tabpanel');
   const malo = `vigencia;fuerza;esm;modalidad;valor\n${anio};ARC;${neiva.sigla};Dispensación;5\n`;
-  await panel.locator('input[type="file"]').setInputFiles({ name: 'malo.csv', mimeType: 'text/csv', buffer: Buffer.from(malo, 'utf-8') });
+  await panel
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({ name: 'malo.csv', mimeType: 'text/csv', buffer: Buffer.from(malo, 'utf-8') });
   await page.getByTestId('carga-simular').click();
   await expect(page.getByTestId('carga-errores')).toContainText('Fila 2: La fuerza ARC no corresponde al ESM');
   await expect(page.getByTestId('carga-aplicar')).toBeDisabled();
 
   const bueno = `vigencia;fuerza;esm;modalidad;valor\n${anio};EJC;${neiva.sigla};Dispensación;900.000.000,00\n${anio};;${cali.sigla};Dispensación;1000000000\n`;
-  await panel.locator('input[type="file"]').setInputFiles({ name: 'asignacion.csv', mimeType: 'text/csv', buffer: Buffer.from(bueno, 'utf-8') });
+  await panel
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({ name: 'asignacion.csv', mimeType: 'text/csv', buffer: Buffer.from(bueno, 'utf-8') });
   await page.getByTestId('carga-simular').click();
   await expect(page.getByTestId('carga-resultado')).toContainText('listo para aplicar: 2 líneas, total 1900000000,00');
   await page.getByTestId('carga-soporte').fill(`Oficio DIGSA 123 de ${anio}`);
@@ -194,4 +200,56 @@ test('F3: ejecución manual que cruza el 25 %, versión del mes y notificación 
   await page.getByRole('tab', { name: 'Ejecución' }).click();
   await sinDesplazamientoHorizontal(page);
   await page.setViewportSize({ width: 1280, height: 720 });
+});
+
+test('M7-3: ejecución por encima de la proyección: alarma por ESM, Fuerza y nivel nacional', async ({ page }) => {
+  await ingresar(page, ...ADMIN);
+  const coordinador = await crearUsuario(page, 'coorddes', 2);
+  await salir(page);
+  await ingresarConClaveInicial(page, coordinador, INICIAL, NUEVA);
+  await page.goto('/presupuesto');
+
+  const o = await api<{ puntos: Punto[]; vigencias: { anio: number }[] }>(page, 'GET', '/api/presupuesto/opciones');
+  const siglas = new Map<string, number>();
+  o.datos.puntos.forEach((p) => p.sigla && siglas.set(p.sigla, (siglas.get(p.sigla) ?? 0) + 1));
+  const esm = o.datos.puntos.filter((p) => p.fuerza === 'EJC' && p.modalidad === 'Dispensación' && p.sigla && siglas.get(p.sigla) === 1)[2]!;
+  const usados = new Set(o.datos.vigencias.map((v) => v.anio));
+  let anio = 2030 + ((Date.now() + 53) % 70);
+  for (let i = 0; usados.has(anio) && i < 70; i++) anio = 2030 + ((anio - 2029) % 70);
+  const v = await api<{ id: number }>(page, 'POST', '/api/presupuesto/vigencias', { anio });
+  expect(v.estado).toBe(201);
+  expect(
+    await novedadApi(page, {
+      vigenciaId: v.datos.id,
+      tipo: 'asignacion_inicial',
+      soporte: 'Oficio DIGSA de asignación',
+      items: [{ puntoId: esm.id, modalidad: 'dispensacion', valor: '1200000000' }],
+    }),
+  ).toBe(201);
+  await page.reload();
+
+  // 360 millones a marzo frente a 300 proyectados (lineal): +20 %, por encima de la tolerancia del 10 %
+  await page.getByRole('tab', { name: 'Ejecución' }).click();
+  const csv = [
+    'vigencia;fuerza;esm;modalidad;periodo;facturado',
+    `${anio};;${esm.sigla};Dispensación;${anio}-01;100000000`,
+    `${anio};;${esm.sigla};Dispensación;${anio}-02;100000000`,
+    `${anio};;${esm.sigla};Dispensación;${anio}-03;160000000`,
+  ].join('\n');
+  await page
+    .getByRole('tabpanel')
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({ name: 'ejecucion.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf-8') });
+  await page.getByTestId('ejecucion-simular').click();
+  await expect(page.getByTestId('ejecucion-resultado')).toContainText('listo para aplicar: 3 cortes');
+  await page.getByTestId('ejecucion-aplicar').click();
+  await expect(page.getByTestId('ejecucion-resultado')).toContainText('Ejecución aplicada: 3 cortes');
+
+  await page.getByRole('tab', { name: 'Notificaciones' }).click();
+  await page.getByText('Desviaciones', { exact: true }).click();
+  const desviaciones = page.locator('[data-testid^="notificacion-PRE-"]').filter({ hasText: `${anio}-03` });
+  await expect(desviaciones.filter({ hasText: esm.sigla! }).filter({ hasText: 'exceso' })).toContainText('+20,00 %');
+  await expect(desviaciones.filter({ hasText: 'Fuerza EJC: exceso' })).toHaveCount(1);
+  await expect(desviaciones.filter({ hasText: 'Nacional: exceso' })).toHaveCount(1);
 });

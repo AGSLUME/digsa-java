@@ -26,7 +26,7 @@ import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { api, descargar, ErrorApi, subirArchivos } from '../shared/api';
-import { Ejecucion, Notificaciones } from './PresupuestoEjecucion';
+import { CargaArchivo, Ejecucion, Notificaciones } from './PresupuestoEjecucion';
 import {
   AYUDA_TIPO,
   colorSemaforo,
@@ -127,7 +127,15 @@ export function Presupuesto() {
         </Tabs.Panel>
         {o.puedeRegistrar && (
           <Tabs.Panel value="cargas" pt="md">
-            <Cargas />
+            <Stack>
+              <Cargas />
+              <CargaArchivo
+                titulo="Proyección de consumo mensual"
+                ruta="/api/presupuesto/proyeccion"
+                prefijo="proyeccion"
+                ayuda="CSV separado por «;» en UTF-8 o Excel (.xlsx) con vigencia;fuerza;esm;modalidad;periodo;valor. Una línea con proyección cargada usa la cargada (los meses sin valor cuentan 0); las demás, la lineal: el asignado repartido en los meses de la vigencia. La alarma de desviación compara la ejecución acumulada con lo proyectado al corte."
+              />
+            </Stack>
           </Tabs.Panel>
         )}
         {o.puedeRegistrar && (

@@ -215,6 +215,19 @@ class Lineas {
         return destino(c, v, p.get(), f.modalidad(), f.fuerza(), clase, motivos);
     }
 
+    /** Clave del bloqueo consultivo de las escrituras del presupuesto (una por vigencia). */
+    static final int BLOQUEO_PRESUPUESTO = 410_042;
+
+    /**
+     * Serializa las escrituras del presupuesto de estas vigencias (novedades, ejecución y proyección) hasta el fin de la transacción.
+     * Se toma al empezar y en orden de vigencia: así dos cargas que tocan las mismas líneas, el mismo consecutivo anual o la misma alarma
+     * de fuerza o nacional no se bloquean entre sí a mitad de camino (revisión de la F4).
+     */
+    void serializar(java.util.Collection<Long> vigencias) {
+        vigencias.stream().distinct().sorted().forEach(v -> jdbc.sql("SELECT pg_advisory_xact_lock(:clave, CAST(:v AS integer))")
+                .param("clave", BLOQUEO_PRESUPUESTO).param("v", v).query().listOfRows());
+    }
+
     /** Id de la línea (la crea con su saldo en 0 si no existe). */
     long asegurar(Destino d) {
         jdbc.sql("""

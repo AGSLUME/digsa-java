@@ -274,6 +274,7 @@ public class ServicioEjecucion implements PuertoEjecucion {
     void registrar(List<CorteResuelto> cortes, String fuente, Long loteId, UsuarioSesion quien) {
         Map<Long, List<CorteResuelto>> porVigencia = new TreeMap<>();
         cortes.forEach(c -> porVigencia.computeIfAbsent(c.destino().vigenciaId(), k -> new ArrayList<>()).add(c));
+        lineas.serializar(porVigencia.keySet());
         OffsetDateTime ahora = OffsetDateTime.now(reloj);
         for (Map.Entry<Long, List<CorteResuelto>> e : porVigencia.entrySet()) {
             Lineas.Vigencia v = lineas.abierta(e.getKey());

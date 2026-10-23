@@ -110,6 +110,9 @@ public class ServicioNovedades {
         Soporte soporte = guardarSoporte(archivo, quien);
         try {
             return tx.execute(t -> {
+                if (n.vigenciaId() != null) {
+                    lineas.serializar(List.of(n.vigenciaId()));
+                }
                 Lineas.Vigencia v = lineas.abierta(n.vigenciaId());
                 Lineas.Catalogo c = lineas.catalogo();
                 Map<Long, BigDecimal> cambios;
@@ -289,6 +292,7 @@ public class ServicioNovedades {
                         VALUES ('asignacion', :f, :h, :n, :filas, :total, :u, :ahora) RETURNING id""")
                         .param("f", f).param("h", r.huella()).param("n", nombre).param("filas", r.validas().size()).param("total", total)
                         .param("u", quien.id()).param("ahora", OffsetDateTime.now(reloj)).query(Long.class).single();
+                lineas.serializar(r.validas().stream().map(x -> x.destino().vigenciaId()).toList());
                 // Una carga puede traer varias vigencias: un movimiento de asignación inicial por vigencia
                 Map<Long, Map<Long, BigDecimal>> porVigencia = new TreeMap<>();
                 for (FilaAsignacion fa : r.validas()) {

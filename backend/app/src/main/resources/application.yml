@@ -129,6 +129,20 @@ digsa:
     textos-xlsx-max-mb: 256                                      # textos compartidos de un xlsx sin comprimir (van a memoria)
     cargues-abiertos-max: 3                                      # cargues en subida o mapeo por usuario
     abandono-cron: "0 15 * * * *"                                # cada hora: vence los cargues abiertos sin actividad
+    # --- Tableros (A3, analitica-tableros; PropiedadesTableros) ---
+    tableros:
+      tiempo-maximo-segundos: ${DIGSA_ANALITICA_TIEMPO_MAXIMO_SEGUNDOS:170} # presupuesto de la PETICIÓN (A5 2.7: ver en ≤ 3 min)
+      tiempo-maximo-descarga-segundos: ${DIGSA_ANALITICA_TIEMPO_MAXIMO_DESCARGA_SEGUNDOS:570} # descargas (2.7: ≤ 10 min)
+      percentil-alto-costo: ${DIGSA_ANALITICA_PERCENTIL_ALTO_COSTO:99}       # gasto por paciente en 12 meses móviles
+      poliformulado-minimo: ${DIGSA_ANALITICA_POLIFORMULADO_MINIMO:5}        # principios activos distintos en el mes
+      horas-rezago: 48                                                       # aviso «Datos con más de 48 h» (GMI P75)
+      max-registros-traza: ${DIGSA_ANALITICA_MAX_REGISTROS_TRAZA:100000}     # CSV de registros de origen (más: 422, nunca truncado)
+      registros-por-pagina: 50
+      supresion-minima: ${DIGSA_ANALITICA_SUPRESION_MINIMA:0}              # celdas con menos de k pacientes (0 = desactivado; lo decide la DIGSA)
+      memoria-trabajo-mb: ${DIGSA_ANALITICA_WORK_MEM_MB:128}               # work_mem de las consultas de analítica
+      paralelos: ${DIGSA_ANALITICA_PARALELOS:2}                            # max_parallel_workers_per_gather
+      cache-resultados: ${DIGSA_ANALITICA_CACHE_RESULTADOS:200}           # resultados en caché (mismo corte = mismo resultado)
+      precalentar: ${DIGSA_ANALITICA_PRECALENTAR:true}                   # tableros por defecto del nuevo corte en segundo plano
 
 logging:
   level:

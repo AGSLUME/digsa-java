@@ -35,6 +35,8 @@ import { ProveedorSesion, puedeEntrar, useSesion, type DatosSesion } from './sha
 // --- Analítica (rama analitica) ---
 import { CarguesOpl } from './paginas/CarguesOpl';
 import { Homologacion } from './paginas/Homologacion';
+import { Analitica } from './paginas/Analitica';
+import { TrazabilidadAnalitica } from './paginas/TrazabilidadAnalitica';
 
 function Inicio() {
   const s = useSesion();
@@ -146,6 +148,8 @@ export function App() {
           {/* --- Analítica (rama analitica) --- */}
           <Route path="/analitica/cargues" element={<Protegida ruta="analitica/cargues"><CarguesOpl /></Protegida>} />
           <Route path="/homologacion" element={<Protegida ruta="homologacion"><Homologacion /></Protegida>} />
+          <Route path="/analitica" element={<Protegida ruta="analitica"><Analitica /></Protegida>} />
+          <Route path="/analitica/trazabilidad" element={<Protegida ruta="analitica/trazabilidad"><TrazabilidadAnalitica /></Protegida>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

@@ -65,6 +65,7 @@ class IngestaPrivilegiosTest extends PruebaIntegracion {
             s.execute("GRANT USAGE ON SCHEMA public TO " + ROL); // lo da V2 al rol real
             s.execute(bloque);
             s.execute(bloque("/db/migration/V61__analitica_homologacion.sql"));
+            s.execute(bloque("/db/migration/V62__analitica_tableros.sql"));
         }
     }
 
@@ -102,6 +103,25 @@ class IngestaPrivilegiosTest extends PruebaIntegracion {
             new String[] {"hom_regla_historial", "DELETE"}, new String[] {"ref_cum_presentacion", "DELETE"}, new String[] {"ref_cum_presentacion", "UPDATE"},
             new String[] {"ref_version", "DELETE"}, new String[] {"ref_fuente", "INSERT"}, new String[] {"hom_revision", "UPDATE"},
             new String[] {"ana_dispensaciones", "UPDATE"});
+
+    @Test
+    @DisplayName("V62: el rol lee e inserta las tablas de apoyo de los tableros y la bitácora de analítica; no las modifica ni las borra")
+    void privilegiosTableros() {
+        List<String> tablas = List.of("ana_hechos_tablero", "ana_pacientes", "ana_cargue_valores", "ana_consultas");
+        for (String[] u : tablas.stream().flatMap(t -> java.util.stream.Stream.of(new String[] {t, "SELECT"}, new String[] {t, "INSERT"})).toList()) {
+            assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, :p)").param("r", ROL).param("t", u[0]).param("p", u[1]).query(Boolean.class).single())
+                    .as(u[1] + " sobre " + u[0]).isTrue();
+        }
+        for (String[] u : tablas.stream().flatMap(t -> java.util.stream.Stream.of(new String[] {t, "UPDATE"}, new String[] {t, "DELETE"})).toList()) {
+            assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, :p)").param("r", ROL).param("t", u[0]).param("p", u[1]).query(Boolean.class).single())
+                    .as("sin " + u[1] + " sobre " + u[0]).isFalse();
+        }
+        for (String s : List.of("ana_consultas_id_seq", "ana_pacientes_id_seq")) {
+            assertThat(jdbc.sql("SELECT has_sequence_privilege(:r, :s, 'USAGE')").param("r", ROL).param("s", s).query(Boolean.class).single()).as(s).isTrue();
+        }
+        assertThat(jdbc.sql("SELECT has_column_privilege(:r, 'ana_cargues', 'campos_presentes', 'UPDATE')").param("r", ROL).query(Boolean.class).single())
+                .isTrue();
+    }
 
     @Test
     @DisplayName("V61: el rol tiene lo que usa la homologación y no puede modificar ni borrar lo publicado (tabla maestra, referencias, historial)")

@@ -105,7 +105,11 @@ public final class Bitacora {
             Map.entry("homologacion_lista_modificada", Operacion.ACTUALIZACION), Map.entry("homologacion_regla_modificada", Operacion.ACTUALIZACION),
             Map.entry("homologacion_ejecutada", Operacion.INSERCION), Map.entry("homologacion_aprobada", Operacion.ACTUALIZACION),
             Map.entry("homologacion_devuelta", Operacion.ACTUALIZACION), Map.entry("homologacion_consulta", Operacion.CONSULTA),
-            Map.entry("homologacion_exportada", Operacion.CONSULTA));
+            Map.entry("homologacion_exportada", Operacion.CONSULTA),
+            // Tableros de analítica (analitica-tableros, A5 4.7.4 y 14.9): consultas, descargas y rastreos; sin datos personales (códigos
+            // de filtro, corte, n.º de registros y huella)
+            Map.entry("analitica_consulta", Operacion.CONSULTA), Map.entry("analitica_descarga", Operacion.CONSULTA),
+            Map.entry("analitica_traza", Operacion.CONSULTA), Map.entry("analitica_traza_descarga", Operacion.CONSULTA));
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

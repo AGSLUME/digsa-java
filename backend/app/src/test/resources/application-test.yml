@@ -37,6 +37,8 @@ digsa:
     cuerpo-ws-max-mb: 1                 # lote del servicio web de más de 1 MB: 413
     abandono-cron: "-"                  # las pruebas corren el vencimiento y el borrado a mano
     borrado-cron: "-"
+    tableros:
+      precalentar: false                # sin hilo de fondo tras cada cargue: las pruebas miden y comparan la consulta misma
 
 logging:
   level:

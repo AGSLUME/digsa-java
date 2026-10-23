@@ -3,7 +3,6 @@
 > Escrita por spec-miner el 2026-10-22. **No hay PHP de referencia** para este módulo: la especificación sale de la fuente de verdad, el mockup M8, la hoja de ruta de la prueba en sitio y el diseño común de la sesión (que **manda**; sus decisiones van marcadas `<!-- decision: diseño 2026-10-22 -->`).
 > Fuentes: `FUENTE DE VERDAD/md/` (A4 = Anexo 4 Analítica de datos; A5 = Anexo 5; RESP = Respuestas a observaciones, texto OCR; PLIEGO); `MOCKUP/Mockup_Modulos_DIGSA.html` (`#analitica` l.577–670); `EVALUACION_SOFTWARE/Hoja_ruta_prueba_en_sitio_DIGSA_2026-10-22.xlsx` (casos M8); diseño común de analítica (2026-10-22); código del worktree `digsa-java-analitica` (commit fe9c98e).
 > Relacionadas: carga, bitácora del cargue, hechos y corte en `analitica-ingesta`; tabla maestra, estados de homologación y reglas en `analitica-homologacion`; cohortes, alertas analíticas y predicción en `analitica-cohortes-alertas`; asistente de IA en `analitica-asistente`; perfiles y alcance en `perfiles-alcance`.
-> Estado en Java (fe9c98e): no existe nada del módulo. Existen y se reutilizan: `reglas/Alcance` (Todo/Fuerza/Esm, `PERFILES_CONSULTA`), `reglas/Pantallas` (enum con grupo y perfiles), `reglas/Bitacora.TIPOS`, `reglas/Exportacion.campo`/`celda` (CSV sin fórmulas), `plataforma/Exportador` + `Reporte` (Excel SXSSF, CSV «;» con BOM, PDF OpenPDF carta horizontal), el patrón diferido de `exportacion/`, `ServicioRiesgo.alcancePuntos` (SQL de alcance) y `frontend/src/shared/Barras.tsx` (`BarraHorizontal`, `GraficaBarras` con «Ver tabla») con `shared/tablero.ts` (`maximo`, `porcentajeBarra`). Ver «Datos y piezas a construir».
 
 ---
 
@@ -33,17 +32,24 @@ El sistema DEBE ofrecer la pantalla `ANALITICA` («Analítica farmacéutica», r
 <!-- impuesto_en: A5 L934–948 (p. 32–33) 14.2; A5 L428 (p. 17) 3.7; A4 L784 (p. 24) 11.2.2 -->
 <!-- decision: diseño 2026-10-22 (ADMINISTRADOR, COORDINADOR, ANALISTA y PERFILES_CONSULTA; DIGSA nacional, SANIDAD su Fuerza, ESM su establecimiento) -->
 
-`ANALITICA` DEBE estar habilitada para ADMINISTRADOR, COORDINADOR, ANALISTA, DIGSA, SANIDAD y ESM. Toda consulta (tablero, descarga, trazabilidad, opciones de filtro y asistente) DEBE llevar el predicado de alcance en el SQL: `Alcance.Todo` sin restricción, `Alcance.Fuerza` limita `fuerza`, `Alcance.Esm` limita el ESM; cualquier otro alcance responde 403. Un filtro que pida fuera del alcance se recorta al alcance y se advierte; nunca amplía.
+`ANALITICA` DEBE estar habilitada para ADMINISTRADOR, COORDINADOR, ANALISTA, DIGSA, SANIDAD y ESM. Toda consulta (tablero, descarga, trazabilidad, opciones de filtro y asistente) DEBE llevar el predicado de alcance en el SQL: `Alcance.Todo` sin restricción, `Alcance.Fuerza` limita `fuerza`, `Alcance.Esm` limita el ESM; cualquier otro alcance responde 403. Un filtro que pida fuera del alcance responde 422 con el mismo mensaje que un valor inexistente («… no existe o está fuera de su alcance»: no confirma que exista, contrato de reportes 2.11); nunca amplía.
+<!-- decision: revisión A3 2026-10-23 — 422 con mensaje único en lugar de «recortar y advertir» (más seguro; la prueba lo fija). -->
+<!-- decision: revisión A3 2026-10-23 — las operaciones (cargar, operar la homologación, ver la bitácora, rastrear) toman el perfil base de los roles adicionales de identidad con sus mismas reglas (`Usuario.perfilesDeAlcance()`: solo roles válidos y vigentes; perfil directo + rol, o bases distintas, anulan los roles). Rastrear exige además ADMINISTRADOR, COORDINADOR, ANALISTA o DIGSA (directo o base). -->
 
 #### Scenario: Perfil ESM
-<!-- test: M8-2; AnaliticaTablerosApiTest.esmSoloSuEstablecimiento -->
+<!-- test: M8-2; TablerosApiTest.alcance -->
 - **CUANDO** el jefe de un ESM abre cualquier tablero
 - **ENTONCES** todas las cifras son solo de su establecimiento, la opción de ESM tiene solo el suyo y la vista gerencial nacional no aparece
 
 #### Scenario: Sanidad pide otra Fuerza
-<!-- test: AnaliticaTablerosApiTest.sanidadNoAmplia -->
+<!-- test: TablerosApiTest.alcance -->
 - **CUANDO** Sanidad ARC envía `fuerza=[EJC]`
-- **ENTONCES** el resultado es vacío para EJC con la advertencia «Fuera de su alcance: EJC»; no devuelve cifras del Ejército
+- **ENTONCES** responde 422 «Fuerza «EJC» no existe o está fuera de su alcance.»; no devuelve cifras del Ejército
+
+#### Scenario: Mezcla de perfil directo y rol
+<!-- test: PerfilesOperacionApiTest -->
+- **CUANDO** un usuario con perfil directo COORDINADOR tiene además un rol de base ANALISTA (o ESM más un rol de base COORDINADOR)
+- **ENTONCES** no carga insumos, no opera la homologación (403) ni ve la bitácora nacional: identidad anula esos roles y la analítica también
 
 #### Scenario: Perfil sin la pantalla
 <!-- test: AnaliticaTablerosApiTest.auditorProhibido -->
@@ -58,7 +64,9 @@ El sistema DEBE ofrecer la pantalla `ANALITICA` («Analítica farmacéutica», r
 <!-- decision: diseño 2026-10-22 (pacientes = count(distinct seudónimo); umbral de supresión de celdas pequeñas parametrizable y DESACTIVADO por defecto) -->
 <!-- verificado_por: AnaliticaTablerosApiTest.sinIdentificadores (recorre los 12 tableros y las descargas buscando el patrón de seudónimo, documentos y nombres); M8-2 -->
 
-Ningún tablero, KPI, descarga ni respuesta del servicio de consulta DEBE contener seudónimos de paciente, documento, nombre, fecha de nacimiento completa ni contacto. Los pacientes DEBEN mostrarse como conteos (`count(distinct paciente_seudo)`). La única vista con registros individuales es la trazabilidad 14.9, con seudónimo y solo para los perfiles autorizados.
+Ningún tablero, KPI, descarga ni respuesta del servicio de consulta DEBE contener seudónimos de paciente, documento, nombre, fecha de nacimiento completa ni contacto. Los pacientes DEBEN mostrarse como conteos de pacientes distintos exactos por celda (nunca sumados entre celdas). La única vista con registros individuales es la trazabilidad 14.9, con seudónimo y solo para los perfiles autorizados.
+<!-- decision: revisión A3 2026-10-23 — supresión de celdas pequeñas implementada: `digsa.analitica.tableros.supresion-minima` (k, 0 = desactivado por defecto; lo decide la DIGSA). Con k > 0, en toda fila y KPI con 1 a k − 1 pacientes se ocultan pacientes, pacientes-mes y promedio por paciente («<k»), y el mínimo y el máximo del gasto por paciente no se publican; las sumas no cambian. Se aplica en tableros, descargas, consulta estructurada y asistente, y se declara en los metadatos («Supresión de celdas pequeñas»). Test: PlazoYSupresionTest.supresion. -->
+<!-- decision: revisión A3 2026-10-23 — la trazabilidad no entrega el CIE-10, la Fuerza ni la modalidad de cada registro junto al seudónimo (minimización; el diagnóstico consta en los filtros del desglose). -->
 
 ---
 
@@ -149,7 +157,8 @@ Cada tablero DEBE poder verse en nivel «Nacional» (consolidado, con desglose p
 <!-- impuesto_en: A5 L552 (p. 21) 4.7.1; A5 L948 (p. 33) 14.5; A5 L363 (p. 15) 2.11; A4 L811–843 (p. 25); RESP L693–697 (p. 28–29) AGS-48; RESP L705 (p. 29) AGS-49 -->
 <!-- decision: diseño 2026-10-22 -->
 
-La barra de filtros DEBE ofrecer: periodo (desde–hasta) con granularidad día, semana, mes, bimestre, trimestre, semestre o año; fecha de corte; Fuerza; DISAN; regional; ESM; modalidad (dispensación o suministro); ATC (cualquier nivel, por prefijo); principio activo; medicamento; CUM; código SSFM; CIE-10 (capítulo, grupo o código, por prefijo); cohorte; GCF; GRC; estado de homologación. Cada variable admite una, varias o todas las opciones (selección múltiple con «Todas» por defecto). Las opciones se cargan desde los catálogos y la tabla maestra **dentro del alcance**. Entre variables se combinan con Y; dentro de una variable, con O.
+La barra de filtros DEBE ofrecer: periodo (desde–hasta) con granularidad día, semana, mes, bimestre, trimestre, semestre o año; fecha de corte; Fuerza; DISAN; regional; ESM; modalidad (dispensación o suministro); ATC (cualquier nivel, por prefijo); principio activo; medicamento; CUM; código SSFM; CIE-10 (capítulo, grupo o código, por prefijo); cohorte; GCF; GRC; estado de homologación. Cada variable admite una, varias o todas las opciones (selección múltiple con «Todas» por defecto). Las opciones se cargan desde los catálogos y la tabla maestra **dentro del alcance**. Entre variables se combinan con Y; dentro de una variable, con O. ATC y CIE-10 filtran, agrupan y se rastrean por el MISMO código: el final homologado de la tabla maestra (CIE-10 incluida) vigente al corte; lo demás va a «Sin homologar» / «Sin CIE-10».
+<!-- decision: revisión A3 2026-10-23 — sin fechas, el periodo es el de los últimos 12 meses hasta el último día con datos visibles (la historia completa se elige explícitamente). Las fechas se aplican al salir del campo o con Enter (no con cada dígito) y el año va de 2000 a 2100. Las opciones de filtro traen 300 por petición con búsqueda en el servidor e indican si hay más. -->
 <!-- incierto: la granularidad «horas» de 2.11 solo aplica si el insumo trae la hora de dispensación; si no, se muestra deshabilitada con «No disponible en el insumo». -->
 <!-- incierto: «Operador logístico» (A4 variable 16) es hoy un único OPL: se muestra como dato fijo en los metadatos, no como filtro, hasta que haya más de uno. -->
 
@@ -227,7 +236,14 @@ Para el mismo corte, alcance y filtros: el total de gasto, unidades y dispensaci
 <!-- decision: diseño 2026-10-22 (corte = último cargue aplicado o uno anterior elegido; solo se ven cargues aplicados) -->
 
 Cada consulta DEBE resolverse contra una fecha de corte: por defecto el último cargue aplicado; el usuario puede elegir un corte anterior de la lista de cargues aplicados. Son visibles los hechos de los cargues aplicados hasta ese corte y no reemplazados antes de él. Un cargue en proceso o fallido nunca se ve. La respuesta DEBE traer el corte, la fuente («tabla maestra homologada v<n>, cargues <ids>») y el n.º de registros procesados detrás de las cifras.
-<!-- decision: diseño 2026-10-22 — para que un corte anterior se reproduzca después de nuevos cargues, los agregados se guardan por cargue_id y la consulta suma solo los cargues visibles al corte (el detalle está en analitica-ingesta). -->
+<!-- decision: diseño 2026-10-22 — para que un corte anterior se reproduzca después de nuevos cargues, las tablas de apoyo se guardan por cargue_id y la consulta lee solo los cargues visibles al corte (el detalle está en analitica-ingesta). -->
+<!-- decision: revisión A3 2026-10-23 — se mantiene: el instante del corte es el mayor entre la aplicación del cargue y la versión de la tabla maestra que publicó ese cargue, y la tabla maestra (y la CIE-10) se leen con `hom_version_vigente(instante)`. Los 8 revisores la avalaron por reproducibilidad (mismo corte ⇒ mismo resultado) y pidieron avisar: si hay una versión publicada después del corte (aprobaciones o devoluciones de Revisión), el resultado y la descarga advierten «Hay una tabla maestra más reciente (vN, publicada el …): sus aprobaciones de Revisión se verán con el próximo cargue», y la pantalla muestra «Tabla maestra vN» junto al corte. Fijar el corte en la última versión publicada rompería «corte anterior estable» (la misma consulta cambiaría con cada aprobación). La descarga, el rastreo y el enlace copiado llevan el corte de lo que se ve. Duda AN.16. -->
+<!-- decision: revisión A3 2026-10-23 — la huella se calcula sobre códigos y cifras (sin los nombres de los catálogos actuales ni el nombre del ESM del alcance): renombrar un punto o publicar otra versión de la CIE-10 no cambia la huella de un corte anterior. -->
+
+#### Scenario: Aprobación posterior al corte
+<!-- test: TablerosApiTest.tablaMaestraPosteriorAlCorte; TablerosApiTest.corteAnteriorReproducible -->
+- **CUANDO** Revisión aprueba un dato después del último cargue
+- **ENTONCES** la huella de ese corte no cambia, el dato sigue en «Sin homologar» con el aviso de tabla maestra más reciente, y el siguiente cargue ya lo cuenta homologado
 
 #### Scenario: Corte anterior estable
 <!-- test: AnaliticaTablerosApiTest.corteAnteriorReproducible -->
@@ -318,8 +334,10 @@ Dos descargas del mismo tablero, formato, alcance, filtros y corte DEBEN tener l
 
 Si la descarga supera un umbral parametrizable de filas (por defecto 100000) DEBE generarse en diferido con el patrón de `exportacion/` (pendiente → generando → lista/fallida, una en curso por usuario, transacción `READ ONLY REPEATABLE READ`), guardarse en el `Almacen` con su SHA-256 y quedar en «Mis descargas del día» del usuario que la generó, que vencen a las 24 h.
 
+<!-- decision: revisión A3 2026-10-23 — la vía diferida (202, «Mis descargas del día», 24 h) pasa a A7 con la exportación analítica por periodo. En A3 toda descarga es síncrona con su propio presupuesto (≤ 570 s, bajo los 10 min de 2.7): las salidas de los tableros son agregadas (Top 20, series y tablas por dimensión) y miden pocos KB; el mapa de calor se limita a 60 columnas (más: por mes o por año, con observación); el CSV de registros de origen va en flujo con tope (`max-registros-traza`, 100 000 por defecto; más: 422). Sigue abierta como duda AN.16. -->
+
 #### Scenario: Descarga grande
-<!-- test: AnaliticaDescargasApiTest.diferida -->
+<!-- test: (A7) AnaliticaDescargasApiTest.diferida -->
 - **CUANDO** se pide el CSV del tablero de medicamento sin filtros sobre 2 M de registros
 - **ENTONCES** la respuesta es 202 con el id; la pantalla muestra el avance y el enlace cuando queda «lista», en menos de 10 minutos
 
@@ -333,8 +351,10 @@ Si la descarga supera un umbral parametrizable de filas (por defecto 100000) DEB
 
 Para los perfiles autorizados, toda cifra de un KPI, barra o celda DEBE tener «Rastrear» que muestra: (1) el desglose de la cifra (la consulta estructurada, corte, filtros y número de registros); (2) la lista paginada de registros de origen con seudónimo del paciente, fecha, ESM, CUM y medicamento original, cantidad, valor, cargue (id, fecha, fuente), archivo (nombre y SHA-256), línea del archivo, y la regla de homologación aplicada con la versión de la tabla maestra (dato original → fuente → regla → dato final); (3) la suma de la lista, que DEBE ser igual a la cifra. La lista se puede descargar en CSV con los mismos metadatos. Los demás perfiles no ven «Rastrear» y el endpoint les responde 403.
 
+<!-- decision: revisión A3 2026-10-23 — la celda se rastrea con la consulta del tablero CRUZADA con sus filtros (en ATC y CIE-10 se conservan los valores del tablero más específicos que la celda), así la suma es exactamente la cifra; filas que no son una suma de registros (poliformulación, departamento, municipio, tipo de fórmula, especialidad) no tienen «Rastrear». La lista se pagina por llave (id del hecho, orden de carga). El CSV sale en flujo (cursor) dentro de la transacción de lectura, termina en «FIN;n registros» y, si falla a mitad, en «ARCHIVO INCOMPLETO…». El rastreo y su CSV se registran en la bitácora ANTES de entregar: si no se puede, 503 sin datos. El desglose muestra la suma de la métrica rastreada (gasto, unidades, registros o pacientes). -->
+
 #### Scenario: Rastrear una barra
-<!-- test: M8-9; AnaliticaTrazaApiTest.sumaIgualCifra -->
+<!-- test: M8-9; TablerosApiTest.trazabilidad; TablerosApiTest.rastreoSumaLaCifra -->
 - **CUANDO** el analista rastrea el gasto de «ATC L04 · EJC · septiembre»
 - **ENTONCES** ve los registros de origen con cargue, archivo, línea, SHA-256 y regla, y la suma de sus valores es igual al valor de la barra
 
@@ -353,8 +373,10 @@ Para los perfiles autorizados, toda cifra de un KPI, barra o celda DEBE tener «
 
 Cada consulta de tablero, cambio de filtros que dispare consulta, descarga y rastreo DEBE registrar en la bitácora de analítica: usuario, perfil, alcance, fecha y hora, acción (`consulta`, `descarga`, `traza`, `asistente`), objeto (tablero o cifra), filtros en JSON, corte, formato, n.º de registros, huella del resultado y duración; y un evento en `log_transacciones` con los tipos `analitica_consulta`, `analitica_descarga` y `analitica_traza`. La bitácora DEBE poder consultarse por ADMINISTRADOR y COORDINADOR filtrando por usuario, acción y fechas, sin datos personales.
 
+<!-- decision: revisión A3 2026-10-23 — de los filtros solo se guardan los valores que pasan la lista blanca de su variable (recortados a 60 caracteres, JSON ≤ 4 KB) y solo en las consultas resueltas; en las rechazadas, cuántos valores traía cada variable; las advertencias no repiten el valor escrito. Toda falla deja fila: «rechazada» (validación), «tiempo_agotado» o «error» (falla técnica, sin el texto técnico). La consulta de la bitácora pagina por llave (`antes` = id de la última fila), filtra por usuario_id y por días de Bogotá, y cuenta con tope de 10 000. -->
+
 #### Scenario: Revisar los logs
-<!-- test: M8-9; AnaliticaBitacoraApiTest.consultaYDescarga -->
+<!-- test: M8-9; TablerosApiTest.bitacora -->
 - **CUANDO** un usuario abre el tablero de gasto con `fuerza=EJC` y descarga el PDF
 - **ENTONCES** la bitácora tiene dos filas (consulta y descarga) con usuario, fecha, hora, filtros, corte y la misma huella
 
@@ -364,12 +386,14 @@ Cada consulta de tablero, cambio de filtros que dispare consulta, descarga y ras
 <!-- id: ServicioConsultaAnalitica (rendimiento) -->
 <!-- entidades: Consulta -->
 <!-- impuesto_en: A5 L359 (p. 15) 2.7; RESP L899 (p. 36) AGS-75; RESP L2213 (p. 84) GMI P74 -->
-<!-- decision: diseño 2026-10-22 (meta interna < 5 s por tablero sobre 2 M filas; prueba de carga en docs/rendimiento_analitica.md) -->
+<!-- decision: diseño 2026-10-22 (meta interna < 5 s por tablero sobre 2 M filas; prueba de carga: RendimientoTablerosTest) -->
 
-Ver un tablero DEBE tardar menos de 3 minutos y exportarlo menos de 10, para cualquier combinación de filtros sobre el insumo completo (no solo consultas de 3 meses). La meta interna es < 5 s por tablero con y sin filtros sobre 2 M de filas, usando los agregados de V62 para sumas y los hechos indexados para pacientes distintos y percentiles. Cada consulta tiene `statement_timeout`; al vencer se informa «La consulta tardó demasiado; acote el periodo» y queda en la bitácora.
+Ver un tablero DEBE tardar menos de 3 minutos y exportarlo menos de 10, para cualquier combinación de filtros sobre el insumo completo (no solo consultas de 3 meses). La meta interna es < 5 s por tablero con y sin filtros sobre 2 M de filas. El tiempo máximo es por PETICIÓN (`Plazo`: antes de cada sentencia se fija `statement_timeout` con lo que queda del presupuesto; 170 s para ver, 570 s para descargar); al agotarse se responde 422 «La consulta tardó demasiado; acote el periodo o los filtros» y queda en la bitácora como «tiempo_agotado».
+<!-- decision: revisión A3 2026-10-23 (rendimiento, medido con EXPLAIN ANALYZE sobre 2 M filas) — (1) el count(DISTINCT seudónimo char(64)) por celda ordenaba con la intercalación es_CO (22 s por recorrido; «gasto» pasaba de 170 s): los pacientes distintos se cuentan en dos niveles (claves × paciente por hash, luego filas por clave), exactos y nunca sumados entre celdas, sobre `ana_hechos_tablero` (paciente entero, códigos «C», importes enteros); (2) total, serie y desglose de general, gasto y territorial salen de una sola sentencia sobre una base (claves, paciente) que también da los cuartiles por paciente; (3) los cuartiles por dispensación salen de una tabla de frecuencias del valor (pocos valores) en Java; (4) `SET LOCAL work_mem` (128 MB), `enable_sort = off` (agrupar por hash) y paralelismo (2) en la transacción de lectura; (5) campos opcionales y valores de filtro precalculados por cargue; (6) caché de resultados por (alcance, consulta resuelta, corte) —mismo corte ⇒ mismo resultado— y precálculo en segundo plano de los tableros por defecto (nacional y por Fuerza) al aplicar cada cargue; (7) la tabla maestra se sigue leyendo con `hom_tabla_maestra_version(v)` en cada sentencia: con los datos sintéticos (40 datos originales) no pesa; con la tabla maestra real queda por medir y, si pesa, se materializa por versión publicada (las versiones no cambian). -->
+<!-- decision: revisión A3 2026-10-23 — medición (2 M filas de un año; PG 16 local con la CPU al 85–100 % por otras sesiones): tablas de apoyo al aplicar el cargue ≈ 29 s (antes: agregados 36–68 s). En frío sin filtros: general 11 s, gasto 27, ATC 13, principio 18, medicamento 12, diagnóstico 15, territorial 14, alto costo 28, poliformulación 23; con Fuerza + ESM + CUM: 0,8–7,9 s; en caché < 0,1 s; antes: general ~100 s y gasto > 170 s (422). La meta de 5 s en frío sin filtros no se alcanza en este equipo compartido; la cumplen la caché y el precálculo (la primera apertura después de cada cargue) y las consultas filtradas. RendimientoTablerosTest (base embebida nueva, equipo aún más cargado: la etapa «hechos» de A1 tardó 288 s frente a 139 s de la medición anterior): en frío sin filtros 19–76 s, con filtros 4–20 s, en caché 0,7–3,6 s; descargas del tablero de medicamento en frío 7–11 s y después de verlo ≈ 1 s; CSV de 99 255 registros de origen en flujo 5,5 s; todo dentro de 3 y 10 min. -->
 
 #### Scenario: Tablero con todos los filtros
-<!-- test: M8-5; AnaliticaRendimientoTest (2 M filas, cronometrado, dos corridas) -->
+<!-- test: M8-5; RendimientoTablerosTest (2 M filas, en frío y en caché); PlazoYSupresionTest.plazo -->
 - **CUANDO** se abre el tablero territorial con periodo de un año y filtros de Fuerza, ATC y CIE-10
 - **ENTONCES** responde en menos de 5 s y la duración queda en la bitácora
 
@@ -445,8 +469,6 @@ Al aplicar un cargue, los agregados DEBEN quedar actualizados antes de que el ca
 
 Tableros, descargas, trazabilidad y asistente DEBEN ejecutar la misma `ConsultaAnalitica` (métrica, dimensiones, filtros, corte) por el mismo `ServicioConsultaAnalitica`, con SQL parametrizado de solo lectura generado por la capa semántica `reglas/AnaliticaConsulta` (lista blanca de métricas y dimensiones). No hay otro camino de SQL hacia los hechos.
 
----
-
 ## Contradicciones registradas
 
 1. **Metadatos de los reportes: tres listas.** 2.9 (n.º de página, establecimiento), 4.7.2 (fuente, fecha de corte, n.º de registros procesados) y 14.8 (gráficos y observaciones) no coinciden (fuentes §15.11). Se cumple la unión, más perfil y huella.
@@ -459,36 +481,20 @@ Tableros, descargas, trazabilidad y asistente DEBEN ejecutar la misma `ConsultaA
 8. **Excel por correo (condición 17, A5 L1018) frente a «sin saltos entre herramientas» (condición 12, A5 L1008).** Aquí solo se descarga; el envío no se especifica (fuentes §15.13).
 9. **Delimitador del CSV.** AGS-57 lo deja para la ejecución; GMI P77 f fija «;» y UTF-8. Manda el más concreto (fuentes §15.12).
 
-## Dudas
-
-Ninguna bloquea la construcción; se construye con la opción recomendada.
+## Dudas (ninguna bloquea la construcción; se construye con la opción recomendada)
 
 1. **`GraficaBarras` no es genérica** (encabezado «Visitas» y texto «Sin visitas con estos filtros.» fijos en `shared/Barras.tsx`). Recomendado: dos props opcionales (`columna`, `vacio`) con los valores actuales por defecto, retrocompatibles, avisando a la rama del tablero. Mientras tanto: `analitica/BarrasAnalitica.tsx` reusa `BarraHorizontal`, `maximo` y `porcentajeBarra` sin tocar el archivo compartido.
 2. **`Exportador` no alcanza para 14.8**: su encabezado es fijo (Reporte, Generado, Usuario, «Filtro: X», Registros = filas del reporte, no registros procesados); el PDF no numera páginas ni dibuja gráficos ni restringe la edición; `texto()` es privado del paquete y no da 2 decimales a un `BigDecimal` de escala 0. Recomendado: `ExportadorAnalitica` propio con POI SXSSF y OpenPDF (mismas convenciones), reusando `reglas/Exportacion.campo` y un formateador 2.4 en `reglas/AnaliticaConsulta`. Mientras tanto no se modifica `Exportador`; si se prefiere ampliar `Reporte` con metadatos y paginación, se coordina con su dueño.
-3. **Supresión de celdas pequeñas.** Recomendado: parámetro con umbral desactivado por defecto (las cifras deben cuadrar con el insumo, 14.5). Mientras tanto: desactivado y documentado.
+3. **Supresión de celdas pequeñas.** Decidida en la revisión A3: parámetro `supresion-minima`, desactivado por defecto (ver el invariante «Toda salida general es agregada»).
 4. **Ranking por profesional (11.1.8, 11.1.19, 11.1.20).** ¿Se muestra el profesional seudonimizado o solo especialidad, ESM y Fuerza? Recomendado: en tableros generales solo especialidad, ESM, regional y Fuerza; el ranking por profesional seudonimizado solo para los perfiles de trazabilidad. Mientras tanto así.
 5. **11.1.15 Indicadores del Anexo Técnico 1** (cumplimiento contractual) choca con la exclusividad farmacéutica. Recomendado: va en el módulo de reportes, no aquí. Mientras tanto, «No cubierto en analítica» en la tabla de cobertura.
 6. **Georreferenciación del gasto (11.1.1, §9.5 mapas).** Recomendado: tabla por departamento y municipio más mapa de calor ESM × periodo; un mapa de Colombia en SVG requiere la geometría DANE como recurso estático. Mientras tanto: tabla y mapa de calor.
 7. **«Gasto promedio por fórmula» (11.1.2)** requiere el n.º de fórmula, que no está en las variables mínimas del insumo (RESP L3917). Recomendado: campo opcional `formula_id` en el mapeo de columnas. Mientras tanto: promedio por dispensación con la nota «por fórmula: no disponible en el insumo».
 8. **Granularidad «horas» (2.11).** Solo si el insumo trae hora. Mientras tanto: opción deshabilitada con «No disponible en el insumo».
 
-## Datos y piezas a construir
+## Piezas construidas (A3, con la revisión del 2026-10-23)
 
-1. **V62 (agregados y bitácora de consultas):**
-   - `ana_agregado_mes` (tabla resumen por `cargue_id` × mes × fuerza × disan × regional × esm × modalidad × medicamento_id × principio_activo_id × atc5 × cie10 × estado_homologacion: `gasto numeric(18,2)`, `unidades numeric`, `dispensaciones bigint`), llenada en el mismo proceso que aplica el cargue; índices por mes y por cada dimensión. Las sumas por corte = cargues visibles. Pacientes distintos y percentiles se calculan sobre `ana_dispensaciones` (V60), no aquí.
-   - `ana_dim_tiempo` (día → semana ISO, mes, bimestre, trimestre, semestre, año) o funciones SQL inmutables equivalentes.
-   - `ana_consultas` (id identity, usuario_id, perfil, alcance, accion CHECK in (consulta, descarga, traza, asistente), tablero, objeto, filtros jsonb, corte_cargue_id, formato, registros bigint, huella char(64), duracion_ms, advertencias text[], creado timestamptz), particionada por mes; en `Exportacion.TABLAS`.
-   - `ana_descargas` (patrón de `exportacion/`: estado, almacen_ruta, sha256, vence) y `ana_vistas_guardadas` (enlaces predefinidos de los reportes 11.1.x: nombre, tablero, filtros jsonb).
-   - Bitacora.TIPOS: `analitica_consulta`, `analitica_descarga`, `analitica_traza` (bloque `// --- Analítica (rama analitica) ---`).
-2. **Reglas puras `reglas/AnaliticaConsulta`** (JUnit): `ConsultaAnalitica` (record: tablero, métricas, dimensiones, filtros, granularidad, comparación, corte, nivel), lista blanca de métricas y dimensiones, `TABLEROS` (12) y `REPORTES_A4`, construcción del SQL parametrizado, `variacion`, `participacion`, top + «Resto», periodos de comparación, rangos de poliformulación, huella canónica del resultado y formateador 2.4.
-3. **`analitica.tableros.ServicioConsultaAnalitica`** (`JdbcClient`, solo lectura, `statement_timeout`): resuelve filtros contra catálogos (advertencias), aplica el alcance (reusa el SQL de `ServicioRiesgo.alcancePuntos`), resuelve el corte, ejecuta y devuelve `ResultadoAnalitico` (kpis, series, tablas, advertencias, metadatos, huella, registros). **El asistente lo usa tal cual** (`analitica-asistente`). Más `ServicioTrazaAnalitica`, `ServicioDescargaAnalitica`, `ExportadorAnalitica`, `BitacoraAnalitica`.
-4. **Endpoints** (todos con `@Accion` y `@PreAuthorize("@permisos.pantalla('ANALITICA')")`; traza con chequeo de perfil adicional):
-   - `GET /api/analitica/opciones?variable=&texto=` (opciones de filtro en el alcance)
-   - `GET /api/analitica/cortes`
-   - `POST /api/analitica/tableros/{tablero}` (cuerpo `ConsultaAnalitica`) → resultado
-   - `POST /api/analitica/tableros/{tablero}/descarga?formato=xlsx|csv|pdf` → archivo o 202 con id; `GET /api/analitica/descargas` y `GET /api/analitica/descargas/{id}`
-   - `POST /api/analitica/traza` (cifra → desglose) y `GET /api/analitica/traza/registros?...&pagina=`; `.../registros.csv`
-   - `GET /api/analitica/bitacora` (ADMINISTRADOR, COORDINADOR)
-5. **React** (`frontend/src/paginas/Analitica.tsx` y `frontend/src/analitica/`): `SelectorTableros` (chips), `FiltrosAnalitica` (multiselección, periodo, granularidad, corte, comparar, estado en la URL), `KpiAnalitica`, `SerieTiempoSvg` (SVG accesible con «Ver tabla»), `BarrasAnalitica` (o `GraficaBarras` ampliada, duda 1), `TablaTop20`, `MapaCalor`, `Distribucion` (mediana y rangos), `PanelTraza`, `BotonesDescarga` + «Mis descargas del día», `NoDisponible`; `analitica/formato.ts` (2.4) con Vitest. Ruta `analitica` en `App.tsx` dentro del bloque de la rama.
-6. **Pantallas** (`reglas/Pantallas`, bloque de la rama): `ANALITICA("analitica", "Analítica farmacéutica", "Información", {ADMINISTRADOR, COORDINADOR, ANALISTA} ∪ PERFILES_CONSULTA)`; `HOMOLOGACION` y `ANALITICA_CARGUES` se definen en sus especificaciones. El grupo «Información» es nuevo en el menú.
-7. **Pruebas**: `AnaliticaConsultaTest` (reglas), `AnaliticaTablerosApiTest`, `AnaliticaDescargasApiTest`, `AnaliticaTrazaApiTest`, `AnaliticaBitacoraApiTest`, `AnaliticaCuadreTest` y `AnaliticaRendimientoTest` (2 M filas del generador sintético de `analitica-ingesta`), e2e `analitica.spec.ts` (M8-1, M8-2, M8-5, M8-8, M8-9).
+1. **V62:** `ana_pacientes` (seudónimo → entero), `ana_hechos_tablero` (copia angosta de los hechos por cargue: paciente entero, códigos con intercalación «C», centavos y milésimas en enteros; BRIN de fecha y de cargue), `ana_cargue_valores` (valores de filtro por cargue con Fuerza y ESM), `ana_cargues.campos_presentes`, `ana_consultas` (bitácora). Las llena `PasoTablas` en la transacción que aplica el cargue. Sin `ana_agregado_mes` ni `ana_descargas`/`ana_vistas_guardadas` (A7).
+2. **Reglas y servicios:** reglas puras `reglas/AnaliticaConsulta` (consulta estructurada, lista blanca, tableros, reportes A4, periodos, variación, participación, Top 20, cuartiles por frecuencias, periodo por defecto, huella, formato 2.4). Servicios: en `analitica.tableros`: `ServicioConsultaAnalitica` (leer con `Plazo`, corte, filtros, caché de resultados, supresión, huella), `SemanticaSql`, `ConstructorTableros`, `ServicioTrazaAnalitica`, `ExportadorAnalitica`, `BitacoraAnalitica`, `Precalentador`, `Supresion`; permisos en `PermisosTableros` y `analitica/PerfilesOperacion`.
+3. **Endpoints** (`TablerosApi`): `GET /api/analitica/catalogo`, `/cortes`, `/opciones`, `/tableros/{t}`, `/tableros/{t}/descarga`, `/traza/{t}` (`despues` = cursor), `/traza/{t}/registros.csv`, `/bitacora` (`antes` = cursor); `POST /api/analitica/consulta`.
+4. **React**: `paginas/Analitica.tsx`, `paginas/TrazabilidadAnalitica.tsx`, `analitica/{FiltrosAnalitica,GraficosAnalitica,PanelTraza,tableros}`. **Pruebas**: `AnaliticaConsultaTest`, `TablerosApiTest`, `PerfilesOperacionApiTest`, `PlazoYSupresionTest`, `IngestaPrivilegiosTest.privilegiosTableros`, `RendimientoTablerosTest` (2 M, bajo demanda), `tableros.test.ts`, e2e `analitica-tableros.spec.ts`.

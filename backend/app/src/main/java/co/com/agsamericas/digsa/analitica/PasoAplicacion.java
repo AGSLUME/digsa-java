@@ -6,7 +6,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 /**
  * Punto de enganche de la aplicación de un cargue (analitica-tableros: «los agregados se refrescan antes de que el cargue pase a
  * aplicado»). Cada implementación corre dentro de la misma transacción que inserta los hechos y marca el cargue: si lanza, el cargue
- * queda «fallido» y nada se ve. A1 no trae ninguna; A3 agrega la de ana_agregado_mes (V62). Su tiempo cuenta en la etapa «agregados».
+ * queda «fallido» y nada se ve. A1 no trae ninguna; A3 agrega la de las tablas de apoyo de los tableros (PasoTablas, V62). Su tiempo cuenta en la etapa «agregados».
  */
 public interface PasoAplicacion {
 

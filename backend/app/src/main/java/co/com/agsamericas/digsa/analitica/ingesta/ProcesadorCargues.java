@@ -511,20 +511,26 @@ class ProcesadorCargues {
     private void rechazar(Pedido p, ErrorEstructura e, long recibidos, Map<String, Long> etapas, long duracion) {
         try {
             Map<String, Long> motivos = Map.of(e.causa().codigo(), Math.max(recibidos, e.cuantas()));
-            int n = jdbc.sql("""
-                    UPDATE ana_cargues SET estado = 'rechazado', terminado = :ahora, recibidos = :r, procesados = 0, rechazados = :r, filas_leidas = :r,
+            // Estado y línea del rechazo en una sola transacción: quien ve «rechazado» ya ve la línea (antes se veía un instante sin ella)
+            Integer n = tx.execute(s -> {
+                int u = jdbc.sql("""
+                        UPDATE ana_cargues SET estado = 'rechazado', terminado = :ahora, recibidos = :r, procesados = 0, rechazados = :r, filas_leidas = :r,
                            motivos = CAST(:motivos AS jsonb), motivo_texto = :motivo, etapas_ms = CAST(:etapas AS jsonb), duracion_ms = :d
                     WHERE id = :id AND estado = 'procesando'""")
                     .param("ahora", OffsetDateTime.now(reloj)).param("r", recibidos).param("motivos", aJson(motivos))
                     .param("motivo", cortar(e.getMessage(), 2000)).param("etapas", aJson(etapas)).param("d", duracion).param("id", p.id()).update();
-            if (n != 1) {
+                if (u == 1) {
+                    jdbc.sql("DELETE FROM ana_cargue_rechazos WHERE cargue_id = :c").param("c", p.id()).update();
+                    jdbc.sql("INSERT INTO ana_cargue_rechazos (cargue_id, orden, linea, causa, columna) VALUES (:c, 0, :l, :causa, NULL)")
+                            .param("c", p.id()).param("l", cortar(e.linea() == null ? "1" : e.linea(), 40)).param("causa", e.causa().codigo()).update();
+                }
+                return u;
+            });
+            if (n == null || n != 1) {
                 LOG.warn("[analitica] El cargue {} ya no estaba en proceso al rechazarlo", p.id());
                 return;
             }
             limpiar(p.id());
-            jdbc.sql("DELETE FROM ana_cargue_rechazos WHERE cargue_id = :c").param("c", p.id()).update();
-            jdbc.sql("INSERT INTO ana_cargue_rechazos (cargue_id, orden, linea, causa, columna) VALUES (:c, 0, :l, :causa, NULL)")
-                    .param("c", p.id()).param("l", cortar(e.linea() == null ? "1" : e.linea(), 40)).param("causa", e.causa().codigo()).update();
             bitacora.registrar("analitica_cargue_rechazado", "Cargue " + p.id() + " · " + p.fuenteTexto() + " · " + recibidos + " recibidos · rechazo de estructura: "
                     + e.causa().texto(), p.usuarioId(), usuario(p.usuarioId()));
         } catch (RuntimeException ex) {

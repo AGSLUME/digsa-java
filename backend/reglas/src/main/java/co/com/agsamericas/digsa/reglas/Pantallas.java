@@ -44,7 +44,18 @@ public enum Pantallas {
      * revisa, aprueba y devuelve; el Coordinador consulta, aprueba, devuelve y exporta. «Químico farmacéutico» es un rol de auditor y no
      * entra por perfil: se le asigna la pantalla como rol adicional (sesión de identidad).
      */
-    HOMOLOGACION("homologacion", "Homologación", "Información", Set.of(Perfil.ANALISTA, Perfil.COORDINADOR));
+    HOMOLOGACION("homologacion", "Homologación", "Información", Set.of(Perfil.ANALISTA, Perfil.COORDINADOR)),
+    /**
+     * Analítica farmacéutica (analitica-tableros): los 12 tableros, filtros y descargas, siempre agregados y en el alcance de cada perfil
+     * (DIGSA, Coordinador y Analista nacional; Sanidad su Fuerza; ESM su establecimiento). Asignable como rol adicional.
+     */
+    ANALITICA("analitica", "Analítica farmacéutica", "Información", union(Set.of(Perfil.COORDINADOR, Perfil.ANALISTA), Alcance.PERFILES_CONSULTA)),
+    /**
+     * Trazabilidad de una cifra hasta los registros de origen seudonimizados (A5 14.9): cargue, archivo, línea, SHA-256 y regla de la
+     * tabla maestra. Pantalla aparte para asignarla por rol; Sanidad y ESM no la tienen (decisión de diseño 2026-10-22).
+     */
+    ANALITICA_TRAZABILIDAD("analitica/trazabilidad", "Trazabilidad de cifras", "Información",
+            Set.of(Perfil.COORDINADOR, Perfil.ANALISTA, Perfil.DIGSA));
 
     private final String ruta;
     private final String titulo;

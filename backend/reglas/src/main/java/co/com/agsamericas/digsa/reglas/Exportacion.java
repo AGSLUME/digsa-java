@@ -65,7 +65,9 @@ public final class Exportacion {
             "ref_fuente", "ref_version", "ref_cum_presentacion", "ref_cum_principio_activo", "ref_cum_rol", "ref_atc_nombre_nivel", "ref_cie10",
             "ref_precio_regulado", "ref_vital_no_disponible", "ref_lista_normativa", "ref_codigo_ssfm", "hom_regla", "hom_regla_historial",
             "hom_catalogo", "hom_version", "hom_medicamento_origen", "hom_tabla_maestra", "hom_cie10_origen", "hom_tabla_cie10",
-            "hom_cargue_origen", "hom_cargue_mes", "hom_revision", "hom_devolucion");
+            "hom_cargue_origen", "hom_cargue_mes", "hom_revision", "hom_devolucion",
+            // V62 · tableros: bitácora de consultas, descargas y rastreos de analítica (los agregados van en TECNICAS)
+            "ana_consultas");
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
     public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes",
@@ -77,6 +79,9 @@ public final class Exportacion {
             // (digsa.exportacion.limite-minutos); se entregan por la exportación analítica por periodo (fase A7). ana_llaves es el índice
             // de llaves naturales de esos mismos hechos (se reconstruye de ellos).
             "ana_dispensaciones", "ana_llaves",
+            // Tablas de apoyo de los tableros (V62): copia angosta de los hechos, numeración de pacientes y valores de filtro por cargue; se
+            // derivan de los hechos de cada cargue y se reconstruyen de ellos
+            "ana_hechos_tablero", "ana_pacientes", "ana_cargue_valores",
             // Staging de la carga del CUM del INVIMA (UNLOGGED, se vacía al terminar cada versión)
             "ref_cum_staging");
 

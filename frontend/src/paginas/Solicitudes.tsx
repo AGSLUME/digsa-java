@@ -1,4 +1,4 @@
-import { Alert, Anchor, Badge, Button, Card, FileInput, Group, Loader, Modal, ScrollArea, Select, Stack, Table, Text, TextInput, Textarea, Title } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Card, FileInput, Group, Loader, Modal, ScrollArea, Select, Stack, Table, Text, TextInput, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
@@ -6,6 +6,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, ErrorApi, subirArchivos } from '../shared/api';
 import type { OpcionesAgenda, ResultadoVisita } from '../shared/agenda';
 import { FormularioVisita, type SolicitudParaAgendar } from '../shared/FormularioVisita';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 interface Solicitud {
   id: number;
@@ -80,15 +81,17 @@ export function Solicitudes() {
 
   return (
     <Stack>
-      <Group justify="space-between">
-        <Title order={3}>Solicitudes de visita a necesidad</Title>
-        {d.puedeSolicitar && <Button onClick={() => setNueva(true)}>Nueva solicitud</Button>}
-      </Group>
-      <Text size="sm" c="dimmed">
-        La visita a necesidad se hace sin previo aviso al operador logístico, a más tardar 5 días hábiles después de la fecha del escrito
-        (Anexo 3 p.14).
-        {!coordinador && ' Aquí ve solo las solicitudes que usted registró.'}
-      </Text>
+      <EncabezadoPagina
+        titulo="Solicitudes de visita a necesidad"
+        descripcion={
+          <>
+            La visita a necesidad se hace sin previo aviso al operador logístico, a más tardar 5 días hábiles después de la fecha del escrito
+            (Anexo 3 p.14).
+            {!coordinador && ' Aquí ve solo las solicitudes que usted registró.'}
+          </>
+        }
+        acciones={d.puedeSolicitar && <Button onClick={() => setNueva(true)}>Nueva solicitud</Button>}
+      />
       <Select
         label="Estado"
         w={220}

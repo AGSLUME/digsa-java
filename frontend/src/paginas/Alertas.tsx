@@ -1,26 +1,4 @@
-import {
-  Alert,
-  Badge,
-  Box,
-  Button,
-  Card,
-  Center,
-  Group,
-  Loader,
-  Modal,
-  MultiSelect,
-  Paper,
-  ScrollArea,
-  SegmentedControl,
-  SimpleGrid,
-  Stack,
-  Switch,
-  Table,
-  Tabs,
-  Text,
-  TextInput,
-  Title,
-} from '@mantine/core';
+import { Alert, Badge, Box, Button, Card, Center, Group, Loader, Modal, MultiSelect, Paper, ScrollArea, SegmentedControl, SimpleGrid, Stack, Switch, Table, Tabs, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
@@ -40,6 +18,7 @@ import {
 } from '../shared/alertas';
 import { api, ErrorApi } from '../shared/api';
 import { puedeEntrar, useSesion } from '../shared/sesion';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 /**
  * Pantalla Alertas (Pantallas.ALERTAS: coordinación y, por regla, el administrador). El administrador (el único que entra a Usuarios)
@@ -49,7 +28,7 @@ export function Alertas() {
   const esAdministrador = puedeEntrar(useSesion(), 'usuarios');
   return (
     <Stack>
-      <Title order={3}>Alertas</Title>
+      <EncabezadoPagina titulo="Alertas" />
       {esAdministrador ? (
         <Tabs defaultValue="eventos" keepMounted={false}>
           <Tabs.List>

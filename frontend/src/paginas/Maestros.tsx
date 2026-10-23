@@ -1,29 +1,11 @@
-import {
-  Alert,
-  Badge,
-  Button,
-  Center,
-  Checkbox,
-  Group,
-  Loader,
-  Modal,
-  ScrollArea,
-  Select,
-  SimpleGrid,
-  Stack,
-  Table,
-  Tabs,
-  Text,
-  Textarea,
-  TextInput,
-  Title,
-} from '@mantine/core';
+import { Alert, Badge, Button, Center, Checkbox, Group, Loader, Modal, ScrollArea, Select, SimpleGrid, Stack, Table, Tabs, Text, Textarea, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { separarCorreos } from '../shared/agenda';
 import { api, ErrorApi } from '../shared/api';
 import type { CodigoNombre, DatosCatalogos } from './Catalogos';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 interface Punto {
   id: number;
@@ -111,7 +93,7 @@ export function Maestros() {
   const catalogos = useQuery({ queryKey: ['catalogos'], queryFn: () => api<DatosCatalogos>('/api/catalogos') });
   return (
     <Stack>
-      <Title order={3}>Maestros</Title>
+      <EncabezadoPagina titulo="Maestros" fuente="Anexo 5 · 2.13" />
       {catalogos.error && <Alert color="red">No se pudieron cargar los catálogos: {catalogos.error.message}</Alert>}
       <Tabs defaultValue="puntos" keepMounted={false}>
         <Tabs.List>

@@ -52,6 +52,7 @@ import {
   type QuienComo,
 } from './opl';
 import { PanelFirma } from './PanelFirma';
+import { EncabezadoPagina } from './EncabezadoPagina';
 
 interface Mensaje {
   mensaje: string;
@@ -67,7 +68,18 @@ interface EdicionRespuesta {
  * «/api/opl/visitas/{id}»): plazos, aceptar u objetar cada hallazgo, soportes de la objeción, quién y cómo del plan, firma del plan y
  * descarga del acta. Lo escrito vive aquí: si el enlace pide verificar el código otra vez, el padre lo pide sin desmontar el componente.
  */
-export function RespuestaOpl({ base, rutaDetalle = base, alReverificar }: { base: string; rutaDetalle?: string; alReverificar?: () => void }) {
+export function RespuestaOpl({
+  base,
+  rutaDetalle = base,
+  alReverificar,
+  orden = 1,
+}: {
+  base: string;
+  rutaDetalle?: string;
+  alReverificar?: () => void;
+  /** Nivel del título de la visita: 2 en el portal público, que ya tiene su h1. */
+  orden?: 1 | 2;
+}) {
   const clave = ['opl', 'detalle', rutaDetalle];
   const detalle = useQuery({ queryKey: clave, queryFn: () => api<DetalleOpl>(rutaDetalle) });
   const reverificarDetalle = pideReverificar(detalle.error) || pideReabrir(detalle.error);
@@ -86,10 +98,22 @@ export function RespuestaOpl({ base, rutaDetalle = base, alReverificar }: { base
   if (!detalle.data) {
     return <Alert color={reverificarDetalle ? 'orange' : 'red'}>{detalle.error?.message ?? 'No se pudo cargar la visita.'}</Alert>;
   }
-  return <Contenido base={base} clave={clave} d={detalle.data} alReverificar={alReverificar} />;
+  return <Contenido base={base} clave={clave} d={detalle.data} alReverificar={alReverificar} orden={orden} />;
 }
 
-function Contenido({ base, clave, d, alReverificar }: { base: string; clave: unknown[]; d: DetalleOpl; alReverificar?: () => void }) {
+function Contenido({
+  base,
+  clave,
+  d,
+  alReverificar,
+  orden,
+}: {
+  base: string;
+  clave: unknown[];
+  d: DetalleOpl;
+  alReverificar?: () => void;
+  orden: 1 | 2;
+}) {
   const qc = useQueryClient();
   const [nombre, setNombre] = useState('');
   const [cargo, setCargo] = useState('');
@@ -161,14 +185,11 @@ function Contenido({ base, clave, d, alReverificar }: { base: string; clave: unk
 
   return (
     <Stack data-testid="respuesta-opl">
-      <Group gap="sm">
-        <Title order={3}>
-          Visita {d.numero} · {d.punto}
-        </Title>
+      <EncabezadoPagina titulo={`Visita ${d.numero} · ${d.punto}`} orden={orden} fuente="Anexo 3">
         <Badge size="lg" color={COLOR_FASE[d.fase]} data-testid="fase-opl">
           {NOMBRE_FASE[d.fase]}
         </Badge>
-      </Group>
+      </EncabezadoPagina>
       <Plazos d={d} />
       {!d.abierta && <Alert color="yellow">La visita se reabrió: espere el acta nueva para responder.</Alert>}
       <Group gap="xs">

@@ -30,3 +30,5 @@ carga/
 frontend/test-results/
 # Carga inicial de maestros (plantillas diligenciadas e informes): datos personales, nunca en el repositorio (Ley 1581)
 /informe/
+# Spring Modulith lo genera al instalar el backend desde la raíz
+/build/

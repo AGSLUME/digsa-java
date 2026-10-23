@@ -1,8 +1,9 @@
-import { Alert, Anchor, Badge, Center, Group, Loader, ScrollArea, Stack, Table, Text, Title } from '@mantine/core';
+import { Alert, Anchor, Badge, Center, Loader, ScrollArea, Stack, Table, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { colorEstado, horaCorta } from '../shared/agenda';
 import { api } from '../shared/api';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 interface VisitaSeguimiento {
   id: number;
@@ -34,19 +35,16 @@ export function Seguimiento() {
 
   return (
     <Stack>
-      <Group justify="space-between">
-        <div>
-          <Title order={3}>Seguimiento en tiempo real</Title>
-          {datos.data && (
-            <Text size="sm" c="dimmed">
-              Actualizado a las {datos.data.actualizado}
-            </Text>
-          )}
-        </div>
-        <Anchor component={Link} to="/agenda">
-          Volver a la agenda
-        </Anchor>
-      </Group>
+      <EncabezadoPagina
+        titulo="Seguimiento en tiempo real"
+        fuente="Anexo 5 · 4.5"
+        descripcion={datos.data && <>Actualizado a las {datos.data.actualizado}</>}
+        acciones={
+          <Anchor component={Link} to="/agenda">
+            Volver a la agenda
+          </Anchor>
+        }
+      />
       {datos.error && <Alert color="red">{datos.error.message}</Alert>}
       {datos.isLoading && (
         <Center py="xl">

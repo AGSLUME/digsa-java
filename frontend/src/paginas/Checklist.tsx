@@ -71,6 +71,7 @@ import {
 import { separarFechaHora, unirFechaHora } from '../shared/hora';
 import { PanelFirma } from '../shared/PanelFirma';
 import { puedeEntrar, useSesion } from '../shared/sesion';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 interface Mensaje {
   mensaje: string;
@@ -255,8 +256,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
       <Anchor component={Link} to={volver} size="sm">
         Volver a la visita
       </Anchor>
-      <Group gap="sm">
-        <Title order={3}>Formulario de la visita {v.numero}</Title>
+      <EncabezadoPagina titulo={`Formulario de la visita ${v.numero}`} fuente="Anexo 5 · 4.5 · Anexo 3">
         <Badge color={colorEstado(v.estado)} size="lg" data-testid="estado-visita">
           {v.estadoNombre}
         </Badge>
@@ -265,7 +265,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
             Ronda {v.ronda} · reabierta
           </Badge>
         )}
-      </Group>
+      </EncabezadoPagina>
       {d.seguimiento && (
         <Alert color="blue" title={`${d.seguimiento.ordinal} visita de seguimiento al plan de mejoramiento`} data-testid="aviso-seguimiento">
           <Text size="sm">{d.seguimiento.aviso}</Text>

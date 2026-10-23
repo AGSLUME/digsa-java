@@ -19,6 +19,7 @@ import {
   type FiltrosDashboard,
   type OpcionesDashboard,
 } from '../shared/tablero';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 function Tarjeta({
   titulo,
@@ -82,7 +83,7 @@ export function Dashboard() {
   const o = opciones.data;
   return (
     <Stack>
-      <Title order={3}>Dashboard</Title>
+      <EncabezadoPagina titulo="Dashboard" fuente="Anexo 5 · 4.5" />
       {opciones.error && <Alert color="red">{opciones.error.message}</Alert>}
       <Card withBorder data-testid="filtros-dashboard">
         <SimpleGrid cols={{ base: 1, xs: 2, md: 3 }}>

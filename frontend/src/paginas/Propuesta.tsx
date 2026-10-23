@@ -48,6 +48,7 @@ import {
   type RespuestaConfirmar,
 } from '../shared/propuesta';
 import { puedeEntrar, useSesion } from '../shared/sesion';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 function avisarError(e: unknown, texto: string) {
   notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : texto });
@@ -125,7 +126,7 @@ export function Propuesta() {
 
   return (
     <Stack>
-      <Title order={3}>Propuesta de agenda</Title>
+      <EncabezadoPagina titulo="Propuesta de agenda" fuente="Anexo 3 · Anexo 5 · 4.5" />
       {datos.error && <Alert color="red">{datos.error.message}</Alert>}
       {datos.isLoading && (
         <Center py="xl">

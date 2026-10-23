@@ -1,9 +1,10 @@
-import { Alert, Badge, Button, Center, Group, Loader, Modal, ScrollArea, Select, Stack, Switch, Table, Tabs, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Badge, Button, Center, Group, Loader, Modal, ScrollArea, Select, Stack, Switch, Table, Tabs, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { separarCorreos } from '../shared/agenda';
 import { api, ErrorApi } from '../shared/api';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 export interface Fuerza {
   codigo: string;
@@ -89,7 +90,7 @@ export function Catalogos() {
 
   return (
     <Stack>
-      <Title order={3}>Catálogos</Title>
+      <EncabezadoPagina titulo="Catálogos" fuente="Anexo 5 · 1.14, 2.3" />
       {datos.error && <Alert color="red">{datos.error.message}</Alert>}
       {datos.isLoading && (
         <Center py="xl">

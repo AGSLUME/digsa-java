@@ -35,6 +35,7 @@ import {
   type VisitaConHallazgos,
 } from '../shared/seguimiento';
 import { puedeEntrar, useSesion } from '../shared/sesion';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 /**
  * «Prestadores con hallazgos» (decisiones 6.8 y 36): por prestador, la última visita cerrada con hallazgos de cada cadena de
@@ -53,11 +54,16 @@ export function Hallazgos() {
 
   return (
     <Stack>
-      <Title order={3}>Prestadores con hallazgos</Title>
-      <Text size="sm" c="dimmed">
-        Última visita cerrada con hallazgos de cada prestador, con el estado del plan de mejoramiento, la respuesta del operador logístico y la visita
-        de seguimiento.
-      </Text>
+      <EncabezadoPagina
+        titulo="Prestadores con hallazgos"
+        fuente="Anexo 5 · 4.5"
+        descripcion={
+          <>
+            Última visita cerrada con hallazgos de cada prestador, con el estado del plan de mejoramiento, la respuesta del operador logístico y la visita
+            de seguimiento.
+          </>
+        }
+      />
       <TextInput
         label="Buscar"
         placeholder="Prestador, unidad, fuerza o número de visita"

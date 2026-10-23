@@ -24,6 +24,9 @@ test('contraseña errada: mensaje genérico', async ({ page }) => {
 test('aviso de inactividad con cuenta regresiva y «Seguir conectado»', async ({ page }) => {
   await page.clock.install();
   await ingresar(page, ...ADMIN);
+  // Cada respuesta del servidor cuenta como actividad: si una consulta del inicio responde después de adelantar el reloj, el plazo
+  // vuelve a empezar y el aviso no sale. Se adelanta con la red quieta.
+  await page.waitForLoadState('networkidle');
   // Servidor de pruebas con 1 minuto: el aviso sale a los 30 s (la mitad del plazo)
   await page.clock.fastForward(31_000);
   await expect(page.getByText('Su sesión está por cerrarse')).toBeVisible();
@@ -35,6 +38,7 @@ test('aviso de inactividad con cuenta regresiva y «Seguir conectado»', async (
 test('actividad en otra pestaña: el aviso de esta pestaña se cierra', async ({ page }) => {
   await page.clock.install();
   await ingresar(page, ...ADMIN);
+  await page.waitForLoadState('networkidle');
   await page.clock.fastForward(31_000);
   const aviso = page.getByRole('dialog', { name: 'Su sesión está por cerrarse' });
   await expect(aviso).toBeVisible();

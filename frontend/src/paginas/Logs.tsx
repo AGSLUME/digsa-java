@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Group, Modal, ScrollArea, Select, SimpleGrid, Stack, Table, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Badge, Button, Group, Modal, ScrollArea, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { notifications } from '@mantine/notifications';
 import { useMediaQuery } from '@mantine/hooks';
@@ -6,6 +6,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { api, descargar, ErrorApi } from '../shared/api';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 interface Fila {
   id: number;
@@ -130,7 +131,7 @@ export function Logs() {
 
   return (
     <Stack>
-      <Title order={3}>Logs del sistema</Title>
+      <EncabezadoPagina titulo="Logs del sistema" fuente="Anexo 5 · 3 · ítem 15" />
       <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }}>
         <DatePickerInput label="Desde" value={desde} onChange={setDesde} valueFormat="YYYY-MM-DD" />
         <DatePickerInput label="Hasta" value={hasta} onChange={setHasta} valueFormat="YYYY-MM-DD" />

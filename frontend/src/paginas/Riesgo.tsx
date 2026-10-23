@@ -45,6 +45,7 @@ import {
   type Incidencia,
   type TableroRiesgo,
 } from '../shared/tablero';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 function avisarError(e: unknown, defecto: string) {
   notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : defecto });
@@ -99,12 +100,11 @@ export function Riesgo() {
 
   return (
     <Stack>
-      <Title order={3}>Dashboard de riesgo</Title>
-      <Text size="sm" c="dimmed">
-        Puntaje de 0 a 100 por ESM de dispensación, calculado con la última visita completa cerrada, los hallazgos recurrentes, la intervención
-        inmediata, los planes vencidos y las incidencias reportadas por la DIGSA. Los días sin visita se muestran como dato: la prioridad por
-        antigüedad la da la agenda.
-      </Text>
+      <EncabezadoPagina
+        titulo="Dashboard de riesgo"
+        fuente="Anexo 3 · Anexo 5 · 4.5"
+        descripcion="Puntaje de 0 a 100 por ESM de dispensación, calculado con la última visita completa cerrada, los hallazgos recurrentes, la intervención inmediata, los planes vencidos y las incidencias reportadas por la DIGSA. Los días sin visita se muestran como dato: la prioridad por antigüedad la da la agenda."
+      />
       <Alert color="yellow" variant="light" data-testid="estado-pesos">
         Pesos y umbrales: {t.estadoPesos}
       </Alert>

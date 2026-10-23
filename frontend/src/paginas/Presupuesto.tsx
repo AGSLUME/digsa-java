@@ -48,6 +48,7 @@ import {
   type ResultadoCarga,
   type TipoNovedad,
 } from '../shared/presupuesto';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 function avisarError(e: unknown, defecto: string) {
   notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : defecto });
@@ -87,11 +88,16 @@ export function Presupuesto() {
 
   return (
     <Stack>
-      <Title order={3}>Presupuesto del contrato de medicamentos</Title>
-      <Text size="sm" c="dimmed">
-        Seguimiento a la ejecución por ESM, Fuerza y modalidad frente al presupuesto asignado. Toda modificación queda como un movimiento con su
-        soporte de la DIGSA, el usuario, la fecha y el asignado de antes y de después. Alcance: {o.ambito}.
-      </Text>
+      <EncabezadoPagina
+        titulo="Presupuesto del contrato de medicamentos"
+        fuente="Anexo 5 · 4.6"
+        descripcion={
+          <>
+            Seguimiento a la ejecución por ESM, Fuerza y modalidad frente al presupuesto asignado. Toda modificación queda como un movimiento con su
+            soporte de la DIGSA, el usuario, la fecha y el asignado de antes y de después. Alcance: {o.ambito}.
+          </>
+        }
+      />
       <Tabs value={pestana} onChange={setPestana} keepMounted={false}>
         <ScrollArea type="auto" offsetScrollbars>
           <Tabs.List style={{ flexWrap: 'nowrap' }}>

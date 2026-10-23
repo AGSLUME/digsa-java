@@ -37,7 +37,7 @@ function Inicio() {
   const s = useSesion();
   return (
     <Stack>
-      <Title order={3}>Bienvenido, {s.nombre}</Title>
+      <Title order={1}>Bienvenido, {s.nombre}</Title>
       <Text c="dimmed">Perfiles: {s.perfiles.join(', ')}</Text>
       {/* --- Presupuesto (rama presupuesto; mockup: «Ejecución presupuestal nacional» en el inicio) --- */}
       {puedeEntrar(s, 'presupuesto') && <ResumenPresupuestoInicio />}

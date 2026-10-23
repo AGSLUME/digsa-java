@@ -40,6 +40,7 @@ import {
   type HallazgoOpl,
   type OplDeVisita,
 } from '../shared/opl';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 export type OrigenVisita = 'agenda' | 'mis-visitas' | 'calendario';
 
@@ -129,61 +130,63 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
       <Anchor component={Link} to={'/' + origen} size="sm">
         Volver a {TITULOS[origen]}
       </Anchor>
-      <Group justify="space-between">
-        <Group gap="sm">
-          <Title order={3}>Visita {v.numero}</Title>
-          <Badge color={colorEstado(v.estado)} size="lg" data-testid="estado-visita">
-            {v.estadoNombre}
-          </Badge>
-        </Group>
-        <Group gap="xs">
-          {puede('editar') && (
-            <Button variant="light" onClick={() => setDialogo('editar')} disabled={!opciones.data}>
-              Editar
-            </Button>
-          )}
-          {puede('reasignar') && (
-            <Button variant="light" onClick={() => setDialogo('reasignar')} disabled={!opciones.data}>
-              Reasignar equipo
-            </Button>
-          )}
-          {puede('reprogramar') && (
-            <Button variant="light" onClick={() => setDialogo('reprogramar')}>
-              Reprogramar
-            </Button>
-          )}
-          {puede('notificar') && (
-            <Button variant="light" onClick={() => setDialogo('notificar')}>
-              Notificar
-            </Button>
-          )}
-          {puede('cancelar') && (
-            <Button variant="light" color="red" onClick={() => setDialogo('cancelar')}>
-              Cancelar visita
-            </Button>
-          )}
-          {puede('reabrir') && (
-            <Button variant="light" color="grape" data-testid="reabrir" onClick={() => setDialogo('reabrir')} disabled={!opciones.data}>
-              Reabrir
-            </Button>
-          )}
-          {origen !== 'calendario' &&
-            (v.estado === 'ejecucion' || v.estado === 'cerrada') &&
-            !(origen === 'mis-visitas' && v.acciones.includes('iniciar')) && (
-              <Button variant={v.estado === 'cerrada' ? 'light' : 'filled'} onClick={() => navegar(`/visita/${v.id}`)}>
-                Abrir formulario
+      <EncabezadoPagina
+        titulo={`Visita ${v.numero}`}
+        fuente="Anexo 5 · 4.5"
+        acciones={
+          <>
+            {puede('editar') && (
+              <Button variant="light" onClick={() => setDialogo('editar')} disabled={!opciones.data}>
+                Editar
               </Button>
             )}
-          {origen === 'mis-visitas' && v.acciones.includes('iniciar') && (
-            <Button
-              loading={accion.isPending}
-              onClick={() => accion.mutate({ ruta: `/api/mis-visitas/${v.id}/iniciar` }, { onSuccess: () => navegar(`/visita/${v.id}`) })}
-            >
-              {v.estado === 'ejecucion' ? 'Continuar' : 'Iniciar visita'}
-            </Button>
-          )}
-        </Group>
-      </Group>
+            {puede('reasignar') && (
+              <Button variant="light" onClick={() => setDialogo('reasignar')} disabled={!opciones.data}>
+                Reasignar equipo
+              </Button>
+            )}
+            {puede('reprogramar') && (
+              <Button variant="light" onClick={() => setDialogo('reprogramar')}>
+                Reprogramar
+              </Button>
+            )}
+            {puede('notificar') && (
+              <Button variant="light" onClick={() => setDialogo('notificar')}>
+                Notificar
+              </Button>
+            )}
+            {puede('cancelar') && (
+              <Button variant="light" color="red" onClick={() => setDialogo('cancelar')}>
+                Cancelar visita
+              </Button>
+            )}
+            {puede('reabrir') && (
+              <Button variant="light" color="grape" data-testid="reabrir" onClick={() => setDialogo('reabrir')} disabled={!opciones.data}>
+                Reabrir
+              </Button>
+            )}
+            {origen !== 'calendario' &&
+              (v.estado === 'ejecucion' || v.estado === 'cerrada') &&
+              !(origen === 'mis-visitas' && v.acciones.includes('iniciar')) && (
+                <Button variant={v.estado === 'cerrada' ? 'light' : 'filled'} onClick={() => navegar(`/visita/${v.id}`)}>
+                  Abrir formulario
+                </Button>
+              )}
+            {origen === 'mis-visitas' && v.acciones.includes('iniciar') && (
+              <Button
+                loading={accion.isPending}
+                onClick={() => accion.mutate({ ruta: `/api/mis-visitas/${v.id}/iniciar` }, { onSuccess: () => navegar(`/visita/${v.id}`) })}
+              >
+                {v.estado === 'ejecucion' ? 'Continuar' : 'Iniciar visita'}
+              </Button>
+            )}
+          </>
+        }
+      >
+        <Badge color={colorEstado(v.estado)} size="lg" data-testid="estado-visita">
+          {v.estadoNombre}
+        </Badge>
+      </EncabezadoPagina>
       {opciones.error && <Alert color="red">No se pudieron cargar las opciones: {opciones.error.message}</Alert>}
       {v.equipoSinNotificar && deAgenda && <Alert color="orange">El cambio de equipo aún no se ha notificado al OPL y a las DISANES.</Alert>}
       {(v.advertencias ?? []).map((a, i) => (

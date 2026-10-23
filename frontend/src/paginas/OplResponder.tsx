@@ -111,13 +111,13 @@ export function OplResponder() {
       </Card>
     );
   } else {
-    contenido = <RespuestaOpl base={BASE} rutaDetalle={`${BASE}/detalle`} alReverificar={alReverificar} />;
+    contenido = <RespuestaOpl base={BASE} rutaDetalle={`${BASE}/detalle`} alReverificar={alReverificar} orden={2} />;
   }
 
   return (
     <Container size="lg" py="md" px="md" data-testid="opl-responder">
       <Stack>
-        <Title order={2} c="digsa.8">
+        <Title order={1} c="digsa.8">
           Respuesta a los hallazgos del acta
         </Title>
         {sinVigencia && (

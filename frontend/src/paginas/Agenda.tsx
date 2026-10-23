@@ -1,4 +1,4 @@
-import { Alert, Button, Center, Group, Loader, SegmentedControl, Select, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import { Alert, Button, Center, Loader, SegmentedControl, Select, SimpleGrid, Stack, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -7,6 +7,7 @@ import { api } from '../shared/api';
 import { CalendarioMes, moverMes, NavegadorMes, rangoMes } from '../shared/CalendarioMes';
 import { FormularioVisita } from '../shared/FormularioVisita';
 import { TablaVisitas } from '../shared/TablaVisitas';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 /** Agenda del coordinador: visitas del mes en lista o calendario, con alertas de plazos y el formulario para programar. */
 export function Agenda() {
@@ -35,17 +36,20 @@ export function Agenda() {
 
   return (
     <Stack>
-      <Group justify="space-between">
-        <Title order={3}>Agenda</Title>
-        <Group gap="xs">
-          <Button variant="default" onClick={() => navegar('/seguimiento')}>
-            Seguimiento en tiempo real
-          </Button>
-          <Button onClick={() => setProgramar(true)} disabled={!opciones.data}>
-            Programar visita
-          </Button>
-        </Group>
-      </Group>
+      <EncabezadoPagina
+        titulo="Agenda"
+        fuente="Anexo 5 · 4.5 · Anexo 3"
+        acciones={
+          <>
+            <Button variant="default" onClick={() => navegar('/seguimiento')}>
+              Seguimiento en tiempo real
+            </Button>
+            <Button onClick={() => setProgramar(true)} disabled={!opciones.data}>
+              Programar visita
+            </Button>
+          </>
+        }
+      />
       {opciones.error && <Alert color="red">No se pudieron cargar las opciones: {opciones.error.message}</Alert>}
       <SimpleGrid cols={{ base: 1, sm: 3 }}>
         <Select

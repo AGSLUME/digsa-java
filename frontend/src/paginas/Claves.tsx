@@ -9,7 +9,7 @@ function Marco({ titulo, children }: { titulo: string; children: React.ReactNode
     <Center mih="100vh" p="md">
       <Card withBorder shadow="sm" padding="lg" w="100%" maw={460}>
         <Stack>
-          <Title order={3} c="digsa.8">
+          <Title order={1} size="h3" c="digsa.8">
             {titulo}
           </Title>
           {children}

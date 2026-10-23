@@ -1,23 +1,4 @@
-import {
-  Alert,
-  Anchor,
-  Badge,
-  Box,
-  Button,
-  Card,
-  Center,
-  Group,
-  Loader,
-  Modal,
-  ScrollArea,
-  Select,
-  SimpleGrid,
-  Stack,
-  Table,
-  Text,
-  Textarea,
-  Title,
-} from '@mantine/core';
+import { Alert, Anchor, Badge, Box, Button, Card, Center, Group, Loader, Modal, ScrollArea, Select, SimpleGrid, Stack, Table, Text, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -34,6 +15,7 @@ import {
   type Prorroga,
 } from '../shared/seguimiento';
 import { puedeEntrar, useSesion } from '../shared/sesion';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 const ESTADOS = [
   { value: 'solicitada', label: 'Solicitadas' },
@@ -82,12 +64,17 @@ export function Prorrogas() {
 
   return (
     <Stack>
-      <Title order={3}>Prórrogas del plan</Title>
-      <Text size="sm" c="dimmed">
-        En el seguimiento, una acción que sigue abierta y cuya fecha fin pasa a ser posterior a la anterior es una prórroga: el auditor la justifica
-        en el acta y queda solicitada. Pasa a aprobada cuando la aprueban la coordinación y la DIGSA; cualquiera de las dos puede rechazarla con el
-        motivo.
-      </Text>
+      <EncabezadoPagina
+        titulo="Prórrogas del plan"
+        fuente="Anexo 5 · 4.5"
+        descripcion={
+          <>
+            En el seguimiento, una acción que sigue abierta y cuya fecha fin pasa a ser posterior a la anterior es una prórroga: el auditor la justifica
+            en el acta y queda solicitada. Pasa a aprobada cuando la aprueban la coordinación y la DIGSA; cualquiera de las dos puede rechazarla con el
+            motivo.
+          </>
+        }
+      />
       <Select
         label="Estado"
         w={220}

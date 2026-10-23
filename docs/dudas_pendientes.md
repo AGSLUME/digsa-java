@@ -749,3 +749,30 @@ Auditoría U0 en `docs/auditoria_interfaz_U0.md`. Numeración propia (UI-n) para
 | UI-11 | **Campos de fecha:** el `type="date"` nativo (20 campos) se muestra según la configuración regional del navegador (en un equipo en inglés, mm/dd/aaaa) | Se mantiene el nativo (no acepta letras, lo que pide el ítem 12, y las e2e lo usan); se fija `lang="es-CO"` en la página. Cambiar a `DateInput` de Mantine queda como opción si el Comité lo pide |
 | UI-12 | **Solicitudes, 3.7:** «Agendar» y «Anular» se muestran con `coordinador` de la respuesta, pero el servidor exige la pantalla *agenda*; un rol adicional sin *agenda* recibe 403 | Se ocultan también cuando falta la pantalla *agenda* (no cambia permisos: alinea la interfaz con el servidor) |
 
+### Decisiones de la sesión 1 sobre UI-1 a UI-12 (2026-10-23)
+
+| N.º | Decisión | Qué se aplica |
+|---|---|---|
+| UI-1 | Va al Excel para TI | Se documenta que Opera usa el motor Chromium; si aparece instalado se agrega como canal |
+| UI-2 | Va al Excel para el usuario | Mientras tanto: montos, porcentajes y puntajes con 2 decimales y coma; conteos enteros; nunca separador de miles. Centralizado en `shared/formato.ts` (una línea para cambiarlo) |
+| UI-3 | Aprobada | `dd/mm/aaaa` en pantalla; ISO en archivos. Las e2e se ajustan en el mismo commit |
+| UI-4 | Aprobada | `@fontsource/ibm-plex-sans` y `@fontsource/ibm-plex-mono`, versión exacta, OFL 1.1, solo latín 400/500/600, sin CDN |
+| UI-5 | Aprobada | Visor en modal más enlace de descarga (condición 12, L1008) |
+| UI-6 | Se hace en la rama `interfaz` | `campo` opcional y compatible en `ManejadorErrores`, con prueba JUnit; sin cambiar mensajes ni códigos |
+| UI-7 | Aprobada | Mapeo de grupos, íconos y numerales en el frontend, sin tocar `Pantallas.java` |
+| UI-8 | Aprobada | Sonido activado por omisión, interruptor en la cabecera recordado por navegador (con try/catch), siempre junto al aviso visual |
+| UI-9 | Aprobada | «Interventoría Integral DIGSA» en la cabecera; el título del documento queda «Suite DIGSA · <pantalla>» |
+| UI-10, UI-11, UI-12 | Aprobadas como se propusieron | — |
+
+Condiciones: antes de cada commit, suite e2e completa en Chromium, Firefox, WebKit, Chrome y Edge; revisar los `getByRole('heading')` al poner `h1`; el texto de los errores del servidor que buscan las e2e sigue visible donde lo buscan; la división por rutas espera a la integración de reportes y analítica.
+
+### U1 · Sistema visual (2026-10-23)
+
+| N.º | Pendiente o hallazgo | Qué se hizo |
+|---|---|---|
+| UI-13 | **Niveles de encabezado:** con el h1 por página, los subtítulos de sección siguen en `Title order={4|5}` (saltan h2 y h3). Revisión de a11y: P2 | Pasa a U4 (`order={2} size="h5"` sin cambio visual), pantalla por pantalla |
+| UI-14 | La cabecera abre con un h4 «Suite DIGSA» antes del h1 de la página | Pasa a U3 (cabecera nueva, decisión UI-9) |
+| UI-15 | **E2E `sesion.spec` en Edge:** el aviso de inactividad no salía porque la consulta del tablero de presupuesto del inicio respondía después de adelantar el reloj y reiniciaba el plazo (carrera de la prueba, visible porque U1 carga fuentes) | La prueba espera la red quieta antes de `clock.fastForward` (2 pruebas). Pasa en los 5 motores |
+| UI-16 | **E2E intermitente en Firefox:** «contraseña inicial y cierre por el administrador» a veces no ve el aviso «Usuario creado…» en 10 s (el servidor tarda; el aviso aparece después) | Sin cambio: pasa sola (2/2) y en la corrida completa. Mismo tipo que 28.15 |
+| UI-17 | El frontend no tiene ESLint (`react-hooks`, `jsx-a11y`) | Sin cambio (sería dependencia nueva); se propone a la sesión 1 |
+

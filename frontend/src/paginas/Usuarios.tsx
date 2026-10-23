@@ -1,28 +1,11 @@
-import {
-  Alert,
-  Badge,
-  Button,
-  Checkbox,
-  Group,
-  Modal,
-  NumberInput,
-  PasswordInput,
-  ScrollArea,
-  Select,
-  SimpleGrid,
-  Stack,
-  Switch,
-  Table,
-  Text,
-  TextInput,
-  Title,
-} from '@mantine/core';
+import { Alert, Badge, Button, Checkbox, Group, Modal, NumberInput, PasswordInput, ScrollArea, Select, SimpleGrid, Stack, Switch, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState, type FormEvent } from 'react';
 import { errorTelefono } from '../shared/alertas';
 import { api, ErrorApi } from '../shared/api';
 import { RolesAdicionales } from './RolesAdicionales';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 interface Perfil {
   id: number;
@@ -178,40 +161,43 @@ export function Usuarios() {
 
   return (
     <Stack>
-      <Group justify="space-between">
-        <Title order={3}>Usuarios</Title>
-        <Group gap="xs">
-          <Button
-            variant="default"
-            onClick={() => {
-              setMinutos(undefined);
-              setVerSeguridad(true);
-            }}
-          >
-            Seguridad
-          </Button>
-          <Button
-            variant="default"
-            onClick={() => {
-              setNombresPerfiles(Object.fromEntries(perfilesBase.map((p) => [p.id, p.nombre])));
-              setVerPerfiles(true);
-            }}
-          >
-            Nombres de perfiles
-          </Button>
-          <Button variant="default" onClick={() => setVerRoles(true)}>
-            Roles adicionales
-          </Button>
-          <Button
-            onClick={() => {
-              setError(null);
-              setForm({ ...VACIO });
-            }}
-          >
-            Nuevo usuario
-          </Button>
-        </Group>
-      </Group>
+      <EncabezadoPagina
+        titulo="Usuarios"
+        fuente="Anexo 5 · 1.10–1.12, 3.1–3.7"
+        acciones={
+          <>
+            <Button
+              variant="default"
+              onClick={() => {
+                setMinutos(undefined);
+                setVerSeguridad(true);
+              }}
+            >
+              Seguridad
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => {
+                setNombresPerfiles(Object.fromEntries(perfilesBase.map((p) => [p.id, p.nombre])));
+                setVerPerfiles(true);
+              }}
+            >
+              Nombres de perfiles
+            </Button>
+            <Button variant="default" onClick={() => setVerRoles(true)}>
+              Roles adicionales
+            </Button>
+            <Button
+              onClick={() => {
+                setError(null);
+                setForm({ ...VACIO });
+              }}
+            >
+              Nuevo usuario
+            </Button>
+          </>
+        }
+      />
       {datos.error && <Alert color="red">{(datos.error as Error).message}</Alert>}
       <ScrollArea type="auto">
         <Table striped highlightOnHover miw={760}>

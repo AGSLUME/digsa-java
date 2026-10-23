@@ -14,6 +14,7 @@ import {
   type Exportacion as Pedido,
 } from '../shared/exportacion';
 import { fechaHora } from '../shared/seguimiento';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 const CLAVE = ['exportacion'];
 
@@ -39,7 +40,7 @@ export function Exportacion() {
 
   return (
     <Stack>
-      <Title order={3}>Exportación de datos</Title>
+      <EncabezadoPagina titulo="Exportación de datos" fuente="Anexo 5 · 1.15" />
       <Text size="sm">Descarga todos los datos de la aplicación en un archivo ZIP con:</Text>
       <List size="sm" spacing={4}>
         <List.Item>

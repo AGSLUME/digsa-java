@@ -1,0 +1,59 @@
+/* Estilos globales sobre los de Mantine: los tokens vienen de shared/tema.ts (variables --digsa-*). */
+
+body {
+  background: var(--digsa-fondo);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Campos: borde con contraste 3:1 y estado de error del mockup (borde y fondo); el foco y el error conservan los colores de Mantine */
+/* (MultiSelect y TagsInput se enfocan por dentro: :focus-within) */
+.mantine-Input-input:not([data-error]):not(:focus):not(:focus-within):not(:disabled):not([data-disabled]):not([readonly]):not(
+    [data-variant='unstyled']
+  ) {
+  border-color: var(--digsa-borde-campo);
+}
+
+.mantine-Input-input[data-error] {
+  background-color: var(--digsa-error-campo-fondo);
+}
+
+/* Foco visible también en un campo con error (Mantine deja el borde rojo igual con o sin foco): es el campo al que se lleva el foco
+   después de una validación (Anexo 5 num. 2.4) */
+.mantine-Input-input:focus,
+.mantine-Input-input:focus-within {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 1px;
+}
+
+/* Casillas, radios e interruptores sin marcar: el mismo borde 3:1 que los campos */
+.mantine-Checkbox-input:not(:checked):not(:disabled),
+.mantine-Radio-radio:not(:checked):not(:disabled),
+.mantine-Switch-track:not([data-checked]) {
+  border-color: var(--digsa-borde-campo);
+}
+
+/* En celular, 16 px en los campos: Safari de iOS amplía la página al enfocar un campo con letra más pequeña */
+@media (max-width: 48em) {
+  .mantine-Input-input,
+  .mantine-PinInput-input {
+    font-size: 16px;
+  }
+}
+
+/* Etiqueta de la fuente normativa junto al título de la página («Anexo 5 · 4.5»), como .src del mockup */
+.digsa-fuente {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  color: var(--digsa-apagado);
+  background: var(--digsa-suave);
+  border: 1px solid var(--digsa-linea);
+  border-radius: 6px;
+  padding: 4px 8px;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 48em) {
+  .digsa-fuente {
+    white-space: nowrap;
+  }
+}

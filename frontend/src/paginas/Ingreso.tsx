@@ -109,7 +109,7 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
     <Center mih="100vh" p="md">
       <Card withBorder shadow="sm" padding="lg" w="100%" maw={420}>
         <Stack>
-          <Title order={2} c="digsa.8">
+          <Title order={1} size="h2" c="digsa.8">
             Suite DIGSA
           </Title>
           <Text c="dimmed" size="sm">

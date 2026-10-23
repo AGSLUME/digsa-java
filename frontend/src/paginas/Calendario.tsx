@@ -1,4 +1,4 @@
-import { Alert, Center, Group, Loader, SegmentedControl, Select, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import { Alert, Center, Group, Loader, SegmentedControl, Select, SimpleGrid, Stack, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -6,6 +6,7 @@ import { COLOR_ESTADO, type FilaVisita } from '../shared/agenda';
 import { api } from '../shared/api';
 import { CalendarioMes, moverMes, NavegadorMes, rangoMes } from '../shared/CalendarioMes';
 import { TablaVisitas } from '../shared/TablaVisitas';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 const ESTADOS: Record<string, string> = {
   programada: 'Programada',
@@ -37,7 +38,7 @@ export function Calendario() {
 
   return (
     <Stack>
-      <Title order={3}>Calendario de visitas</Title>
+      <EncabezadoPagina titulo="Calendario de visitas" fuente="Anexo 5 · 4.5" />
       <SimpleGrid cols={{ base: 1, sm: 3 }}>
         <Select
           label="Estado"

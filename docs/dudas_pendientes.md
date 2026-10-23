@@ -632,6 +632,31 @@ Especificación en `docs/especificaciones/reportes/spec.md`, plan en `plan.md` y
 | R.49 | **Pesos y umbrales del riesgo** | En la descarga de la pantalla van en el encabezado. En el motor, el encabezado es el de 2.9 y no admite líneas propias del proveedor, así que van como filas «Pesos y umbrales» al final |
 | R.50 | **Prueba del tope del adjunto** | El corte a 10 MB se prueba en R5 junto con la prueba de volumen: generar más de 10 MB en una prueba de API es lento |
 
+**R5 · Rendimiento, volumen y cierre (2026-10-23):**
+
+Prueba de volumen (`VolumenReportesApiTest`, corre solo con `-Ddigsa.volumen=true`): 1.500.000 visitas sintéticas en un trimestre
+(RESPUESTAS l.2213: consultas de hasta tres meses), en el equipo de desarrollo con PostgreSQL embebido. Tiempos de 2.7 (3 minutos para
+ver, 10 para exportar):
+
+| Operación | Tiempo | Detalle |
+|---|---|---|
+| Ver «Consolidado por lugar» | 66 s | 185 filas agregadas |
+| Ver «Detalle de visitas» | 2,5 s | primeras 5.000 filas en pantalla |
+| Exportar el detalle en CSV | 3 min 8 s | 1.500.000 filas, 252 MB |
+| Exportar el detalle en TXT | 3 min 50 s | 488 MB |
+| Exportar el detalle en Excel | 4 min 58 s | 139 MB, en dos hojas («Datos 2») |
+| Exportar el detalle en PDF | 6 min 45 s | 402 MB, cifrado y con letra incrustada |
+| Correo del detalle en CSV | 422 a los 3 min 40 s | corta al pasar de 10 MB |
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| R.51 | **Índices de R5** | Con los tiempos de la prueba de volumen no hace falta ninguno: las consultas usan `ix_visitas_fecha`, `ix_visitas_punto` y los de la bitácora. No se crea V53. El único candidato, que depende de lo que se mida en noviembre, es un GIN trigram para el texto de los logs (R.48) |
+| R.52 | **El correo corta después de leer** | El tope de 10 MB se aplica al escribir el archivo, y el archivo se escribe cuando termina la lectura (el encabezado lleva la huella de todas las filas). Por eso un reporte enorme tarda la lectura completa (unos 3,5 minutos con 1,5 M filas) en responder 422. Estimar el tamaño antes exigiría contar las filas dos veces |
+| R.53 | **Tiempos para el Administrador** | Pestaña «Tiempos» en Reportes, solo para el Administrador: p50, p95 y máximo por reporte, en pantalla y por formato, y cuántas generaciones pasaron el 80 % del plazo, en 1, 7, 30 o 90 días |
+| R.54 | **La cinta va comprimida** | El temporal de filas usa Deflater en nivel rápido. A cambio de algo de CPU, un reporte de 2 M filas no ocupa varios GB de disco temporal |
+| R.55 | **Anchos de columna del PDF** | Se reparten según la palabra más larga del título y el texto más largo de las primeras 500 filas, entre 4 y 40 caracteres |
+| R.56 | **Lo cortado en los tiempos** | Una exportación fallida o cortada por el tope técnico guarda el tiempo que alcanzó a correr y cuenta en p95, máximo y «Fallidas o cortadas». Un reporte en pantalla que llega al tope (10 min) no deja fila, porque se registra al terminar: no aparece en la pestaña, pero sí dispara la alerta «reporte lento». Registrarlo exigiría insertar la fila antes de leer |
+
 ## Presupuesto (rama `presupuesto`, 2026-10-22)
 
 Especificación: `docs/especificaciones/presupuesto/spec.md` (Anexo 5 §4.6, Anexo 2 L739 y L741, casos M7 de la prueba en sitio).

@@ -73,6 +73,7 @@ Se arma con `DefinicionReporte.nuevo(id, titulo)` y se valida al construirla. Si
 | `maxDias` | Tope del rango | 3 años por defecto |
 | `maxFilas` | Tope de filas del archivo | 0 = sin tope. Superarlo devuelve 422: nunca sale un archivo truncado |
 | `filtros` | `Filtro.lista(clave, etiqueta)`, `Filtro.establecimiento(...)` o `Filtro.texto(...)` | Claves únicas, ninguna reservada (`desde`, `hasta`, `agrupacion`, `formato`, `preset`, `para`, `codigo`); como máximo un filtro de establecimiento |
+| `filtros` de un valor (provisional) | `Filtro.lista(...).deUnValor()` | Solo si el servicio del módulo todavía filtra por un valor a la vez. El motor rechaza varios (422) en un único punto y la pantalla deja elegir uno. 2.11 pide «una, varias o todas»: al ampliar el servicio a listas, se quita la marca (duda RP-7). Hoy la usan los tableros y la vigencia, el ESM, el tipo y la agrupación de presupuesto |
 | `columnas` | `columna(nombre, TipoColumna)` o `Columna.personal(nombre, perfiles)` | Tipos: TEXTO, ENTERO, DECIMAL, PORCENTAJE, FECHA, FECHA_HORA |
 | `orden` | El orden total, en palabras | Lo documenta; el SQL lo cumple |
 | `posicion` | Posición dentro del grupo en el catálogo | Por defecto 100 |
@@ -136,6 +137,13 @@ Los cuatro reportes de visitas, en el paquete `motorreportes`, son ejemplos comp
 regional, estado y componente) están en `FiltrosVisitas`. Las reglas del recuadro aplican también al ejemplo: `JdbcReportes`,
 `LIMIT` y una lista nueva por fila.
 
+Adaptadores de un servicio que ya existe (R4), sin cambiar su lógica:
+
+- `presupuesto/ProveedoresReportePresupuesto`: traduce `ServicioReportesPresupuesto.DEFINICIONES` y entrega las filas de `generar()`
+  por nombre de columna. Una columna que falte (salvo las que solo vienen con corte) es un error, no una columna vacía.
+- `tablero/ProveedoresReporteTablero`: arma las filas con las mismas respuestas que pintan el dashboard y el riesgo.
+- `auditoria/ProveedorReporteLogs`: SQL propio sobre `log_transacciones`, con los topes de la pantalla de logs.
+
 ## 4. Dependencias entre módulos (Spring Modulith)
 
 Son dos módulos:
@@ -161,8 +169,10 @@ Son dos módulos:
 | `GET /api/reportes/catalogo` | Grupos con los reportes del perfil, formatos y presets del periodo |
 | `GET /api/reportes/{id}/opciones` | Opciones de cada filtro de lista, dentro del alcance |
 | `GET /api/reportes/{id}?desde&hasta&preset&agrupacion&<filtro>=…` | El reporte en pantalla: encabezado de 2.9, columnas, filas (hasta 5 000; el archivo trae todas) y tiempo en ms |
-| `GET /api/reportes/{id}/exportar?formato=xlsx\|csv\|pdf\|txt&…` | El archivo |
-| `POST /api/reportes/{id}/enviar` | `{ para, formato, desde, hasta, agrupacion, filtros: { clave: [valores] } }` (adjunto de máximo 10 MB) |
+| `GET /api/reportes/{id}/exportar?formato=xlsx\|csv\|pdf\|txt&…` | El archivo si termina en 15 s; si no, 202 con el código y sigue en «Descargas del día» |
+| `GET /api/reportes/descargas` y `/descargas/{codigo}` | Lo que el usuario pidió hoy, y volver a bajarlo sin regenerarlo |
+| `POST /api/reportes/{id}/enviar` | `{ para, formato, desde, hasta, agrupacion, filtros: { clave: [valores] } }`: hasta 15 correos de los dominios permitidos; la generación se corta al pasar de 10 MB |
+| `GET /api/reportes/tiempos?dias=` | Solo el Administrador: p50, p95 y máximo por reporte y formato, y cuántas pasaron el 80 % del plazo |
 | `POST /api/reportes/verificar` (multipart `archivo`) | ¿El archivo es uno que generó la Suite DIGSA? Lo compara por su huella SHA-256 |
 | `GET /api/reportes/verificar/{codigo}` | Lo que se registró con ese código de verificación |
 | `POST /api/reportes/verificar/{codigo}/regenerar` | Regenera el reporte con los mismos parámetros y compara la huella de los datos |
@@ -171,10 +181,10 @@ Además, cada generación queda registrada en `reportes_generados` (V50) con su 
 archivo:
 - lleva el encabezado de 2.9 completo, con el código y la huella de los datos;
 - se arma en flujo: cursor, temporal en disco y almacén;
-- en PDF sale cifrado y sin permiso de modificar, con un tope de 5.000 filas.
+- en PDF sale cifrado y sin permiso de modificar, con letra Unicode incrustada y sin tope de filas (reportes completos, TAS P12).
 
-Nada de esto exige cambios al proveedor. Las fases R3 y R4 agregan «Descargas del día», la generación diferida y varios
-destinatarios, también sin cambiar este contrato.
+Nada de esto exige cambios al proveedor: «Descargas del día», la generación diferida, la medición de tiempos y el envío a varios
+destinatarios son del motor.
 
 ## 6. Pruebas que debe traer el reporte nuevo
 

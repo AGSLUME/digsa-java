@@ -130,7 +130,8 @@ class RegistroGenerados {
     /** Falló en la cola (la cola la rechazó) o generándose. */
     void fallida(long id, String error, OffsetDateTime ahora) {
         cambio(jdbc.sql("""
-                UPDATE reportes_generados SET estado = 'fallida', ruta = NULL, error = :e, terminado = :t
+                UPDATE reportes_generados SET estado = 'fallida', ruta = NULL, error = :e, terminado = :t,
+                       ms_total = CASE WHEN iniciado IS NULL THEN NULL ELSE greatest(0, (extract(epoch FROM (:t - iniciado)) * 1000)::int) END
                 WHERE id = :id AND estado IN ('pendiente', 'generando')""")
                 .param("e", error == null || error.isBlank() ? "No se pudo generar el archivo." : error).param("t", ahora).param("id", id).update(), id,
                 "pendiente» o «generando");
@@ -157,6 +158,27 @@ class RegistroGenerados {
     int enCurso(long usuarioId) {
         return jdbc.sql("SELECT count(*) FROM reportes_generados WHERE usuario_id = :u AND estado IN ('pendiente', 'generando')").param("u", usuarioId)
                 .query(Integer.class).single();
+    }
+
+    /** Tiempos de un reporte en pantalla o en un formato (Anexo 5, 2.7): cuántas, p50, p95, máximo y cuántas pasaron el 80 % del plazo. */
+    record Tiempo(String reporte, String titulo, String tipo, long generaciones, long p50, long p95, long maximo, long lentas, long fallidas) {
+    }
+
+    /**
+     * Tiempos por reporte y por tipo (pantalla o formato) desde {@code desde}. Las fallidas (también las cortadas por el tope técnico)
+     * cuentan con el tiempo que alcanzaron a correr: son justo las más lentas.
+     */
+    List<Tiempo> tiempos(OffsetDateTime desde, long plazoVerMs, long plazoExportarMs) {
+        return jdbc.sql("""
+                SELECT reporte, max(titulo) AS titulo, coalesce(formato, 'pantalla') AS tipo, count(*) AS n,
+                       percentile_disc(0.5) WITHIN GROUP (ORDER BY ms_total) AS p50, percentile_disc(0.95) WITHIN GROUP (ORDER BY ms_total) AS p95,
+                       max(ms_total) AS maximo,
+                       count(*) FILTER (WHERE ms_total >= 0.8 * CASE WHEN formato IS NULL THEN :ver ELSE :exportar END) AS lentas,
+                       count(*) FILTER (WHERE estado = 'fallida') AS fallidas
+                FROM reportes_generados WHERE creado >= :desde AND ms_total IS NOT NULL AND estado IN ('vista', 'lista', 'vencida', 'fallida')
+                GROUP BY reporte, coalesce(formato, 'pantalla') ORDER BY reporte, tipo""").param("desde", desde).param("ver", plazoVerMs)
+                .param("exportar", plazoExportarMs).query((rs, n) -> new Tiempo(rs.getString("reporte"), rs.getString("titulo"), rs.getString("tipo"),
+                        rs.getLong("n"), rs.getLong("p50"), rs.getLong("p95"), rs.getLong("maximo"), rs.getLong("lentas"), rs.getLong("fallidas"))).list();
     }
 
     /** Una fila de «Descargas del día». */

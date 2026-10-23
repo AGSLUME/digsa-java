@@ -22,13 +22,18 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.zip.Deflater;
+import java.util.zip.DeflaterOutputStream;
+import java.util.zip.Inflater;
+import java.util.zip.InflaterInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Filas de un reporte volcadas a un archivo temporal mientras el proveedor las lee (con cursor): así el archivo final se escribe con
  * el encabezado completo (registros y huella de los datos, que solo se conocen al final) sin tener las filas en memoria. Se recorre
- * las veces que haga falta y se borra al cerrar.
+ * las veces que haga falta y se borra al cerrar. Va comprimida (nivel rápido): un reporte de dos millones de filas ocupa en disco una
+ * fracción de lo que pesaría plano.
  */
 final class CintaFilas implements ReporteFilas, AutoCloseable {
 
@@ -36,6 +41,7 @@ final class CintaFilas implements ReporteFilas, AutoCloseable {
     private static final byte NULO = 0, TEXTO = 1, LARGO = 2, ENTERO = 3, DECIMAL = 4, DOBLE = 5, FECHA = 6, INSTANTE = 7, LOGICO = 8, FECHA_HORA = 9;
 
     private final Path archivo;
+    private final Deflater compresor = new Deflater(Deflater.BEST_SPEED);
     private final DataOutputStream salida;
     private long total;
     private boolean cerrada;
@@ -46,8 +52,9 @@ final class CintaFilas implements ReporteFilas, AutoCloseable {
     CintaFilas() throws IOException {
         archivo = ReporteTemporales.nuevo(".cinta");
         try {
-            salida = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(archivo), 64 * 1024));
+            salida = new DataOutputStream(new BufferedOutputStream(new DeflaterOutputStream(Files.newOutputStream(archivo), compresor, 64 * 1024), 64 * 1024));
         } catch (IOException | RuntimeException e) {
+            compresor.end();
             ReporteTemporales.borrar(archivo);
             throw e;
         }
@@ -120,7 +127,11 @@ final class CintaFilas implements ReporteFilas, AutoCloseable {
 
     /** Termina de escribir; después solo se lee. */
     void terminar() throws IOException {
-        salida.close();
+        try {
+            salida.close();
+        } finally {
+            compresor.end();
+        }
         cerrada = true;
     }
 
@@ -140,7 +151,9 @@ final class CintaFilas implements ReporteFilas, AutoCloseable {
         if (!cerrada) {
             throw new IllegalStateException("La cinta del reporte no se terminó de escribir");
         }
-        try (DataInputStream in = new DataInputStream(new BufferedInputStream(Files.newInputStream(archivo), 64 * 1024))) {
+        Inflater descompresor = new Inflater();
+        try (DataInputStream in = new DataInputStream(new BufferedInputStream(new InflaterInputStream(Files.newInputStream(archivo), descompresor, 64 * 1024),
+                64 * 1024))) {
             for (long k = 0; k < total; k++) {
                 int n = in.readInt();
                 List<Object> f = new ArrayList<>(n);
@@ -154,6 +167,8 @@ final class CintaFilas implements ReporteFilas, AutoCloseable {
             }
         } catch (EOFException e) {
             throw new IOException("El temporal del reporte está incompleto", e);
+        } finally {
+            descompresor.end();
         }
     }
 
@@ -182,7 +197,11 @@ final class CintaFilas implements ReporteFilas, AutoCloseable {
     public void close() {
         try {
             if (!cerrada) {
-                salida.close();
+                try {
+                    salida.close();
+                } finally {
+                    compresor.end();
+                }
             }
         } catch (IOException e) {
             LOG.warn("[reportes] No se pudo cerrar el temporal {}", archivo, e);

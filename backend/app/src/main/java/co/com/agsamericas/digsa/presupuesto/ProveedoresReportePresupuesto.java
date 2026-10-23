@@ -1,6 +1,5 @@
 package co.com.agsamericas.digsa.presupuesto;
 
-import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.Reporte;
 import co.com.agsamericas.digsa.reglas.Alcance;
 import co.com.agsamericas.digsa.reglas.Pantallas;
@@ -87,17 +86,17 @@ class ProveedoresReportePresupuesto {
             c.periodo("FECHA_HORA".equals(d.periodo()) ? CampoTemporal.FECHA_HORA : CampoTemporal.NINGUNO, Set.of());
             for (String f : d.filtros()) {
                 switch (f) {
-                    case "vigencia" -> c.filtro(Filtro.lista("vigencia", "Vigencia"));
+                    case "vigencia" -> c.filtro(Filtro.lista("vigencia", "Vigencia").deUnValor());
                     case "corte" -> c.filtro(Filtro.texto("corte", "Corte (AAAA-MM)"));
                     case "fuerza" -> c.filtro(Filtro.lista("fuerza", "Fuerza"));
-                    case "punto" -> c.filtro(Filtro.establecimiento("punto", "ESM"));
+                    case "punto" -> c.filtro(Filtro.establecimiento("punto", "ESM").deUnValor());
                     case "modalidad" -> c.filtro(Filtro.lista("modalidad", "Modalidad"));
-                    case "tipoMovimiento" -> c.filtro(Filtro.lista("tipo_movimiento", "Tipo de movimiento"));
+                    case "tipoMovimiento" -> c.filtro(Filtro.lista("tipo_movimiento", "Tipo de movimiento").deUnValor());
                     default -> throw new IllegalStateException("Filtro de presupuesto sin traducir: " + f);
                 }
             }
             if ("mensual".equals(tipo)) {
-                c.filtro(Filtro.lista("agrupar", "Agrupar por"));
+                c.filtro(Filtro.lista("agrupar", "Agrupar por").deUnValor());
             }
             for (String col : d.columnasTipadas()) {
                 String nombre = col.substring(0, col.indexOf(':'));
@@ -154,10 +153,10 @@ class ProveedoresReportePresupuesto {
 
         @Override
         public void filas(ConsultaReporte c, Consumer<List<Object>> destino) {
-            ServicioReportesPresupuesto.Filtros f = new ServicioReportesPresupuesto.Filtros(numero(uno(c, "vigencia", "la vigencia")),
-                    c.valores("corte").stream().findFirst().orElse(null), lista(c, "fuerza"), numero(uno(c, "punto", "el ESM")), lista(c, "modalidad"),
-                    uno(c, "tipo_movimiento", "el tipo de movimiento"), c.desde() == null ? null : c.desde().toString(),
-                    c.hasta() == null ? null : c.hasta().toString(), uno(c, "agrupar", "la agrupación"));
+            ServicioReportesPresupuesto.Filtros f = new ServicioReportesPresupuesto.Filtros(numero(primero(c, "vigencia")),
+                    c.valores("corte").stream().findFirst().orElse(null), lista(c, "fuerza"), numero(primero(c, "punto")), lista(c, "modalidad"),
+                    primero(c, "tipo_movimiento"), c.desde() == null ? null : c.desde().toString(),
+                    c.hasta() == null ? null : c.hasta().toString(), primero(c, "agrupar"));
             Reporte r = servicio.generar(tipo, f, Ambito.de(c.alcance(), Set.of()), "");
             // Posición de cada columna visible en las filas del servicio (las que el servicio no trae con estos filtros salen vacías)
             Map<String, Integer> indice = new HashMap<>();
@@ -190,13 +189,12 @@ class ProveedoresReportePresupuesto {
             }
         }
 
-        /** Un solo valor: el servicio de presupuesto filtra por una vigencia, un ESM, un tipo y una agrupación. */
-        private static String uno(ConsultaReporte c, String filtro, String nombre) {
-            List<String> v = c.valores(filtro);
-            if (v.size() > 1) {
-                throw ErrorNegocio.validacion("Este reporte se genera para " + nombre + " a la vez: elija solo uno.");
-            }
-            return v.isEmpty() ? null : v.get(0);
+        /**
+         * El valor de un filtro {@code deUnValor}: el motor ya garantiza que hay a lo sumo uno. Cuando el servicio admita listas, se pasa
+         * {@code c.valores(filtro)} completo y se quita la marca de la definición.
+         */
+        private static String primero(ConsultaReporte c, String filtro) {
+            return c.valores(filtro).stream().findFirst().orElse(null);
         }
 
         private static String lista(ConsultaReporte c, String filtro) {

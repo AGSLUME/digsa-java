@@ -62,13 +62,25 @@ public record DefinicionReporte(String id, String titulo, String descripcion, Gr
 
     /**
      * @param establecimiento el filtro es el del establecimiento: va en la línea «Establecimiento» del encabezado (2.9)
+     * @param unSoloValor     el servicio del módulo aún filtra por un valor a la vez: el motor rechaza varios (422) en un solo punto
+     *                        ({@code MotorReportes.resolver}) y la pantalla deja elegir uno. Provisional: 2.11 pide una, varias o todas;
+     *                        al ampliar el servicio a listas se quita la marca (duda RP-7)
      */
-    public record Filtro(String clave, String etiqueta, TipoFiltro tipo, boolean establecimiento) {
+    public record Filtro(String clave, String etiqueta, TipoFiltro tipo, boolean establecimiento, boolean unSoloValor) {
 
         public Filtro {
             Objects.requireNonNull(clave);
             Objects.requireNonNull(etiqueta);
             Objects.requireNonNull(tipo);
+        }
+
+        public Filtro(String clave, String etiqueta, TipoFiltro tipo, boolean establecimiento) {
+            this(clave, etiqueta, tipo, establecimiento, false);
+        }
+
+        /** El mismo filtro, de un valor a la vez (ver {@code unSoloValor}). */
+        public Filtro deUnValor() {
+            return new Filtro(clave, etiqueta, tipo, establecimiento, true);
         }
 
         public static Filtro lista(String clave, String etiqueta) {

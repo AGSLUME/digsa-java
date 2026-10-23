@@ -110,6 +110,72 @@ class ProveedoresR4ApiTest extends PruebaIntegracion {
     }
 
     @Test
+    @DisplayName("2.7: el Administrador ve p50, p95 y máximo por reporte y formato; la coordinación no ve los tiempos")
+    void tiempos() {
+        Navegador c = coordinador();
+        assertThat(c.get("/api/reportes/catalogo").json().path("verTiempos").asBoolean()).isFalse();
+        assertThat(c.get("/api/reportes/lugar?" + PERIODO).estado()).isEqualTo(200);
+        assertThat(c.get("/api/reportes/lugar/exportar?formato=csv&" + PERIODO).estado()).isEqualTo(200);
+        assertThat(c.get("/api/reportes/tiempos").estado()).isEqualTo(403);
+        Navegador a = navegador();
+        a.ingresar(crearUsuario("admtiempos", Perfil.ADMINISTRADOR), CLAVE);
+        assertThat(a.get("/api/reportes/catalogo").json().path("verTiempos").asBoolean()).isTrue();
+        JsonNode t = a.get("/api/reportes/tiempos?dias=7").json();
+        assertThat(t.path("plazoVerMs").asLong()).isEqualTo(180_000);
+        List<String> tipos = new ArrayList<>();
+        JsonNode lugar = null;
+        for (JsonNode x : t.path("tiempos")) {
+            if ("lugar".equals(x.path("reporte").asText())) {
+                tipos.add(x.path("tipo").asText());
+                lugar = x;
+            }
+        }
+        assertThat(tipos).as("los tiempos de «lugar»").contains("pantalla", "csv");
+
+        // Valores conocidos en un reporte de prueba: 100 vistas de 1 a 100 ms, una exportación fallida de 700 s y una vista fuera del periodo
+        String reporte = "tiempos_" + (System.nanoTime() % 1_000_000_000L);
+        long u = idDe(crearUsuario("tiempos", Perfil.COORDINADOR));
+        java.time.OffsetDateTime ahora = java.time.OffsetDateTime.now(reloj);
+        java.time.LocalDate dia = ahora.atZoneSameInstant(co.com.agsamericas.digsa.reglas.Fechas.BOGOTA).toLocalDate();
+        for (int ms = 1; ms <= 101; ms++) {
+            jdbc.sql("""
+                    INSERT INTO reportes_generados (codigo, reporte, version, titulo, usuario_id, usuario, alcance, parametros, columnas, estado, ms_total, creado)
+                    VALUES (:c, :r, 1, 'Tiempos de prueba', :u, 'Persona', 'todo', '{}', '[]', 'vista', :ms, :creado)""")
+                    .param("c", CodigoVerificacion.nuevo(dia)).param("r", reporte).param("u", u).param("ms", ms == 101 ? 999_999 : ms)
+                    .param("creado", ms == 101 ? ahora.minusDays(40) : ahora).update();
+        }
+        jdbc.sql("""
+                INSERT INTO reportes_generados (codigo, reporte, version, titulo, usuario_id, usuario, alcance, parametros, columnas, formato, estado, error,
+                                                ms_total, creado, iniciado, terminado, vence)
+                VALUES (:c, :r, 1, 'Tiempos de prueba', :u, 'Persona', 'todo', '{}', '[]', 'csv', 'fallida', 'Cortado.', 700000, :t, :t, :t, :t)""")
+                .param("c", CodigoVerificacion.nuevo(dia)).param("r", reporte).param("u", u).param("t", ahora).update();
+        JsonNode pantalla = null;
+        JsonNode csv = null;
+        for (JsonNode x : a.get("/api/reportes/tiempos?dias=30").json().path("tiempos")) {
+            if (reporte.equals(x.path("reporte").asText())) {
+                if ("pantalla".equals(x.path("tipo").asText())) {
+                    pantalla = x;
+                } else {
+                    csv = x;
+                }
+            }
+        }
+        assertThat(pantalla).as("la fila en pantalla del reporte de prueba").isNotNull();
+        assertThat(pantalla.path("generaciones").asLong()).as("sin la de hace 40 días").isEqualTo(100);
+        assertThat(pantalla.path("p50").asLong()).isEqualTo(50);
+        assertThat(pantalla.path("p95").asLong()).isEqualTo(95);
+        assertThat(pantalla.path("maximo").asLong()).isEqualTo(100);
+        assertThat(pantalla.path("lentas").asLong()).isZero();
+        assertThat(csv).as("la fallida cuenta, con el tiempo que alcanzó a correr").isNotNull();
+        assertThat(csv.path("fallidas").asLong()).isEqualTo(1);
+        assertThat(csv.path("lentas").asLong()).isEqualTo(1);
+        assertThat(csv.path("maximo").asLong()).isEqualTo(700_000);
+        // El periodo se acota entre 1 y 366 días
+        assertThat(a.get("/api/reportes/tiempos?dias=0").json().path("dias").asInt()).isEqualTo(1);
+        assertThat(a.get("/api/reportes/tiempos?dias=9999").json().path("dias").asInt()).isEqualTo(366);
+    }
+
+    @Test
     @DisplayName("logs en el motor: solo el Administrador, en PDF y TXT con el encabezado completo, varios usuarios a la vez y «reporte_descargado» en la bitácora")
     void logs() {
         String admin = crearUsuario("admr4", Perfil.ADMINISTRADOR);

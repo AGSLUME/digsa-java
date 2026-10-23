@@ -25,6 +25,7 @@ import { type FormEvent, useMemo, useState } from 'react';
 import { api, ErrorApi } from '../shared/api';
 import { descargarReporte } from '../shared/descargaReporte';
 import { CLAVE_DESCARGAS, DescargasDelDia, seguirDescarga } from './DescargasDelDia';
+import { TiemposReportes } from './TiemposReportes';
 import { VerificarReporte } from './VerificarReporte';
 import {
   type Catalogo,
@@ -181,7 +182,13 @@ export function Reportes() {
           <Tabs.Tab value="generar">Generar</Tabs.Tab>
           <Tabs.Tab value="descargas">Descargas del día</Tabs.Tab>
           <Tabs.Tab value="verificar">Verificar reporte</Tabs.Tab>
+          {catalogo.data?.verTiempos && <Tabs.Tab value="tiempos">Tiempos</Tabs.Tab>}
         </Tabs.List>
+        {catalogo.data?.verTiempos && (
+          <Tabs.Panel value="tiempos" pt="md">
+            {pestana === 'tiempos' && <TiemposReportes />}
+          </Tabs.Panel>
+        )}
         {/* Las pestañas quedan montadas: «Descargas del día» sigue consultando y avisa aunque se esté en otra */}
         <Tabs.Panel value="descargas" pt="md">
           <DescargasDelDia />
@@ -301,7 +308,8 @@ export function Reportes() {
                         <MultiSelect
                           key={f.clave}
                           label={f.etiqueta}
-                          description="Una, varias o todas"
+                          description={f.unSoloValor ? 'Una o todas (por ahora, una a la vez)' : 'Una, varias o todas'}
+                          maxValues={f.unSoloValor ? 1 : undefined}
                           placeholder={(e.valores[f.clave]?.length ?? 0) === 0 ? 'Todas' : undefined}
                           searchable
                           clearable

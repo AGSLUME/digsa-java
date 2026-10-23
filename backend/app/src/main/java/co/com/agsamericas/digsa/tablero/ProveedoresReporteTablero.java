@@ -1,6 +1,5 @@
 package co.com.agsamericas.digsa.tablero;
 
-import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.reglas.Alcance;
 import co.com.agsamericas.digsa.reglas.Pantallas;
 import co.com.agsamericas.digsa.reglas.Riesgo;
@@ -41,8 +40,8 @@ class ProveedoresReporteTablero {
                 .descripcion("Indicadores, línea base, resultados y gráficas del dashboard de visitas, con las mismas cifras de la pantalla.")
                 .grupo(GrupoReporte.VISITAS).modulo("tablero").clase(ClaseReporte.OPERATIVO).pantalla(Pantallas.DASHBOARD)
                 .fuente("Agenda y actas de la Suite DIGSA").periodo(CampoTemporal.FECHA, Set.of())
-                .filtro(Filtro.lista("fuerza", "Fuerza")).filtro(Filtro.lista("tipo", "Tipo de visita")).filtro(Filtro.lista("auditor", "Auditor líder"))
-                .filtro(Filtro.lista("unidad", "Unidad")).orden("tabla en el orden de la pantalla y, dentro de cada una, el de la pantalla").posicion(80);
+                .filtro(Filtro.lista("fuerza", "Fuerza").deUnValor()).filtro(Filtro.lista("tipo", "Tipo de visita").deUnValor())
+                .filtro(Filtro.lista("auditor", "Auditor líder").deUnValor()).filtro(Filtro.lista("unidad", "Unidad").deUnValor()).orden("tabla en el orden de la pantalla y, dentro de cada una, el de la pantalla").posicion(80);
         c.columna("Tabla", TipoColumna.TEXTO).columna("Concepto", TipoColumna.TEXTO).columna("Valor", TipoColumna.TEXTO);
         COLUMNAS_DASHBOARD.subList(3, COLUMNAS_DASHBOARD.size()).forEach(n -> c.columna(n, TipoColumna.ENTERO));
         DefinicionReporte definicion = c.crear();
@@ -75,9 +74,9 @@ class ProveedoresReporteTablero {
 
             @Override
             public void filas(ConsultaReporte c, Consumer<List<Object>> destino) {
-                String auditor = uno(c, "auditor", "un auditor");
-                Map<String, Object> d = dashboard.datos(new ServicioDashboard.Filtros(c.desde().toString(), c.hasta().toString(), uno(c, "fuerza", "una fuerza"),
-                        uno(c, "tipo", "un tipo de visita"), auditor == null ? null : Long.valueOf(auditor), uno(c, "unidad", "una unidad")), c.alcance());
+                String auditor = primero(c, "auditor");
+                Map<String, Object> d = dashboard.datos(new ServicioDashboard.Filtros(c.desde().toString(), c.hasta().toString(), primero(c, "fuerza"),
+                        primero(c, "tipo"), auditor == null ? null : Long.valueOf(auditor), primero(c, "unidad")), c.alcance());
                 entregar(c, filasDashboard(d), COLUMNAS_DASHBOARD, destino);
             }
         };
@@ -88,7 +87,7 @@ class ProveedoresReporteTablero {
         DefinicionReporte.Constructor c = DefinicionReporte.nuevo(RIESGO, "Dashboard de riesgo por ESM")
                 .descripcion("Puntaje y nivel de riesgo de cada ESM de dispensación y el agregado por fuerza, con los pesos y umbrales vigentes.")
                 .grupo(GrupoReporte.VISITAS).modulo("tablero").clase(ClaseReporte.GENERAL).pantalla(Pantallas.RIESGO)
-                .fuente("Visitas cerradas, planes de mejoramiento e incidencias registradas en la Suite DIGSA").filtro(Filtro.lista("fuerza", "Fuerza"))
+                .fuente("Visitas cerradas, planes de mejoramiento e incidencias registradas en la Suite DIGSA").filtro(Filtro.lista("fuerza", "Fuerza").deUnValor())
                 .orden("ESM de mayor a menor puntaje y nombre; luego por fuerza; al final los pesos y umbrales").posicion(90);
         columnasRiesgo().forEach((n, t) -> c.columna(n, t));
         DefinicionReporte definicion = c.crear();
@@ -116,7 +115,7 @@ class ProveedoresReporteTablero {
 
             @Override
             public void filas(ConsultaReporte c, Consumer<List<Object>> destino) {
-                entregar(c, filasRiesgo(riesgo.tablero(c.alcance(), uno(c, "fuerza", "una fuerza"))), columnas, destino);
+                entregar(c, filasRiesgo(riesgo.tablero(c.alcance(), primero(c, "fuerza"))), columnas, destino);
             }
         };
     }
@@ -130,13 +129,12 @@ class ProveedoresReporteTablero {
         return filas == null ? List.of() : filas.stream().map(x -> new Opcion(String.valueOf(x.get(valor)), String.valueOf(x.get(etiqueta)))).toList();
     }
 
-    /** Un solo valor: los servicios de los tableros filtran por uno a la vez (como la pantalla). */
-    static String uno(ConsultaReporte c, String filtro, String nombre) {
-        List<String> v = c.valores(filtro);
-        if (v.size() > 1) {
-            throw ErrorNegocio.validacion("Este reporte se filtra por " + nombre + " a la vez: elija solo uno.");
-        }
-        return v.isEmpty() ? null : v.get(0);
+    /**
+     * El valor de un filtro {@code deUnValor}: el motor ya garantiza que hay a lo sumo uno. Cuando los servicios de los tableros admitan
+     * listas, se pasa {@code c.valores(filtro)} completo y se quita la marca de la definición.
+     */
+    static String primero(ConsultaReporte c, String filtro) {
+        return c.valores(filtro).stream().findFirst().orElse(null);
     }
 
     /** Entrega las columnas visibles, en su orden, respetando el límite del motor. */

@@ -208,4 +208,17 @@ class ExportadorFlujoTest {
         r.close();
         assertThat(new String(escribir("csv", 0), StandardCharsets.UTF_8)).endsWith("Lugar;Valor;Fecha;Inicio\r\n");
     }
+
+    @Test
+    @DisplayName("PDF: el ancho de cada columna sigue a su contenido (código angosto, descripción ancha) dentro de los topes")
+    void anchosPdf() throws Exception {
+        List<List<Object>> filas = new ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            filas.add(List.of("C" + (i % 9), "x".repeat(i < 10 ? 120 : 20)));
+        }
+        float[] a = ExportadorFlujo.anchosPdf(List.of("Código", "Descripción del hallazgo"), ReporteFilas.de(filas), 2);
+        assertThat(a[0]).isEqualTo(6f); // «Código»
+        assertThat(a[1]).isEqualTo(ExportadorFlujo.ANCHO_MAX);
+        assertThat(ExportadorFlujo.anchosPdf(List.of("A"), ReporteFilas.de(List.of()), 1)[0]).isEqualTo(ExportadorFlujo.ANCHO_MIN);
+    }
 }

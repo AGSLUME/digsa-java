@@ -125,7 +125,33 @@ public class ControladorReportes {
                 "nombre", e.getKey().nombre(), "reportes", e.getValue())).toList();
         List<Map<String, Object>> presets = motor.presets().stream().map(x -> Map.<String, Object>of("clave", x.clave(), "nombre", x.nombre(), "desde",
                 x.desde().toString(), "hasta", x.hasta().toString())).toList();
-        return Map.of("grupos", lista, "formatos", FORMATOS, "presets", presets);
+        return Map.of("grupos", lista, "formatos", FORMATOS, "presets", presets, "verTiempos", perfiles.contains(Perfil.ADMINISTRADOR));
+    }
+
+    /**
+     * Tiempos de generación por reporte (Anexo 5, 2.7): p50, p95 y máximo en pantalla y por formato, y cuántas pasaron el 80 % del
+     * plazo, en los últimos {@code dias} días. Solo el Administrador (es quien recibe la alerta «reporte lento»).
+     */
+    @GetMapping("/tiempos")
+    @PreAuthorize("hasAuthority('PERFIL_ADMINISTRADOR')")
+    @Accion(modulo = "reportes", accion = "tiempos", operacion = Declarada.CONSULTA)
+    public Map<String, Object> tiempos(@RequestParam(defaultValue = "30") int dias) {
+        int d = Math.max(1, Math.min(dias, 366));
+        OffsetDateTime desde = ServicioGeneracion.inicioDelDia(OffsetDateTime.now(reloj)).minusDays(d - 1L);
+        return Map.of("dias", d, "plazoVerMs", cfgReportes.plazoVerMs(), "plazoExportarMs", cfgReportes.plazoExportarMs(), "tiempos",
+                registro.tiempos(desde, cfgReportes.plazoVerMs(), cfgReportes.plazoExportarMs()).stream().map(t -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("reporte", t.reporte());
+                    m.put("titulo", t.titulo());
+                    m.put("tipo", t.tipo());
+                    m.put("generaciones", t.generaciones());
+                    m.put("p50", t.p50());
+                    m.put("p95", t.p95());
+                    m.put("maximo", t.maximo());
+                    m.put("lentas", t.lentas());
+                    m.put("fallidas", t.fallidas());
+                    return m;
+                }).toList());
     }
 
     private static Map<String, Object> definicion(DefinicionReporte d, Set<Perfil> perfiles) {
@@ -139,7 +165,7 @@ public class ControladorReportes {
         m.put("maxDias", d.maxDias());
         m.put("agrupaciones", d.agrupaciones().stream().sorted().map(a -> Map.of("clave", a.clave(), "nombre", a.nombre())).toList());
         m.put("filtros", d.filtros().stream().map(f -> Map.of("clave", f.clave(), "etiqueta", f.etiqueta(), "tipo", f.tipo().name().toLowerCase(Locale.ROOT),
-                "establecimiento", f.establecimiento())).toList());
+                "establecimiento", f.establecimiento(), "unSoloValor", f.unSoloValor())).toList());
         m.put("columnas", d.columnasPara(perfiles).stream().map(Columna::nombre).toList());
         return m;
     }

@@ -12,6 +12,7 @@ import {
   estadoDescarga,
   hayEnCurso,
   recienTerminadas,
+  segundos,
   tamano,
   type Descarga,
   sePuedeRegenerar,
@@ -108,6 +109,14 @@ describe('catálogo', () => {
 
   it('al cambiar de reporte conserva los filtros que el nuevo también tiene', () => {
     expect(conservarValores(proceso, { punto_id: ['7'], fuerza: ['EJC'], componente: [] })).toEqual({ fuerza: ['EJC'] });
+  });
+
+  it('un filtro de un valor se queda con el primero de los que traía', () => {
+    const riesgo = {
+      ...proceso,
+      filtros: [{ clave: 'fuerza', etiqueta: 'Fuerza', tipo: 'lista' as const, establecimiento: false, unSoloValor: true }],
+    };
+    expect(conservarValores(riesgo, { fuerza: ['ARC', 'EJC'] })).toEqual({ fuerza: ['ARC'] });
   });
 });
 
@@ -232,6 +241,15 @@ describe('descargas del día', () => {
     expect(estadoDescarga('lista')).toEqual({ texto: 'Listo', color: 'green' });
     expect(estadoDescarga('archivada')).toEqual({ texto: 'archivada', color: 'gray' });
     expect(estadoDescarga('toString').texto).toBe('toString');
+  });
+
+  it('tiempo legible', () => {
+    expect(segundos(850)).toBe('850 ms');
+    expect(segundos(12_400)).toBe('12,4 s');
+    expect(segundos(185_000)).toBe('3 min 5 s');
+    expect(segundos(119_700)).toBe('2 min');
+    expect(segundos(59_980)).toBe('1 min');
+    expect(segundos(600_000)).toBe('10 min');
   });
 
   it('tamaño legible', () => {

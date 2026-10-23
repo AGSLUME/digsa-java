@@ -218,6 +218,10 @@ public class MotorReportes {
                 }
                 etiquetas = ordenados.get(0);
             } else {
+                // Único punto del límite provisional de un valor (Filtro.unSoloValor, duda RP-7)
+                if (f.unSoloValor() && ordenados.size() > 1) {
+                    throw ErrorNegocio.validacion("«" + f.etiqueta() + "» admite por ahora un solo valor en este reporte: elija solo uno.");
+                }
                 if (ordenados.size() > MAX_VALORES) {
                     throw ErrorNegocio.validacion("«" + f.etiqueta() + "» admite hasta " + MAX_VALORES + " opciones; sin el filtro salen todas.");
                 }

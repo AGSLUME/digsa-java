@@ -170,4 +170,12 @@ test('R4: tableros y logs en el catálogo; logs en PDF y envío a varios correos
   await page.getByLabel('Enviar a').fill(`${a}, ${b}`);
   await page.getByRole('button', { name: 'Enviar por correo' }).click();
   await expect(page.getByText(`Reporte enviado a ${a}, ${b}.`)).toBeVisible();
+
+  // R5: el Administrador ve los tiempos de generación (2.7)
+  await page.getByRole('tab', { name: 'Tiempos' }).click();
+  const tiempos = page.getByTestId('tabla-tiempos');
+  await expect(tiempos).toContainText('Logs de auditoría');
+  await expect(tiempos).toContainText('PDF');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await sinDesplazamientoHorizontal(page);
 });

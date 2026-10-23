@@ -315,6 +315,51 @@ public class ExportadorFlujo {
         }
     }
 
+    /** Filas que se miran para repartir el ancho de las columnas del PDF. */
+    static final int MUESTRA_ANCHOS = 500;
+    /** Ancho relativo mínimo y máximo de una columna del PDF (en caracteres): un texto muy largo se parte en varias líneas. */
+    static final int ANCHO_MIN = 4;
+    static final int ANCHO_MAX = 40;
+
+    /** Corta el recorrido de la muestra. */
+    private static final class FinMuestra extends RuntimeException {
+        FinMuestra() {
+            super(null, null, false, false);
+        }
+    }
+
+    /**
+     * Ancho relativo de cada columna del PDF según lo que trae: la palabra más larga del título y el texto más largo de las primeras
+     * {@link #MUESTRA_ANCHOS} filas, entre {@link #ANCHO_MIN} y {@link #ANCHO_MAX}. Así una columna de códigos no ocupa lo mismo que una
+     * de descripciones.
+     */
+    static float[] anchosPdf(List<String> columnas, ReporteFilas filas, int n) throws IOException {
+        int[] largo = new int[n];
+        for (int i = 0; i < n && i < columnas.size(); i++) {
+            for (String palabra : columnas.get(i).split("\\s+")) {
+                largo[i] = Math.max(largo[i], palabra.length());
+            }
+        }
+        int[] vistas = {0};
+        try {
+            filas.recorrer(datos -> {
+                for (int i = 0; i < n && i < datos.size(); i++) {
+                    largo[i] = Math.max(largo[i], Math.min(ANCHO_MAX, Exportador.texto(datos.get(i)).length()));
+                }
+                if (++vistas[0] >= MUESTRA_ANCHOS) {
+                    throw new FinMuestra();
+                }
+            });
+        } catch (FinMuestra fin) {
+            // basta con la muestra
+        }
+        float[] anchos = new float[n];
+        for (int i = 0; i < n; i++) {
+            anchos[i] = Math.max(ANCHO_MIN, Math.min(ANCHO_MAX, largo[i]));
+        }
+        return anchos;
+    }
+
     /**
      * PDF horizontal, cifrado (AES-256) y sin permiso de modificar, sin tope de filas (la DIGSA exige reportes completos): la tabla se
      * pasa al documento por partes y el total de páginas va en una plantilla, así que las filas no se acumulan en memoria (solo el índice
@@ -348,6 +393,7 @@ public class ExportadorFlujo {
             int n = Math.max(1, columnas.size());
             PdfPTable t = new PdfPTable(n);
             t.setWidthPercentage(100);
+            t.setWidths(anchosPdf(columnas, filas, n));
             t.setHeaderRows(1);
             t.setComplete(false);
             for (String c : columnas) {

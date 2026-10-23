@@ -13,6 +13,10 @@ public interface ReporteFilas {
     /** Cantidad de filas (va en «Registros» del encabezado). */
     long total();
 
+    /**
+     * Entrega cada fila al consumidor. Quien implemente no debe atrapar las {@code RuntimeException} del consumidor: el PDF corta así
+     * la muestra de los anchos de columna y el motor, los topes.
+     */
     void recorrer(Consumer<List<Object>> fila) throws IOException;
 
     /** Filas que ya están en memoria (reportes pequeños y pruebas). */

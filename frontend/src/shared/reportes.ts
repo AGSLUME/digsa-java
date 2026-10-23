@@ -5,6 +5,8 @@ export interface FiltroDef {
   etiqueta: string;
   tipo: 'lista' | 'texto';
   establecimiento: boolean;
+  /** Provisional (duda RP-7): el reporte admite por ahora un valor a la vez. */
+  unSoloValor?: boolean;
 }
 
 export interface DefReporte {
@@ -37,6 +39,36 @@ export interface Catalogo {
   grupos: GrupoCatalogo[];
   formatos: string[];
   presets: Preset[];
+  /** El Administrador ve los tiempos de generación (2.7). */
+  verTiempos?: boolean;
+}
+
+/** Tiempos de generación por reporte y por pantalla o formato (2.7). */
+export interface Tiempos {
+  dias: number;
+  plazoVerMs: number;
+  plazoExportarMs: number;
+  tiempos: {
+    reporte: string;
+    titulo: string;
+    tipo: string;
+    generaciones: number;
+    p50: number;
+    p95: number;
+    maximo: number;
+    lentas: number;
+    fallidas: number;
+  }[];
+}
+
+/** Milisegundos legibles: «850 ms», «12,4 s», «3 min 5 s». */
+export function segundos(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 59_950) return `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
+  const total = Math.round(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return s === 0 ? `${m} min` : `${m} min ${s} s`;
 }
 
 export interface Opcion {
@@ -216,7 +248,8 @@ export function conservarValores(def: DefReporte, valores: Record<string, string
   const r: Record<string, string[]> = {};
   for (const f of def.filtros) {
     const v = valores[f.clave];
-    if (v?.length) r[f.clave] = v;
+    // Un filtro de un valor (provisional, RP-7) no hereda varios del reporte anterior
+    if (v?.length) r[f.clave] = f.unSoloValor ? v.slice(0, 1) : v;
   }
   return r;
 }

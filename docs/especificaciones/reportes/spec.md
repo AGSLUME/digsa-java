@@ -5,6 +5,9 @@
 > Código leído: `reportes/ControladorReportes`, `reportes/ServicioReportes`, `plataforma/{Reporte, Exportador, BandejaSalida, DespachadorSalida, Correo, CorreoSmtp, ConfiguracionDigsa, ValidacionArranque, RegistroBitacora, FiltroBitacora}`, `tablero/{ControladorTablero, ExportadorTablero}`, `auditoria/ControladorLogs`, `exportacion/{ServicioExportacion, GeneradorExportacion, EscritorZip}`, `reglas/{Alcance, Pantallas, Perfil, Bitacora, Exportacion, Huellas}`, `db/migration/V6, V9, V12, V17, V18`; pruebas `reportes/ReportesApiTest`, `auditoria/LogsApiTest`, `ejecucion/DashboardApiTest`, `agenda/PropuestaApiTest`, `reglas/ExportacionTest`, `frontend/src/paginas/Reportes.test.ts`, `e2e/pruebas/{formulario-acta-reportes, usuarios-y-logs, riesgo-tablero}.spec.ts`.
 > Relacionadas: formato CSV y ZIP diferido en `exportacion-alertas`; alcance y pantallas en `perfiles-alcance` (la sesión paralela de identidad cambia los roles a «perfil base + pantallas» y el Analista a consulta nacional); tipos de bitácora en `bitacora`; tableros en `riesgo-tablero`; ejecución presupuestal en la sesión de presupuesto (worktree `digsa-java-presupuesto`).
 > El texto describe el comportamiento NUEVO. Donde el código actual difiere se dice en «Hoy».
+> **Estado (2026-10-23):** fases R1 a R5 hechas (R1+R2 42364dc, R3 f88cc5c, R4 7c4ebfc; R5 en el índice, sin commit). Los «Hoy» que
+> describían el código anterior al motor quedan como «Antes»; los `test:` apuntan a las pruebas reales. Decisiones en
+> `docs/dudas_pendientes.md`, sección «Reportes» (R.1 a R.55). Ruta de pruebas abreviada: `…/digsa/` = `backend/app/src/test/java/co/com/agsamericas/digsa/`.
 
 ---
 
@@ -18,12 +21,14 @@ Cada módulo funcional (visitas, tableros, seguridad y, cuando lleguen, cuentas 
 <!-- incierto: nombres de la interfaz y de los métodos; se propone `definicion()` y `filas(Consulta, Alcance, Consumer<List<Object>>)` con cursor para no cargar todo en memoria. -->
 
 #### Scenario: Proveedor nuevo sin tocar el motor
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/ProveedoresR4ApiTest.java:85 (tableros) y :139 (logs): proveedores de otros módulos sin tocar el motor -->
+<!-- Resuelto: el contrato quedó en `reportes` y el motor en `motorreportes` (R.16); guía en contrato-proveedor.md. -->
+<!-- incierto (resuelto): nombres de la interfaz; son `definicion()` y `filas(ConsultaReporte, Consumer<List<Object>>)`, con el alcance dentro de la consulta. -->
 - **CUANDO** un módulo registra un bean `ProveedorReporte` con id `glosas_estado`
 - **ENTONCES** aparece en el catálogo de los perfiles que declara y se puede ver, exportar, enviar y verificar con los mismos endpoints
 
 #### Scenario: Id duplicado o inválido
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/ContratoReportesTest.java:45 (id fuera del patrón) y :78 (id repetido o que choca con una ruta del motor) -->
 - **CUANDO** dos proveedores declaran el mismo `id`, o un id que no cumple el patrón
 - **ENTONCES** la aplicación no arranca y el log dice cuáles chocan
 
@@ -68,11 +73,12 @@ El catálogo DEBE mostrar solo los reportes que el usuario puede generar, agrupa
 <!-- decision: Anexo 5 2.11 | Hoja de ruta M10-3 | MOCKUP «Fuerza (una, varias o todas)», «ESM Todos» -->
 
 Cada filtro de catálogo (fuerza, ESM o lugar, municipio, unidad, estado, componente, regional y los que declare el proveedor) DEBE admitir una, varias o todas las opciones. En la API van como parámetro repetido (`fuerza=EJC&fuerza=ARC`); sin el parámetro es «todas». En pantalla son listas de selección múltiple con «Todas». Un valor que no existe responde 422 con el nombre del filtro. Un valor que existe pero está fuera del alcance del usuario responde 422 «fuera de su alcance» sin revelar su nombre. El encabezado nombra las opciones elegidas o dice «Todas».
-<!-- Hoy: un solo valor por filtro; fuerza o unidad fuera del alcance devuelven vacío en silencio; solo el lugar fuera del alcance da 422 (ServicioReportes.java:79). -->
+<!-- Antes: un solo valor por filtro; fuerza o unidad fuera del alcance devolvían vacío en silencio. Hoy (R1): varias opciones por filtro, y lo que no existe o está fuera del alcance da 422 con el mismo mensaje (R.6). Excepción provisional: los filtros marcados `deUnValor()` de tableros y presupuesto aceptan uno solo y más es 422 (R.45, RP-7). -->
+<!-- Resuelto (R2): en el archivo la lista va completa; en Excel, en la hoja «Filtros» (R.27). -->
 <!-- duda: con muchas opciones (p. ej. 40 ESM) el encabezado se alarga. Propuesta: en pantalla «ESM: 40 seleccionados»; en el archivo, la lista completa (Excel: hoja «Filtros»; PDF y TXT: anexo al final; CSV: línea completa). -->
 
 #### Scenario: Varias fuerzas
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/MotorReportesApiTest.java:99; e2e/pruebas/reportes-motor.spec.ts:14 -->
 - **CUANDO** el coordinador filtra `fuerza=EJC&fuerza=ARC`
 - **ENTONCES** las filas son solo de esas dos fuerzas y el encabezado dice «Fuerza: Ejército, Armada»
 
@@ -82,7 +88,7 @@ Cada filtro de catálogo (fuerza, ESM o lugar, municipio, unidad, estado, compon
 - **ENTONCES** 422
 
 #### Scenario: Lugar fuera del alcance
-<!-- test: pendiente (hoy cubierto solo por código: ServicioReportes.java:79) -->
+<!-- test: …/digsa/motorreportes/MotorReportesApiTest.java:278 (alcance ESM: otro punto es 422) y :99 (lo de fuera es 422 sin revelar nombres) -->
 - **CUANDO** un ESM pide un `punto_id` de otro ESM
 - **ENTONCES** 422 «El lugar no existe o está fuera de su alcance.» sin el nombre del punto
 
@@ -100,7 +106,7 @@ Todo reporte con campo temporal DEBE pedir un rango `desde`–`hasta` (fecha, o 
 <!-- Resuelto en R1: la semana ISO lleva «W» (`2026-W29`) para no chocar con el semestre (duda R.10). -->
 
 #### Scenario: Agrupado por bimestre
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/MotorReportesApiTest.java:143 y :173 (etiquetas en los bordes); e2e/pruebas/reportes-motor.spec.ts:14 -->
 - **CUANDO** se pide el consolidado por lugar de 2026-01-01 a 2026-06-30 agrupado por bimestre
 - **ENTONCES** cada lugar sale en filas `2026-B1`, `2026-B2` y `2026-B3`
 
@@ -110,7 +116,7 @@ Todo reporte con campo temporal DEBE pedir un rango `desde`–`hasta` (fecha, o 
 - **ENTONCES** 422
 
 #### Scenario: Agrupación no admitida
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/MotorReportesApiTest.java:143 (422 con las que sí admite); …/digsa/motorreportes/ContratoReportesTest.java:45 (horas sobre un campo sin hora no arranca) -->
 - **CUANDO** se pide agrupar por horas un reporte cuyo campo temporal es una fecha sin hora
 - **ENTONCES** 422 con las agrupaciones que sí admite
 
@@ -123,21 +129,21 @@ Todo reporte con campo temporal DEBE pedir un rango `desde`–`hasta` (fecha, o 
 <!-- decision: Anexo 5 2.9 | Hoja de ruta M10-2 | MOCKUP (Título, Periodo, Generado, Usuario, Establecimiento, Filtros, Fuente, Página) -->
 
 Todo reporte, en pantalla y en TXT, CSV, Excel y PDF, DEBE llevar: **Título**; **Periodo** (desde–hasta resueltos y agrupación); **Generado** (fecha y hora de Bogotá, 24 h, `yyyy-MM-dd HH:mm:ss`); **Usuario** (nombre y usuario); **Establecimiento** (los ESM o lugares elegidos, o «Todos» dentro del alcance); **Filtros** (los demás, con sus valores); **Fuente**; **Registros** (filas); **Código de verificación**; y **Página «N de M»**. En PDF la página va en cada hoja con el total; en Excel, en el pie de impresión (`&P de &N`) y el resto en las primeras filas; en pantalla, la página de la tabla. Los filtros que el reporte no aplica no se muestran.
-<!-- Hoy: no hay «Página», ni «Establecimiento» propio (el lugar va como filtro), ni «Fuente» (solo en el dashboard y el riesgo), ni código de verificación; el periodo va como «Filtro: Periodo». El PDF no numera las páginas. -->
+<!-- Antes: no había «Página», ni «Establecimiento» propio, ni «Fuente», ni código de verificación. Hoy (R2): el encabezado completo va en los 4 formatos y en pantalla, con la huella de los datos (64 caracteres, R.20); el PDF numera «Página N de M» en cada hoja. -->
 <!-- duda: CSV y TXT no tienen páginas. Propuesta: «Página: 1 de 1 (archivo continuo)» en el encabezado. -->
 
 #### Scenario: Encabezado del detalle
-<!-- test: backend/app/src/test/java/co/com/agsamericas/digsa/reportes/ReportesApiTest.java:61 (ampliar) -->
+<!-- test: …/digsa/motorreportes/IntegridadApiTest.java:182; …/digsa/reportes/ReportesApiTest.java:59 -->
 - **CUANDO** el coordinador genera el detalle de visitas
 - **ENTONCES** la respuesta trae título, periodo, generado, usuario, establecimiento, filtros, fuente, registros y código
 
 #### Scenario: Página en el PDF
-<!-- test: pendiente -->
+<!-- test: …/digsa/plataforma/ExportadorFlujoTest.java:83 -->
 - **CUANDO** el PDF de un reporte de 300 filas ocupa 7 hojas
 - **ENTONCES** cada hoja dice «Página k de 7» y repite los títulos de las columnas
 
 #### Scenario: Encabezado en el CSV
-<!-- test: backend/app/src/test/java/co/com/agsamericas/digsa/reportes/ReportesApiTest.java:93 (ampliar) -->
+<!-- test: …/digsa/plataforma/ExportadorFlujoTest.java:46; …/digsa/reportes/ReportesApiTest.java:92 -->
 - **CUANDO** se descarga el CSV
 - **ENTONCES** empieza con el BOM y las líneas del encabezado `clave;valor`, una vacía y luego los títulos de las columnas
 
@@ -150,7 +156,7 @@ Todo reporte, en pantalla y en TXT, CSV, Excel y PDF, DEBE llevar: **Título**; 
 <!-- decision: Anexo 5 2.4 l.356 y 2.12 | RESPUESTAS l.775 (delimitadores se definen en la parametrización) | duda 15.2 | Hoja de ruta M10-5 -->
 
 Todo reporte del catálogo DEBE exportarse a TXT, CSV, Excel (`.xlsx`) y PDF con las mismas columnas, filas y orden que en pantalla y sin truncar. Reglas comunes: hora de Bogotá en 24 h; decimales con coma, sin separador de miles y redondeados a 2 cifras (mitad hacia arriba) en la presentación; CSV en UTF-8 con BOM, separador `;`, fin de línea `\r\n` y sin fórmulas (apóstrofo ante `= + - @ \t \r`); Excel sin fórmulas, con números como número y texto como texto. La generación DEBE ir en flujo (cursor por lotes hacia el escritor), sin cargar las filas ni el archivo completos en memoria. El separador y la extensión quedan parametrizables por la DIGSA (RESPUESTAS l.775).
-<!-- Hoy: las filas se cargan completas en memoria (List<List<Object>>) y el archivo se arma en un byte[]; los logs solo exportan Excel y CSV (ControladorLogs.java:168). -->
+<!-- Antes: las filas se cargaban completas en memoria y el archivo se armaba en un byte[]. Hoy (R2, R5): cursor del proveedor → cinta temporal comprimida (R.54) → archivo en el almacén (`plataforma/ExportadorFlujo`); sin tope de filas (TAS P12, R.26), Excel sigue en «Datos 2» pasado el millón de filas. Excepción: presupuesto arma sus filas en memoria en su servicio (R.46). La pantalla de Logs (`ControladorLogs`, no se tocó) sigue con Excel y CSV; los 4 formatos salen desde «Reportes → Logs de auditoría» (R.47). -->
 <!-- incierto: los 2 decimales son de presentación; la exportación completa de datos no redondea (duda 26.7). -->
 
 #### Scenario: Cuatro formatos
@@ -164,7 +170,7 @@ Todo reporte del catálogo DEBE exportarse a TXT, CSV, Excel (`.xlsx`) y PDF con
 - **ENTONCES** el TXT lo trae completo
 
 #### Scenario: Logs en los cuatro formatos
-<!-- test: pendiente (hoy LogsApiTest.java:83 cubre xlsx y csv) -->
+<!-- test: …/digsa/motorreportes/ProveedoresR4ApiTest.java:139; e2e/pruebas/reportes-motor.spec.ts:147 -->
 - **CUANDO** el administrador exporta los logs en PDF o TXT
 - **ENTONCES** sale el archivo con el encabezado completo, como los demás reportes
 
@@ -181,15 +187,15 @@ Cada generación (ver, descargar o enviar) DEBE quedar en `reportes_generados` c
 - **huella del archivo** = SHA-256 del archivo ya escrito (con su encabezado). Se calcula al terminar y solo vive en el registro, porque imprimirla cambiaría el archivo.
 
 El código DEBE ser aleatorio (no derivado de la huella), corto y legible (propuesta `RPT-aaaammdd-XXXXXX`, alfabeto sin 0/O ni 1/I) y único.
-<!-- incierto: formato del código. -->
+<!-- Resuelto (R2): se imprimen los 64 caracteres de la huella (R.20); el código es `RPT-aaaammdd-` y 8 caracteres (R.29), con tope de 30 verificaciones por usuario y minuto (R.28). -->
 
 #### Scenario: Código impreso
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/IntegridadApiTest.java:62 y :197 (Excel con código y huella); …/digsa/motorreportes/HuellaYCintaTest.java:104 (forma del código) -->
 - **CUANDO** se descarga un Excel
 - **ENTONCES** el encabezado trae «Código de verificación: RPT-…» y «Huella de los datos: …», y `reportes_generados` guarda la huella del archivo
 
 #### Scenario: Mismos datos, distinto formato
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/IntegridadApiTest.java:62 -->
 - **CUANDO** el mismo usuario descarga el reporte en CSV y en PDF con los mismos filtros, sin cambios en la base
 - **ENTONCES** las dos generaciones tienen la misma huella de los datos y distinta huella del archivo
 
@@ -206,7 +212,8 @@ El PDF DEBE salir cifrado con AES-256 y contraseña de propietario aleatoria que
 <!-- duda: ¿se protege también la hoja de Excel (protectSheet con clave aleatoria) como disuasión? La DIGSA no lo exige. Propuesta: no, para no estorbar la reutilización. -->
 
 #### Scenario: Permisos del PDF
-<!-- test: pendiente -->
+<!-- Resuelto (R2): `bcprov-jdk18on` 1.78.1 en el pom (R.5); Excel y CSV sin protección (R.22); alcance real de los permisos en R.21. -->
+<!-- test: …/digsa/motorreportes/IntegridadApiTest.java:165; …/digsa/plataforma/ExportadorFlujoTest.java:83 -->
 - **CUANDO** se abre el PDF descargado con OpenPDF o PDFBox en la prueba
 - **ENTONCES** está cifrado, abre sin contraseña, permite imprimir y copiar y no permite modificar
 
@@ -221,13 +228,15 @@ El PDF DEBE salir cifrado con AES-256 y contraseña de propietario aleatoria que
 Cualquier usuario con sesión DEBE poder verificar desde la pantalla de reportes: (a) **subiendo el archivo**, que se compara por huella del archivo con el registro; o (b) **escribiendo el código**, que muestra título, generado, usuario (enmascarado si no es él), periodo, filtros, filas, formato y huellas. Con el código, si el usuario tiene permiso sobre ese reporte y su alcance cubre el alcance registrado, DEBE poder **regenerarlo** con los mismos parámetros y ver si la huella de los datos coincide hoy o si los datos cambiaron desde entonces. El resultado es «Íntegro», «Alterado o no generado por la Suite DIGSA» o «Íntegro; los datos cambiaron desde la generación». La verificación queda en la bitácora (`reporte_verificado`). El archivo subido no se guarda.
 <!-- duda: ¿quién verifica? ¿Cualquier perfil o solo el que tiene el reporte? Propuesta: cualquiera con sesión ve el resultado y los metadatos sin filas; regenerar exige permiso y alcance. -->
 
+<!-- Resuelto (R2): así quedó; quien no generó el reporte no ve los valores de los filtros (R.23, R.31). -->
+
 #### Scenario: Archivo alterado
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/IntegridadApiTest.java:113; e2e/pruebas/reportes-motor.spec.ts:74 -->
 - **CUANDO** se sube un CSV descargado al que se le cambió una cifra
 - **ENTONCES** «Alterado o no generado por la Suite DIGSA»
 
 #### Scenario: Código válido y datos sin cambio
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/IntegridadApiTest.java:113 (regenerar compara los datos) -->
 - **CUANDO** se escribe el código de un reporte de ayer y se regenera sin cambios en la base
 - **ENTONCES** «Íntegro» con la misma huella de los datos
 
@@ -236,11 +245,11 @@ Cualquier usuario con sesión DEBE poder verificar desde la pantalla de reportes
 ### Invariant: Mismo reporte, mismos filtros y mismo alcance: mismas cifras y orden
 <!-- entidades: ProveedorReporte, ReporteGenerado -->
 <!-- impuesto_en: Anexo 5 2.10 l.362 («las cifras no deben cambiar al generar el mismo reporte con diferentes usuarios usando los mismos filtros y/o parámetros») -->
-<!-- verificado_por: pendiente (Hoja de ruta M10-4: exportar dos veces y desde dos usuarios) -->
+<!-- verificado_por: …/digsa/motorreportes/IntegridadApiTest.java:94 (dos coordinadores, misma huella; la DIGSA es otra variante); …/digsa/motorreportes/HuellaYCintaTest.java:40 -->
 
 Con los mismos datos, el mismo reporte, filtros, periodo y agrupación DEBE dar la misma huella de los datos para cualquier usuario con el mismo alcance efectivo. Para eso: (1) cada proveedor DEBE declarar un orden total (con desempate por llave: `ORDER BY p.nombre, p.id`, no solo `p.nombre`); (2) el periodo se resuelve a fechas antes de consultar, y un preset relativo («hoy») se guarda resuelto; (3) la lectura se hace en una sola transacción de solo lectura (`REPEATABLE READ`), como la exportación completa; (4) los cálculos usan `BigDecimal` con redondeo fijo, no `double`; (5) las columnas no dependen del usuario sino de la definición: si un perfil no puede ver una columna (Ley 1581), el reporte de ese perfil es **otra variante** con su propia versión y huella.
-<!-- Hoy: el detalle agrega «Auditor líder» solo si verEquipo() (ControladorReportes.java:65); el consolidado por lugar ordena solo por p.nombre y la distribución por u.nombre, p.nombre (sin desempate); % cumplimiento sale de Checklist.cumplimiento como double. -->
-<!-- duda: dos usuarios con alcances distintos (coordinador y Sanidad ARC) ven cifras distintas por diseño. Propuesta: la igualdad se exige entre usuarios con el mismo alcance; entre alcances, las filas comunes coinciden. Confirmar que así se lee 2.10. -->
+<!-- Antes: orden sin desempate y % de cumplimiento en double. Hoy (R1, R2): orden total por proveedor, una transacción REPEATABLE READ y BigDecimal; la columna «Auditor líder» que no ven todos los perfiles es otra variante. -->
+<!-- duda (aprobada, R.2): la igualdad se exige entre usuarios con el mismo alcance; un perfil que no ve una columna tiene su propia variante. -->
 
 ---
 
@@ -278,15 +287,16 @@ Un reporte `GENERAL` DEBE salir solo agregado, sin columnas que identifiquen per
 
 Cada archivo exportado DEBE guardarse en el almacén y listarse en «Descargas del día» del usuario que lo pidió, con reporte, formato, hora de solicitud, estado («Generando», «Listo», «Fallido»), filas, tamaño, código y «Disponible hasta 23:59». Solo ese usuario lo vuelve a bajar, sin regenerarlo, hasta las 23:59:59 de Bogotá del día en que lo pidió. Pedir el mismo reporte con los mismos parámetros y formato el mismo día, sin cambios de datos detectables, DEBE ofrecer el archivo ya listo en vez de generarlo otra vez. La descarga va con `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` y `Cache-Control: no-store`.
 <!-- incierto: «sin cambios de datos detectables» exige una marca de cambio por fuente; sin ella, se propone ofrecer el archivo del día con el aviso «generado a las HH:mm; ¿generar uno nuevo?». -->
-<!-- Hoy: la descarga se genera en cada petición y no se guarda; la de reportes de visitas no lleva nosniff ni no-store (ControladorReportes.java:109), la del tablero sí (ControladorTablero.java:119). -->
+<!-- Antes: la descarga se generaba en cada petición y no se guardaba. Hoy (R3): cada archivo queda en el almacén hasta las 23:59:59 y se lista en la pestaña «Descargas del día» (`frontend/src/paginas/DescargasDelDia.tsx`); la descarga lleva attachment, nosniff, no-store y `Content-Security-Policy: sandbox` (`motorreportes/ControladorReportes.java:225`). -->
+<!-- incierto (decidido, R.38): no se reutiliza solo; el usuario ve lo que ya pidió en «Descargas del día» y lo baja de ahí. -->
 
 #### Scenario: Volver a bajar en la tarde
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/DiferidoApiTest.java:77; e2e/pruebas/reportes-motor.spec.ts:122 -->
 - **CUANDO** el usuario bajó un Excel a las 09:10 y vuelve a las 16:00
 - **ENTONCES** lo ve «Listo» en «Descargas del día» y lo baja con la misma huella del archivo
 
 #### Scenario: Otro usuario
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/DiferidoApiTest.java:77 -->
 - **CUANDO** otro usuario pide la descarga de ese id
 - **ENTONCES** 404 (no se revela que existe)
 
@@ -300,8 +310,10 @@ Cada archivo exportado DEBE guardarse en el almacén y listarse en «Descargas d
 
 Después de las 23:59:59 de Bogotá los archivos del día DEBEN borrarse del almacén y su fila quedar «vencida». El registro (código, huellas, filtros, usuario, filas, tiempos) NO se borra: sirve para verificar después (bitácora sin purga, decisión 7.5). La limpieza corre con candado entre réplicas y se repone si el servidor estuvo apagado a medianoche.
 
+<!-- Hoy (R3): `motorreportes/LimpiezaReportes`, cada minuto (`digsa.reportes.limpieza-ms`) con candado; un archivo que no se pudo borrar se reintenta (R.42). -->
+
 #### Scenario: Al día siguiente
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/DiferidoApiTest.java:115 y :194 -->
 - **CUANDO** a las 00:05 el usuario abre «Descargas del día»
 - **ENTONCES** no ve los de ayer, el archivo ya no está en el almacén y el código de ayer sigue verificándose
 
@@ -314,11 +326,11 @@ Después de las 23:59:59 de Bogotá los archivos del día DEBEN borrarse del alm
 <!-- decision: Anexo 5 2.7 («a fin de no recargar al sistema con procesos repetitivos») | MOCKUP estado «Generando» -->
 
 Una exportación que no termina en un tiempo corto DEBE seguir en segundo plano: la petición responde 202 con el id, la fila queda «Generando» en «Descargas del día» y la pantalla avisa cuando pasa a «Listo» (consulta periódica o aviso en la aplicación). A diferencia de la exportación completa, varias pueden correr a la vez con un tope de concurrencia por instancia y por usuario. Una falla deja «Fallido» con mensaje genérico, sin archivo a medias, y queda en la bitácora.
-<!-- duda: umbral para pasar a diferido. Propuesta: siempre diferido por debajo (la petición espera hasta 15 s; si no terminó, 202). Tope: 2 en curso por usuario, 4 por instancia. -->
-<!-- duda: aviso al terminar. Canales según los anexos: correo solo si lo piden; propuesta: solo aviso en la aplicación. -->
+<!-- Resuelto (R3): la petición espera 15 s (`digsa.reportes.espera-sincrona-ms`, R.35) y si no terminó responde 202; 4 a la vez por instancia y 2 en curso por usuario (más es 429). La cola vive en la memoria de la instancia (R.36). -->
+<!-- Resuelto (R3): aviso solo en la aplicación; «Descargas del día» consulta cada 5 s mientras algo se genera (R.37). -->
 
 #### Scenario: Reporte grande
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/DiferidoApiTest.java:77 (202 y «Descargas del día») y :159 (429 por usuario); volumen: …/digsa/motorreportes/VolumenReportesApiTest.java:77 (1,5 M filas en segundo plano, con -Ddigsa.volumen=true) -->
 - **CUANDO** un Excel de 500 000 filas tarda 2 minutos
 - **ENTONCES** la petición responde 202, la fila se ve «Generando» y luego «Listo» sin recargar la página
 
@@ -330,17 +342,19 @@ Una exportación que no termina en un tiempo corto DEBE seguir en segundo plano:
 <!-- impuesto_en: Anexo 5 2.7 l.359; RESPUESTAS l.899 y l.2213 («las consultas de hasta tres (3) meses deberán responder en 3 o 10 minutos»); patrón límite de 10 min en ServicioExportacion (digsa.exportacion.limite-minutos) y latencias p50/p95 de Alertas -->
 <!-- decision: Anexo 5 2.7 | Hoja de ruta M5-5 y M10-1 -->
 
-Cada generación DEBE registrar en `reportes_generados` el tiempo de consulta, el de escritura del archivo y el total, en milisegundos. La visualización DEBE cortar a los 3 minutos y la exportación a los 10 (tiempo de espera de la consulta en PostgreSQL más el plazo del escritor), con mensaje claro. Pasar el 80 % del plazo o cortarse DEBE disparar una alerta operativa al Administrador con el reporte, los filtros y el tiempo (2.7 obliga a informar por escrito a la DIGSA). La pantalla de reportes DEBE mostrar al usuario el tiempo que tardó cada generación. El administrador ve p50, p95 y máximo por reporte.
-<!-- Hoy: no se mide ni se registra el tiempo de ningún reporte. -->
+Cada generación DEBE registrar en `reportes_generados` el tiempo de consulta, el de escritura del archivo y el total, en milisegundos. **Pasar el plazo no corta** (decisión de la sesión 1 en R3): el usuario recibe su reporte completo. Pasar el 80 % del plazo, pasarlo o cortarse DEBE disparar una alerta operativa al Administrador con el reporte, los filtros y el tiempo (2.7 obliga a informar por escrito a la DIGSA). Solo corta un tope técnico para consultas colgadas: 60 minutos al generar un archivo y 10 en pantalla, con 503 y un mensaje claro. La pantalla de reportes DEBE mostrar al usuario el tiempo que tardó cada generación. El administrador ve p50, p95 y máximo por reporte.
+<!-- Antes: no se medía ni se registraba el tiempo de ningún reporte. Hoy (R3, R5): plazos `digsa.reportes.plazo-ver-ms` (180000) y `plazo-exportar-ms` (600000), que solo avisan; topes `tope-tecnico-ms` (3600000) y `tope-tecnico-ver-ms` (600000, R.40), que cubren toda la generación (R.41); alerta «reporte_lento» (V51, por correo, sin SMS). La pantalla muestra «generado en N s» (`frontend/src/paginas/Reportes.tsx:369`). El Administrador tiene la pestaña «Tiempos» (`frontend/src/paginas/TiemposReportes.tsx`, `GET /api/reportes/tiempos`): p50, p95 y máximo por reporte, en pantalla y por formato, y cuántas pasaron el 80 % del plazo, en 1, 7, 30 o 90 días (R.53). -->
+<!-- Volumen (R5, VolumenReportesApiTest, 1,5 M visitas en un trimestre, equipo de desarrollo): ver «Consolidado por lugar» 66 s y el detalle 2,5 s; exportar el detalle en CSV 3 min 8 s, TXT 3 min 50 s, Excel 4 min 58 s y PDF 6 min 45 s. Todo dentro de 2.7. Tabla en dudas_pendientes.md, R5. -->
 <!-- incierto: el informe escrito a la DIGSA lo hace una persona; la aplicación da la evidencia. -->
 
 #### Scenario: Visualización lenta
-<!-- test: pendiente -->
+<!-- Ajustado a la decisión de la sesión 1: el plazo no corta; solo corta el tope técnico. -->
+<!-- test: …/digsa/motorreportes/DiferidoApiTest.java:207 (pasa el plazo, no se corta, alerta) y :219 (alerta desde el 80 %); …/digsa/motorreportes/TopeTecnicoApiTest.java:21 (pantalla, 503) y :34 (archivo, «fallida») -->
 - **CUANDO** una consulta supera los 3 minutos
-- **ENTONCES** se corta, el usuario ve «El reporte superó el tiempo máximo; acote el periodo o expórtelo» y se dispara la alerta
+- **ENTONCES** el usuario recibe el reporte completo y se dispara la alerta «reporte lento»; si llega al tope técnico, se corta con 503 y un mensaje para acotarla
 
 #### Scenario: Tiempo visible
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/DiferidoApiTest.java:219 (los tres tiempos en la fila); …/digsa/motorreportes/ProveedoresR4ApiTest.java:113 (pestaña «Tiempos» del Administrador) -->
 - **CUANDO** se genera cualquier reporte
 - **ENTONCES** la pantalla muestra «Generado en N s» y la fila guarda los tres tiempos
 
@@ -353,23 +367,24 @@ Cada generación DEBE registrar en `reportes_generados` el tiempo de consulta, e
 <!-- decision: Anexo 5 condiciones 12 l.1008 y 17 l.1018 | D3 (dominios configurables) | dudas 17.11, 19.15, 16.5, 16.6 | Hoja de ruta M6-14, M9-3, M10-6; simulacro órdenes 5–9, 13 y 15 -->
 
 Desde la misma pantalla del reporte (sin abrir otra herramienta) el usuario DEBE poder enviar el archivo del reporte en el formato que elija (Excel por defecto) a uno o varios correos (máximo 15 por envío), cada uno validado y dentro de los dominios permitidos (`DIGSA_DOMINIOS_REPORTES`, incluidos sus subdominios). El adjunto es el mismo archivo del repositorio del día (misma huella), con el código en el cuerpo del correo. El resultado DEBE mostrarse en pantalla («Enviado a…» o el error) y quedar en la bitácora con los correos enmascarados. Un adjunto por encima del tope configurable se rechaza antes de enviar, con mensaje para acotar el reporte o cambiar de formato. Si el correo no sale, responde 502 y queda «NO salió».
-<!-- Hoy: un solo destinatario; el archivo se genera aparte de la descarga (otra huella); no hay tope de tamaño del adjunto en ningún lado (ni en la bandeja ni en CorreoSmtp); la bandeja no admite bytes, solo rutas del almacén. -->
-<!-- duda: tope del adjunto. ACS ronda 10 MB (16.5) y el de la DIGSA y las fuerzas no se conoce (16.6). Propuesta: `digsa.reportes.adjunto-max-mb`, 10 MB por defecto. -->
-<!-- duda: ¿síncrono (como hoy) o por la bandeja de salida con reintentos? Propuesta: síncrono, porque el resultado se muestra (regla de BandejaSalida) y el comité verifica la llegada en el momento; el adjunto ya está en el almacén, así que pasar a la bandeja después es trivial. -->
+<!-- Antes: un solo destinatario y el archivo aparte de la descarga. Hoy (R4): hasta 15 destinatarios (`ControladorReportes.MAX_DESTINATARIOS`), en lista o separados por comas, punto y coma o espacios; uno no válido rechaza el envío; si el SMTP rechaza a algunos, la respuesta y la bitácora dicen a quién no llegó. La pantalla de Logs (`ControladorLogs.enviar`) sigue con un destinatario; a varios, desde «Reportes → Logs de auditoría» (R.47). -->
+<!-- duda (aprobada, R.4): 10 MB por defecto, `digsa.reportes.adjunto-max-mb`. -->
+<!-- duda (aprobada, R.3, ajustada en R.39): la petición espera el resultado, pero la generación pasa por la misma cola y el mismo cupo por usuario de las descargas. -->
 <!-- incierto: el tope de 15 copia el de la notificación manual (18.13); no hay cifra en los anexos. -->
 
 #### Scenario: Envío al comité
-<!-- test: backend/app/src/test/java/co/com/agsamericas/digsa/reportes/ReportesApiTest.java:100 (ampliar a varios destinatarios) -->
+<!-- test: …/digsa/motorreportes/ProveedoresR4ApiTest.java:35 (varios destinatarios, bitácora enmascarada) y :75 (rechazo parcial); …/digsa/reportes/ReportesApiTest.java:83; e2e/pruebas/reportes-motor.spec.ts:147 -->
 - **CUANDO** el coordinador envía el consolidado por lugar en PDF a `comite@example.com`
 - **ENTONCES** llega un correo con un adjunto `.pdf`; la bitácora dice `reporte_enviado` con el correo enmascarado
 
 #### Scenario: Dominio no permitido
-<!-- test: backend/app/src/test/java/co/com/agsamericas/digsa/reportes/ReportesApiTest.java:105, backend/app/src/test/java/co/com/agsamericas/digsa/auditoria/LogsApiTest.java:107 -->
+<!-- test: …/digsa/motorreportes/ProveedoresR4ApiTest.java:35; …/digsa/reportes/ReportesApiTest.java:83; …/digsa/auditoria/LogsApiTest.java:107 -->
 - **CUANDO** uno de los destinatarios es `alguien@otro-dominio.com`
 - **ENTONCES** 422 «Los reportes solo se envían a correos de: …» y no sale a ninguno
 
 #### Scenario: Adjunto muy grande
-<!-- test: pendiente -->
+<!-- Hoy (R4, R5): 422 antes del SMTP, pero después de leer: el corte ocurre al escribir el archivo, cuando pasa de 10 MB, y la escritura empieza al terminar la lectura (R.52). Con 1,5 M filas, el 422 llega a los 3 min 40 s. -->
+<!-- test: …/digsa/motorreportes/VolumenReportesApiTest.java:97 (solo con -Ddigsa.volumen=true; generar más de 10 MB en la batería rápida es lento, R.50) -->
 - **CUANDO** el Excel pesa más que el tope
 - **ENTONCES** 422 antes de llamar al SMTP, con el tamaño y el tope
 
@@ -382,11 +397,11 @@ Desde la misma pantalla del reporte (sin abrir otra herramienta) el usuario DEBE
 <!-- decision: Anexo 5 ítem 15 l.976 | decisión 7.5 (sin purga) | duda 17.14 -->
 
 DEBEN quedar en la bitácora, con usuario, fecha, reporte, código, formato, filtros resumidos, filas y tiempo: `reporte_generado` (ver en pantalla), `reporte_descargado` (cada descarga, también la segunda del repositorio), `reporte_enviado` (con destinatarios enmascarados y si salió) y `reporte_verificado` (con el resultado), todos de operación CONSULTA y declarados en `Bitacora.TIPOS`. Los filtros multivalor se registran completos (todos los valores, no el primero).
-<!-- Hoy: la descarga de los logs no escribe `reporte_descargado` (solo la fila del filtro de la petición); la de reportes y tableros sí. -->
-<!-- incierto: si FiltroBitacora toma solo el primer valor de un parámetro repetido; revisar al hacer los filtros multivalor. -->
+<!-- Antes: la descarga de los logs no escribía `reporte_descargado`. Hoy (R4): por el motor sí. Además de los cuatro, el motor usa `reporte_solicitado`, `reporte_vencido` y `reporte_fallido` (`reglas/Bitacora.TIPOS`). -->
+<!-- incierto (resuelto, R.7): `FiltroBitacora` toma solo el primer valor; no se tocó. El motor escribe todos los valores de cada filtro en la misma fila de la petición. -->
 
 #### Scenario: Descarga de logs
-<!-- test: pendiente -->
+<!-- test: …/digsa/motorreportes/ProveedoresR4ApiTest.java:139; filtros completos en …/digsa/motorreportes/MotorReportesApiTest.java:328 -->
 - **CUANDO** el administrador descarga los logs en Excel
 - **ENTONCES** la bitácora tiene `reporte_descargado` con el nombre del archivo y su código
 
@@ -399,16 +414,17 @@ DEBEN quedar en la bitácora, con usuario, fecha, reporte, código, formato, fil
 <!-- decision: Anexo 5 ítem 13 | duda 19.9 | Hoja de ruta M6-11 a M6-13 -->
 
 Al migrar, los reportes de visitas DEBEN cumplir el mínimo del ítem 13: **detalle** con lugar visitado, fecha y hora de inicio real, fecha y hora de fin real, número de visita, componentes auditados, objeto, hallazgos (texto) y usuario auditor, filtrable por periodo y lugar; **consolidado por lugar** con lugar, **componente auditado** y número de visitas; **consolidado por proceso** con componente y número de visitas. Se conservan las columnas que ya tienen (estado, tipo, municipio, fuerza, unidad, C/NC/NA, % de cumplimiento, cantidad de hallazgos).
-<!-- Hoy (brecha para la prueba): el detalle trae la fecha programada, no inicio y fin reales, ni objeto, ni componentes, ni el texto de los hallazgos, y el auditor solo como «Auditor líder»; el consolidado por lugar no tiene la columna de componente. -->
-<!-- duda: ¿una fila por visita con los componentes y hallazgos en una celda (separados por « · »), o una fila por visita y componente? Propuesta: detalle una fila por visita; consolidado por lugar una fila por lugar y componente. -->
+<!-- Antes (brecha para la prueba): el detalle traía la fecha programada, sin inicio y fin reales, objeto, componentes ni texto de los hallazgos; el consolidado por lugar no tenía componente. Hoy (R1): brecha cerrada; el consolidado por lugar suma además «OBL Obligaciones del contrato» y «Sin componente» (R.17). -->
+<!-- duda (aprobada, R.1): detalle una fila por visita, con componentes y hallazgos del acta más reciente separados por « · »; consolidado por lugar una fila por lugar y componente. -->
 
 #### Scenario: Detalle con inicio, fin y objeto
-<!-- test: pendiente (ampliar ReportesApiTest.java:61 y e2e/pruebas/formulario-acta-reportes.spec.ts:171) -->
+<!-- test: …/digsa/motorreportes/MotorReportesApiTest.java:197; consolidado por lugar en :243 -->
 - **CUANDO** se genera el detalle de una visita cerrada con inicio 08:00, fin 11:30, objeto y 2 hallazgos
 - **ENTONCES** la fila trae «… 08:00:00», «… 11:30:00», el objeto, los componentes, los dos hallazgos y el auditor
 
 #### Scenario: Visita sin acta
-<!-- test: pendiente (duda 19.9) -->
+<!-- test: …/digsa/motorreportes/MotorReportesApiTest.java:197 (visita reabierta sin resultados ni hallazgos, R.18) -->
+<!-- R.13: el consolidado por proceso cuenta las respuestas del checklist; el tablero lee el resumen del acta; en un seguimiento pueden diferir (pendiente de la sesión 1). -->
 - **CUANDO** una visita del periodo no tiene acta
 - **ENTONCES** sale en el detalle con los resultados vacíos; el consolidado por proceso solo cuenta visitas cerradas
 
@@ -422,6 +438,7 @@ Al migrar, los reportes de visitas DEBEN cumplir el mínimo del ítem 13: **deta
 
 El motor DEBE absorber, como proveedores, los 4 reportes de visitas (`detalle`, `lugar`, `proceso`, `distribucion`), la exportación del dashboard de visitas y del dashboard de riesgo (con las cifras de la pantalla) y los logs de auditoría, sin perder: los ids y rutas actuales (`/api/reportes/{tipo}…` siguen respondiendo), la regla de `distribucion` solo con alcance total, el corte de 200 000 filas de los logs con 422 en vez de un archivo incompleto, el texto en logs solo con periodo de hasta 92 días, la paginación de los logs en pantalla y el periodo solo en la distribución (el componente filtra ahora el detalle, el consolidado por lugar y el de proceso). Las pantallas de Logs, Dashboard y Riesgo siguen donde están (la prueba 15 pide ver los logs en el navegador) y ganan del motor el encabezado, la huella, el repositorio del día y el envío por correo.
 <!-- incierto: rutas nuevas propuestas: GET /api/reportes/catalogo, GET /api/reportes/descargas, GET /api/reportes/descargas/{id}, POST /api/reportes/verificar (archivo) y GET /api/reportes/verificar/{codigo}. -->
+<!-- Hoy (R1–R4): los 4 de visitas, los dashboards de visitas y de riesgo, los logs y los 4 de presupuesto son proveedores del motor. El corte de 200 000 filas ya no aplica en el motor: la DIGSA exige reportes completos (TAS P12, R.26). Los filtros de tableros y parte de presupuesto son de un valor, provisionales (R.45). Las pantallas de Logs, Dashboard y Riesgo conservan sus endpoints. -->
 
 #### Scenario: Prueba 13 por la pantalla
 <!-- test: e2e/pruebas/formulario-acta-reportes.spec.ts:171 -->
@@ -448,9 +465,10 @@ El motor DEBE absorber, como proveedores, los 4 reportes de visitas (`detalle`, 
 ### Invariant: Nada de lo descargado se trunca en silencio
 <!-- entidades: Reporte -->
 <!-- impuesto_en: plataforma/Reporte.java («columnas y filas completas, sin truncar»); ControladorLogs.java:150 (más de MAX_EXPORTAR = 200 000 → 422) -->
-<!-- verificado_por: backend/app/src/test/java/co/com/agsamericas/digsa/reportes/ReportesApiTest.java:110 -->
+<!-- verificado_por: …/digsa/motorreportes/IntegridadApiTest.java:197 («Registros» = filas en los 4 formatos) y :250 (sin tope de filas); …/digsa/reportes/ReportesApiTest.java:109 -->
 
 Un archivo DEBE traer todas las filas del reporte o no generarse; si un proveedor tiene tope, superarlo responde 422 con el tope y cómo acotar. El número de «Registros» del encabezado DEBE coincidir con las filas del archivo.
+<!-- Hoy (R3): ningún reporte del motor tiene tope de filas en el archivo (TAS P12, R.26). Las celdas de Excel de más de 32.767 caracteres salen recortadas con marca; el CSV y el TXT traen el texto completo (R.27). -->
 
 ---
 
@@ -460,7 +478,7 @@ Un archivo DEBE traer todas las filas del reporte o no generarse; si un proveedo
 <!-- verificado_por: backend/reglas/src/test/java/co/com/agsamericas/digsa/reglas/ExportacionTest.java -->
 
 En pantalla y en todos los formatos, las horas DEBEN ir en hora oficial de Colombia y en 24 h, y las cifras decimales con 2 decimales, coma decimal y sin separador de miles. El idioma de títulos, columnas, mensajes y encabezados es el español.
-<!-- Hoy: ControladorLogs usa ZonedDateTime.now(reloj) sin fijar la zona de Bogotá para «Generado» y el nombre del archivo (Exportador sí convierte las fechas de las filas). -->
+<!-- Hoy: en el motor (también «Reportes → Logs de auditoría») «Generado» va en hora de Bogotá (…/digsa/motorreportes/IntegridadApiTest.java:182). La pantalla de Logs (`ControladorLogs`, módulo de auditoría, no se tocó) sigue con ZonedDateTime.now(reloj) sin fijar la zona para «Generado» y el nombre del archivo. -->
 
 ---
 
@@ -480,5 +498,7 @@ Ningún reporte ni log DEBE enviarse a un correo fuera de los dominios configura
 3. Dependencia `org.bouncycastle:bcprov-jdk18on` explícita para el cifrado AES del PDF.
 4. Parámetros: `digsa.reportes.adjunto-max-mb`, `digsa.reportes.max-destinatarios`, `digsa.reportes.espera-sincrona-s`, `digsa.reportes.concurrencia`, plazos de 3 y 10 minutos.
 5. Alerta operativa «reporte lento» en el catálogo de alertas.
+
+<!-- Estado (R1–R5): 1, `reportes_generados` en V50 (con las columnas de R3), índice del cupo y CHECK de estados en V52; está en `Exportacion.TABLAS`; no se purga (R.33). 2, hecho, más `reporte_solicitado`, `reporte_vencido` y `reporte_fallido`. 3, hecho (1.78.1, R.5). 4, quedaron `filas-pantalla`, `adjunto-max-mb`, `verificaciones-por-minuto`, `plazo-ver-ms`, `plazo-exportar-ms`, `tope-tecnico-ms`, `tope-tecnico-ver-ms`, `espera-sincrona-ms`, `concurrencia`, `en-curso-por-usuario` y `limpieza-ms` (README); el tope de 15 destinatarios es una constante (`ControladorReportes.MAX_DESTINATARIOS`). 5, hecho en V51 (`reporte_lento`, solo Administrador, por correo). No se creó V53 (R.51). -->
 
 <!-- pendiente: ServicioDashboard.java y ServicioRiesgo.java (filtros del tablero, hoy de un valor), RepositorioLogs.java (recorrer en flujo), FiltroBitacora.java (parámetros repetidos), frontend/src/shared/tablero.ts, Logs.tsx y Dashboard.tsx a fondo; módulos de cuentas médicas y presupuesto (otros worktrees). -->

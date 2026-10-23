@@ -24,13 +24,26 @@ const ADMIN = process.env.DIGSA_E2E_ADMIN ?? 'admin.e2e:Admin.E2E.Prueba.2026';
 
 const canales = (process.env.DIGSA_E2E_CANALES ?? '').split(',').filter(Boolean);
 
+// Puertos de la aplicación y del PostgreSQL embebido. Varias corridas a la vez en el mismo equipo usan puertos distintos
+// (DIGSA_E2E_PUERTO / DIGSA_E2E_PGPUERTO); la limpieza solo detiene lo que escuche en los puertos de esta corrida.
+const PUERTO = Number(process.env.DIGSA_E2E_PUERTO ?? 8080);
+const PGPUERTO = Number(process.env.DIGSA_E2E_PGPUERTO ?? 54329);
+process.env.DIGSA_E2E_PUERTO = String(PUERTO);
+process.env.DIGSA_E2E_PGPUERTO = String(PGPUERTO);
+
 // Arranque del servidor: mvnw.cmd en Windows, mvnw en Linux y macOS. JAVA_HOME sale del entorno; en Windows, si no está
 // definido, se usa la instalación portátil de %LOCALAPPDATA% (equipo de desarrollo sin permisos de administrador).
 const windows = process.platform === 'win32';
 const mvnw = windows ? '..\\backend\\mvnw.cmd' : '../backend/mvnw';
 const javaHome =
   process.env.JAVA_HOME ?? (windows && process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}/Programs/jdk21` : undefined);
-const entornoServidor: Record<string, string> = { TZ: 'America/Bogota', ...(javaHome ? { JAVA_HOME: javaHome } : {}) };
+// MAVEN_OPTS pasa al servidor: con -Dmaven.repo.local propio, el servidor usa el módulo reglas instalado por ESTA copia de trabajo
+// y no el de otra sesión que haya instalado el suyo en el ~/.m2 compartido
+const entornoServidor: Record<string, string> = {
+  TZ: 'America/Bogota',
+  ...(javaHome ? { JAVA_HOME: javaHome } : {}),
+  ...(process.env.MAVEN_OPTS ? { MAVEN_OPTS: process.env.MAVEN_OPTS } : {}),
+};
 
 export default defineConfig({
   testDir: './pruebas',
@@ -42,7 +55,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }], ['junit', { outputFile: 'test-results/junit.xml' }]],
   use: {
-    baseURL: 'http://localhost:8080',
+    baseURL: `http://localhost:${PUERTO}`,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -60,9 +73,10 @@ export default defineConfig({
       `${mvnw} -q -f ../backend/pom.xml -pl app spring-boot:test-run ` +
       `-Dspring-boot.run.main-class=co.com.agsamericas.digsa.DigsaLocal ` +
       `"-Dspring-boot.run.jvmArguments=-Duser.timezone=America/Bogota -Ddigsa.local.admin=${ADMIN} ` +
+      `-Ddigsa.local.puerto=${PUERTO} -Ddigsa.local.pgpuerto=${PGPUERTO} ` +
       `-Ddigsa.local.raiz=${process.cwd().replace(/\\/g, '/')}/.." ` +
       `"-Dspring-boot.run.arguments=--digsa.sesion-minutos=1 --digsa.mfa.codigos-por-hora=1000 --digsa.opl.codigos-por-hora-ip=1000"`,
-    url: 'http://localhost:8080/actuator/health',
+    url: `http://localhost:${PUERTO}/actuator/health`,
     timeout: 240_000,
     reuseExistingServer: false,
     env: entornoServidor,

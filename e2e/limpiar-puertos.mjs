@@ -1,9 +1,9 @@
-// Suite DIGSA · antes de las pruebas de punta a punta: detiene lo que quede escuchando en el puerto de la aplicación (8080) y en
-// el del PostgreSQL embebido (54329) de una corrida anterior. Multiplataforma (Windows, Linux, macOS).
+// Suite DIGSA · antes de las pruebas de punta a punta: detiene lo que quede escuchando en el puerto de la aplicación y en el del
+// PostgreSQL embebido de una corrida anterior (DIGSA_E2E_PUERTO / DIGSA_E2E_PGPUERTO; por defecto 8080 y 54329). Multiplataforma.
 // En el pipeline (CI definido) no hace nada: el ejecutor es nuevo en cada corrida.
 import { execSync } from 'node:child_process';
 
-const PUERTOS = [8080, 54329];
+const PUERTOS = [Number(process.env.DIGSA_E2E_PUERTO ?? 8080), Number(process.env.DIGSA_E2E_PGPUERTO ?? 54329)];
 
 function silencioso(comando) {
   try {

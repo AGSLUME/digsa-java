@@ -78,7 +78,16 @@ public final class Bitacora {
             // Exportación completa y soportes del OPL (fase 10)
             Map.entry("exportacion_solicitada", Operacion.INSERCION), Map.entry("exportacion_generada", Operacion.INSERCION),
             Map.entry("exportacion_fallida", Operacion.INSERCION), Map.entry("exportacion_vencida", Operacion.ELIMINACION),
-            Map.entry("exportacion_completa", Operacion.CONSULTA), Map.entry("soportes_opl_descargados", Operacion.CONSULTA));
+            Map.entry("exportacion_completa", Operacion.CONSULTA), Map.entry("soportes_opl_descargados", Operacion.CONSULTA),
+            // --- Analítica (rama analitica) ---
+            // Cargues del insumo del OPL (analitica-ingesta): sin datos personales; id del cargue, fuente y conteos
+            Map.entry("analitica_cargue_creado", Operacion.INSERCION), Map.entry("analitica_cargue_mapeo", Operacion.ACTUALIZACION),
+            Map.entry("analitica_cargue_aplicado", Operacion.INSERCION), Map.entry("analitica_cargue_rechazado", Operacion.ACTUALIZACION),
+            Map.entry("analitica_cargue_fallido", Operacion.ACTUALIZACION), Map.entry("analitica_cargue_rechazos_descarga", Operacion.CONSULTA),
+            Map.entry("analitica_cargue_bitacora_exportar", Operacion.CONSULTA), Map.entry("analitica_cargue_original_descarga", Operacion.CONSULTA),
+            Map.entry("analitica_cargue_original_borrado", Operacion.ELIMINACION), Map.entry("analitica_ws_lote", Operacion.INSERCION),
+            Map.entry("analitica_cargue_duplicado", Operacion.ACTUALIZACION), Map.entry("analitica_cargue_vencido", Operacion.ELIMINACION),
+            Map.entry("analitica_cargue_descartado", Operacion.ELIMINACION));
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

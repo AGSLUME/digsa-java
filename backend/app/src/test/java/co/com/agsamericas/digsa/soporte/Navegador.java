@@ -153,6 +153,33 @@ public class Navegador {
         return enviar(b);
     }
 
+    // --- Analítica (rama analitica) ---
+    /** PUT con cuerpo binario (application/octet-stream), como las partes de la subida de los cargues del OPL. */
+    public Respuesta putBinario(String ruta, byte[] cuerpo) {
+        if (xsrf() == null) {
+            get("/api/auth/inicio");
+        }
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(base + ruta)).header("Content-Type", "application/octet-stream")
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(cuerpo));
+        if (xsrf() != null) {
+            b.header("X-XSRF-TOKEN", xsrf());
+        }
+        return enviar(b);
+    }
+
+    /** POST con un cuerpo JSON ya serializado (lotes del servicio web del OPL). */
+    public Respuesta postJson(String ruta, byte[] json) {
+        if (xsrf() == null) {
+            get("/api/auth/inicio");
+        }
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(base + ruta)).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(json));
+        if (xsrf() != null) {
+            b.header("X-XSRF-TOKEN", xsrf());
+        }
+        return enviar(b);
+    }
+
     private String xsrf() {
         return cookies.getCookieStore().getCookies().stream().filter(c -> c.getName().equals("XSRF-TOKEN")).map(HttpCookie::getValue)
                 .findFirst().orElse(null);

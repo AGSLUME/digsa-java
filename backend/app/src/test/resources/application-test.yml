@@ -30,6 +30,13 @@ digsa:
   reportes:
     correo-defecto: reportes@example.com
     dominios-permitidos: example.com
+  # --- Analítica (rama analitica) ---
+  analitica:
+    clave-seudonimo: clave-de-prueba-no-secreta-para-el-hmac-del-paciente
+    parte-max-mb: 1                     # partes de 1 MB: los archivos de prueba se suben en varias partes
+    cuerpo-ws-max-mb: 1                 # lote del servicio web de más de 1 MB: 413
+    abandono-cron: "-"                  # las pruebas corren el vencimiento y el borrado a mano
+    borrado-cron: "-"
 
 logging:
   level:

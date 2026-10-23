@@ -46,10 +46,22 @@ public final class Exportacion {
             // V18 · las solicitudes de exportación (quién exportó y cuándo)
             "exportaciones",
             // V17 · alertas de la fase 10: bandeja de correo, SMS y alertas críticas
-            "correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos");
+            "correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos",
+            // --- Analítica (rama analitica) ---
+            // V60 · ingesta del insumo del OPL: cargues, partes, lotes del servicio web, rechazos, plantillas y dimensión de tiempo (los
+            // hechos ana_dispensaciones no van aquí: ver TECNICAS)
+            "ana_cargues", "ana_cargue_partes", "ana_ws_lotes", "ana_cargue_rechazos", "ana_mapeo_plantillas", "ana_dim_tiempo");
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
-    public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes");
+    public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes",
+            // --- Analítica (rama analitica) ---
+            // Staging de la ingesta (UNLOGGED, se vacía al terminar cada cargue)
+            "ana_staging_dispensacion",
+            // Fuera de la exportación completa (duda AN.14; EXCLUIDAS es por columnas, así que la tabla entera se excluye aquí): los hechos
+            // de dispensación (unos 2 M de filas por mes, 24 M al año) no caben en el límite de 10 minutos de la exportación completa
+            // (digsa.exportacion.limite-minutos); se entregan por la exportación analítica por periodo (fase A7). ana_llaves es el índice
+            // de llaves naturales de esos mismos hechos (se reconstruye de ellos).
+            "ana_dispensaciones", "ana_llaves");
 
     /**
      * Columnas que no salen (secretos y binarios), por tabla. Las firmas (bytea) salen como PNG en la carpeta de la visita; en el CSV no

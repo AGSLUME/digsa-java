@@ -30,7 +30,10 @@ public enum Pantallas {
     USUARIOS("usuarios", "Usuarios", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
     EXPORTACION("exportacion", "Exportación de datos", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
     LOGS("logs", "Logs del sistema", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
-    VISITA("visita", "Visita", null, Set.of(Perfil.AUDITOR, Perfil.COORDINADOR));
+    VISITA("visita", "Visita", null, Set.of(Perfil.AUDITOR, Perfil.COORDINADOR)),
+    // --- Analítica (rama analitica) ---
+    /** Cargues del insumo del OPL (analitica-ingesta): cargan Administrador y Analista; el Coordinador consulta la bitácora. */
+    ANALITICA_CARGUES("analitica/cargues", "Cargues del OPL", "Información", Set.of(Perfil.ANALISTA, Perfil.COORDINADOR));
 
     private final String ruta;
     private final String titulo;

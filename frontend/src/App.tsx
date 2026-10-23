@@ -28,6 +28,8 @@ import { VisitaDetalle } from './paginas/VisitaDetalle';
 import { alCerrarseLaSesion, api, ErrorApi } from './shared/api';
 import { Plantilla } from './shared/Plantilla';
 import { ProveedorSesion, puedeEntrar, useSesion, type DatosSesion } from './shared/sesion';
+// --- Analítica (rama analitica) ---
+import { CarguesOpl } from './paginas/CarguesOpl';
 
 function Inicio() {
   const s = useSesion();
@@ -130,6 +132,8 @@ export function App() {
           <Route path="/opl" element={<Protegida ruta="opl"><Opl /></Protegida>} />
           <Route path="/opl/visita/:id" element={<Protegida ruta="opl"><OplVisita /></Protegida>} />
           <Route path="/calendario/visita/:id" element={<Protegida ruta="calendario"><VisitaDetalle key="calendario" origen="calendario" /></Protegida>} />
+          {/* --- Analítica (rama analitica) --- */}
+          <Route path="/analitica/cargues" element={<Protegida ruta="analitica/cargues"><CarguesOpl /></Protegida>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

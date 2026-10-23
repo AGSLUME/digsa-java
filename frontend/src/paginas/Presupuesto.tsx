@@ -27,6 +27,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect, useMemo, useState } from 'react';
 import { api, descargar, ErrorApi, subirArchivos } from '../shared/api';
 import { CargaArchivo, Ejecucion, Notificaciones } from './PresupuestoEjecucion';
+import { TableroPresupuesto } from './PresupuestoTablero';
 import {
   AYUDA_TIPO,
   colorSemaforo,
@@ -70,7 +71,7 @@ function erroresDe(e: unknown): string[] {
  */
 export function Presupuesto() {
   const opciones = useQuery({ queryKey: ['presupuesto', 'opciones'], queryFn: () => api<OpcionesPresupuesto>('/api/presupuesto/opciones') });
-  const [pestana, setPestana] = useState<string | null>('lineas');
+  const [pestana, setPestana] = useState<string | null>('tablero');
   const [filtrosHistorial, setFiltrosHistorial] = useState<FiltrosPresupuesto>(FILTROS_PRESUPUESTO);
 
   if (opciones.isLoading) {
@@ -93,6 +94,7 @@ export function Presupuesto() {
       <Tabs value={pestana} onChange={setPestana} keepMounted={false}>
         <ScrollArea type="auto" offsetScrollbars>
           <Tabs.List style={{ flexWrap: 'nowrap' }}>
+            <Tabs.Tab value="tablero">Tablero</Tabs.Tab>
             <Tabs.Tab value="lineas">Líneas</Tabs.Tab>
             {o.puedeRegistrar && <Tabs.Tab value="novedad">Novedad presupuestal</Tabs.Tab>}
             <Tabs.Tab value="ejecucion">Ejecución</Tabs.Tab>
@@ -102,6 +104,9 @@ export function Presupuesto() {
             {o.puedeRegistrar && <Tabs.Tab value="configuracion">Configuración</Tabs.Tab>}
           </Tabs.List>
         </ScrollArea>
+        <Tabs.Panel value="tablero" pt="md">
+          <TableroPresupuesto o={o} />
+        </Tabs.Panel>
         <Tabs.Panel value="lineas" pt="md">
           <Lineas
             o={o}

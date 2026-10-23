@@ -253,3 +253,57 @@ test('M7-3: ejecución por encima de la proyección: alarma por ESM, Fuerza y ni
   await expect(desviaciones.filter({ hasText: 'Fuerza EJC: exceso' })).toHaveCount(1);
   await expect(desviaciones.filter({ hasText: 'Nacional: exceso' })).toHaveCount(1);
 });
+
+test('F5: tablero con cajas, ejecución por Fuerza y modalidad, ESM con mayor ejecución y caja del inicio, también a 360 px', async ({ page }) => {
+  await ingresar(page, ...ADMIN);
+  const coordinador = await crearUsuario(page, 'coordtab', 2);
+  await salir(page);
+  await ingresarConClaveInicial(page, coordinador, INICIAL, NUEVA);
+  await page.goto('/presupuesto');
+
+  const o = await api<{ puntos: Punto[]; vigencias: { anio: number; estado: string }[] }>(page, 'GET', '/api/presupuesto/opciones');
+  const siglas = new Map<string, number>();
+  o.datos.puntos.forEach((p) => p.sigla && siglas.set(p.sigla, (siglas.get(p.sigla) ?? 0) + 1));
+  const esm = o.datos.puntos.filter((p) => p.fuerza === 'EJC' && p.modalidad === 'Dispensación' && p.sigla && siglas.get(p.sigla) === 1)[3]!;
+  const usados = new Set(o.datos.vigencias.map((v) => v.anio));
+  let anio = 2030 + ((Date.now() + 71) % 70);
+  for (let k = 0; usados.has(anio) && k < 70; k++) anio = 2030 + ((anio - 2029) % 70);
+  const v = await api<{ id: number }>(page, 'POST', '/api/presupuesto/vigencias', { anio });
+  expect(v.estado).toBe(201);
+  expect(
+    await novedadApi(page, {
+      vigenciaId: v.datos.id,
+      tipo: 'asignacion_inicial',
+      soporte: 'Oficio DIGSA de asignación',
+      items: [{ puntoId: esm.id, modalidad: 'dispensacion', valor: '1000000000' }],
+    }),
+  ).toBe(201);
+  const ej = await api(page, 'POST', '/api/presupuesto/ejecucion/manual', {
+    vigenciaId: v.datos.id,
+    puntoId: esm.id,
+    modalidad: 'dispensacion',
+    periodo: `${anio}-01`,
+    facturado: '784000000',
+  });
+  expect(ej.estado).toBe(201);
+  await page.reload();
+
+  await expect(page.getByRole('tab', { name: 'Tablero', selected: true })).toBeVisible();
+  await elegir(page, page, 'Vigencia', '', new RegExp(`^${anio}$`));
+  await expect(page.getByTestId('caja-vigente')).toContainText('$ 1000000000,00');
+  await expect(page.getByTestId('caja-ejecutado')).toContainText('78,40 %');
+  await expect(page.getByTestId('caja-saldo')).toContainText('216000000,00');
+  await expect(page.getByTestId('tabla-fuerzas')).toContainText('784000000,00');
+  await expect(page.getByTestId('tabla-fuerzas')).toContainText('75 % alcanzado');
+  await expect(page.getByTestId('mayor-ejecucion')).toContainText(esm.sigla!);
+  await expect(page.getByTestId('mayor-ejecucion')).toContainText('78,40 %');
+  await expect(page.getByTestId('mayor-ejecucion').getByRole('meter')).toHaveCount(1);
+  await expect(page.getByTestId('mayor-ejecucion')).toContainText('75 % notificado');
+
+  await page.setViewportSize({ width: 360, height: 740 });
+  await sinDesplazamientoHorizontal(page);
+  await page.goto('/');
+  await expect(page.getByTestId('inicio-presupuesto')).toContainText('Ejecución presupuestal');
+  await sinDesplazamientoHorizontal(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+});

@@ -43,11 +43,13 @@ public class ControladorPresupuesto {
 
     private final ServicioPresupuesto presupuesto;
     private final ServicioNovedades novedades;
+    private final ServicioTablero tablero;
     private final ObjectMapper json;
 
-    public ControladorPresupuesto(ServicioPresupuesto presupuesto, ServicioNovedades novedades, ObjectMapper json) {
+    public ControladorPresupuesto(ServicioPresupuesto presupuesto, ServicioNovedades novedades, ServicioTablero tablero, ObjectMapper json) {
         this.presupuesto = presupuesto;
         this.novedades = novedades;
+        this.tablero = tablero;
         this.json = json;
     }
 
@@ -71,6 +73,15 @@ public class ControladorPresupuesto {
     @Accion(modulo = "presupuesto", accion = "opciones", operacion = Declarada.SIN_REGISTRO)
     public Map<String, Object> opciones() {
         return presupuesto.opciones(ambito(), puedeRegistrar());
+    }
+
+    @GetMapping("/api/presupuesto/tablero")
+    @PreAuthorize(CONSULTAN)
+    @Accion(modulo = "presupuesto", accion = "tablero", operacion = Declarada.CONSULTA)
+    public Map<String, Object> tablero(@RequestParam(required = false) Long vigencia, @RequestParam(required = false) String corte,
+                                       @RequestParam(required = false) String fuerza, @RequestParam(required = false) Long punto,
+                                       @RequestParam(required = false) String modalidad) {
+        return tablero.tablero(new ServicioTablero.Filtros(vigencia, corte, fuerza, punto, modalidad), ambito());
     }
 
     @GetMapping("/api/presupuesto/lineas")

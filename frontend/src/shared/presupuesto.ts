@@ -425,3 +425,93 @@ export const ESTADO_NOTIFICACION: Record<string, { color: string; texto: string 
   sin_buzon_fuerza: { color: 'yellow', texto: 'Falta el buzón de la fuerza: salió solo a la DIGSA' },
   sin_destinatarios: { color: 'red', texto: 'Sin destinatarios: no salió' },
 };
+
+// ---------- Tablero (F5) ----------
+
+export interface FiltrosTablero {
+  vigencia: string;
+  corte: string;
+  fuerza: string;
+  modalidad: string;
+}
+
+export interface TableroPresupuesto {
+  vigencia: number | null;
+  corte: string | null;
+  cortes: string[];
+  base: string;
+  ambito: string;
+  cajas: {
+    presupuestoVigente: string;
+    adiciones: number;
+    ejecutado: string;
+    porcentaje: string | null;
+    saldo: string;
+    proyectado?: string;
+    porcentajeProyectado?: string | null;
+    esmSobreProyeccion?: number;
+    esmTotal?: number;
+  };
+  porFuerza: {
+    fuerza: string;
+    porModalidad: Record<string, string>;
+    asignado: string;
+    ejecutado: string;
+    porcentaje: string | null;
+    porcentajeProyectado: string | null;
+    umbral: number | null;
+    semaforo: string;
+  }[];
+  mayorEjecucion: {
+    puntoId: number;
+    esm: string;
+    fuerza: string;
+    asignado: string;
+    ejecutado: string;
+    porcentaje: string | null;
+    semaforo: string;
+    umbralNotificado: number | null;
+  }[];
+  detalle: {
+    lineaId: number;
+    vigencia: number;
+    fuerza: string;
+    puntoId: number;
+    esm: string;
+    modalidad: string;
+    modalidadNombre: string;
+    asignado: string;
+    facturado: string;
+    reconocido: string;
+    saldo: string;
+    porcentaje: string | null;
+    semaforo: string;
+    umbralNotificado: number | null;
+    proyectado?: string;
+    ejecutadoCorte?: string;
+    desviacion?: string | null;
+    sentido?: string;
+  }[];
+}
+
+/** Consulta del tablero: vigencia vacía es la vista «Contrato» (sin corte). */
+export function consultaTablero(f: FiltrosTablero): string {
+  const p = new URLSearchParams();
+  if (f.vigencia) p.set('vigencia', f.vigencia);
+  if (f.vigencia && f.corte) p.set('corte', f.corte);
+  if (f.fuerza) p.set('fuerza', f.fuerza);
+  if (f.modalidad) p.set('modalidad', f.modalidad);
+  return p.toString();
+}
+
+/** Ancho de la barra (0 a 100) desde el % del servidor («78,40»); sin presupuesto con ejecución, llena. */
+export function anchoBarra(porcentaje: string | null): number {
+  if (porcentaje === null) return 100;
+  const n = Number(porcentaje.replace(',', '.'));
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+}
+
+/** «75 % notificado» / «50 % alcanzado» (mockup). */
+export function etiquetaUmbral(umbral: number, como: 'notificado' | 'alcanzado'): string {
+  return `${umbral} % ${como}`;
+}

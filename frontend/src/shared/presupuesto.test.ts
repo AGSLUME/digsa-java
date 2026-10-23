@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  anchoBarra,
   consultaPresupuesto,
+  consultaTablero,
+  etiquetaUmbral,
   mesesDe,
   cuerpoEjecucion,
   problemaEjecucion,
@@ -138,5 +141,21 @@ describe('mesesDe', () => {
     expect(mesesDe('2027-03-01', '2027-12-31')[0]).toBe('2027-03');
     expect(mesesDe('2026-12-29', '2026-12-31')).toEqual(['2026-12']);
     expect(mesesDe('2027-01-01', '2027-12-31').at(-1)).toBe('2027-12');
+  });
+});
+
+describe('tablero', () => {
+  it('consulta: la vista «Contrato» no lleva corte', () => {
+    expect(consultaTablero({ vigencia: '', corte: '2027-03', fuerza: 'EJC', modalidad: '' })).toBe('fuerza=EJC');
+    expect(consultaTablero({ vigencia: '4', corte: '2027-03', fuerza: '', modalidad: 'suministro' })).toBe(
+      'vigencia=4&corte=2027-03&modalidad=suministro',
+    );
+  });
+  it('ancho de la barra: de 0 a 100, sin presupuesto llena', () => {
+    expect(anchoBarra('78,40')).toBe(78.4);
+    expect(anchoBarra('114,67')).toBe(100);
+    expect(anchoBarra(null)).toBe(100);
+    expect(anchoBarra('x')).toBe(0);
+    expect(etiquetaUmbral(50, 'notificado')).toBe('50 % notificado');
   });
 });

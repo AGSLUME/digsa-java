@@ -23,6 +23,7 @@ import { OplResponder } from './paginas/OplResponder';
 import { Prorrogas } from './paginas/Prorrogas';
 // --- Presupuesto (rama presupuesto) ---
 import { Presupuesto } from './paginas/Presupuesto';
+import { ResumenPresupuestoInicio } from './paginas/PresupuestoTablero';
 // --- fin presupuesto ---
 import { Propuesta } from './paginas/Propuesta';
 import { Seguimiento } from './paginas/Seguimiento';
@@ -38,6 +39,9 @@ function Inicio() {
     <Stack>
       <Title order={3}>Bienvenido, {s.nombre}</Title>
       <Text c="dimmed">Perfiles: {s.perfiles.join(', ')}</Text>
+      {/* --- Presupuesto (rama presupuesto; mockup: «Ejecución presupuestal nacional» en el inicio) --- */}
+      {puedeEntrar(s, 'presupuesto') && <ResumenPresupuestoInicio />}
+      {/* --- fin presupuesto --- */}
     </Stack>
   );
 }

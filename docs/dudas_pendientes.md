@@ -623,3 +623,15 @@ Revisión de los agentes: P1 corregidos (bloqueo consultivo por vigencia al empe
 | P.31 | Al recargar un mes, la alarma anterior no se corrige: si el sentido cambia se crea otra, y si vuelve a la tolerancia la anterior queda | Las alarmas son avisos formales ya enviados; la pantalla muestra todas con su corte |
 | P.32 | La proyección acepta la fuente «OPL» | Se deja: la DIGSA dice que la información la entrega ella, pero el OPL puede aportar la proyección |
 | P.33 | Rendimiento: dos consultas de toda la vigencia por cada mes cargado, dentro de la transacción | Se mide en F6 |
+
+### F5 de presupuesto: tablero (2026-10-22)
+
+Hecho: pestaña «Tablero» (la primera) como en el mockup: cajas de presupuesto vigente (con el número de adiciones), ejecutado y %, saldo y «ESM sobre la proyección: N de M»; tabla Fuerza × modalidad con % de ejecución, % proyectado al corte y umbral alcanzado; ESM con mayor ejecución con barras, marcas de 25/50/75 % y semáforo; detalle por línea con lo proyectado al corte y la desviación. Filtros de vigencia o vista «Contrato», corte, fuerza y modalidad, siempre en el alcance. Caja «Ejecución presupuestal» en el inicio. Con vigencia, todo se mide al corte; la vista «Contrato» cuenta lo ejecutado a la fecha.
+
+Revisión de los agentes: sin P1. Corregidos: cifras al corte en todo el tablero, filtros visibles aunque falle la consulta, columnas de modalidad con datos y nombre de la fuerza; pruebas del corte, del alcance ESM y Analista y del 403.
+
+| # | Pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| P.34 | Faltan en el tablero el filtro por ESM y la elección de varias modalidades (spec L376) | La pestaña «Líneas» filtra por ESM; varias modalidades queda para F6 |
+| P.35 | `Proyecciones.alCorte` calcula toda la vigencia aunque el usuario tenga alcance de fuerza o ESM (también al abrir el inicio) | Correcto en cifras; se optimiza en F6 |
+| P.36 | La tabla por fuerza muestra el umbral alcanzado (la spec habla de notificado); «Mayor ejecución» muestra el umbral notificado más alto de las líneas del ESM | Se rotula «alcanzado» y «notificado»; confirmar |

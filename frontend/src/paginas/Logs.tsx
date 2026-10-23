@@ -1,6 +1,7 @@
 import { Alert, Badge, Button, Group, Modal, ScrollArea, Select, SimpleGrid, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { notifications } from '@mantine/notifications';
+import { useMediaQuery } from '@mantine/hooks';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useState } from 'react';
@@ -15,6 +16,16 @@ interface Fila {
   tipo: string;
   descripcion: string | null;
   ip: string | null;
+  modulo: string | null;
+  /** Valores de antes y después de una modificación (ítem 15 b); los datos personales vienen ocultos (Ley 1581). */
+  cambios: Cambio[] | null;
+}
+
+interface Cambio {
+  campo: string;
+  antes: string | null;
+  despues: string | null;
+  oculto: boolean;
 }
 
 interface Pagina {
@@ -25,6 +36,7 @@ interface Pagina {
 interface Opciones {
   operaciones: string[];
   usuarios: { id: number; nombre: string; usuario: string }[];
+  modulos: string[];
   correoDefecto: string;
 }
 
@@ -44,6 +56,10 @@ export function Logs() {
   const [usuarioId, setUsuarioId] = useState<string | null>(null);
   const [operacion, setOperacion] = useState<string | null>(null);
   const [texto, setTexto] = useState('');
+  const [modulo, setModulo] = useState<string | null>(null);
+  const [tipo, setTipo] = useState('');
+  const [detalle, setDetalle] = useState<Fila | null>(null);
+  const celular = useMediaQuery('(max-width: 36em)');
   // Filtros aplicados con «Buscar»: la tabla, la descarga y el correo usan siempre estos (lo que se ve es lo que se exporta)
   const [aplicado, setAplicado] = useState('');
   const [vuelta, setVuelta] = useState(0);
@@ -59,6 +75,8 @@ export function Logs() {
     if (usuarioId) p.set('usuarioId', usuarioId);
     if (operacion) p.set('operacion', operacion);
     if (texto.trim()) p.set('texto', texto.trim());
+    if (modulo) p.set('modulo', modulo);
+    if (tipo.trim()) p.set('tipo', tipo.trim());
     return p;
   };
 
@@ -93,6 +111,8 @@ export function Logs() {
           usuarioId: p.get('usuarioId') ? Number(p.get('usuarioId')) : null,
           operacion: p.get('operacion'),
           texto: p.get('texto'),
+          modulo: p.get('modulo'),
+          tipo: p.get('tipo'),
           formato: 'xlsx',
           para: envio,
         },
@@ -111,7 +131,7 @@ export function Logs() {
   return (
     <Stack>
       <Title order={3}>Logs del sistema</Title>
-      <SimpleGrid cols={{ base: 1, sm: 2, md: 5 }}>
+      <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }}>
         <DatePickerInput label="Desde" value={desde} onChange={setDesde} valueFormat="YYYY-MM-DD" />
         <DatePickerInput label="Hasta" value={hasta} onChange={setHasta} valueFormat="YYYY-MM-DD" />
         <Select
@@ -129,14 +149,38 @@ export function Logs() {
           value={operacion}
           onChange={setOperacion}
         />
-        <TextInput label="Texto" description="Con texto, el periodo es de máximo 92 días" value={texto} onChange={(e) => setTexto(e.currentTarget.value)} maxLength={80} />
+        <Select label="Módulo" clearable searchable data={opciones.data?.modulos ?? []} value={modulo} onChange={setModulo} />
+        <TextInput
+          label="Tipo"
+          description="Exacto, p. ej. usuario_editado"
+          value={tipo}
+          onChange={(e) => setTipo(e.currentTarget.value)}
+          maxLength={50}
+        />
+        <TextInput
+          label="Texto"
+          description="Con texto, el periodo es de máximo 92 días"
+          value={texto}
+          onChange={(e) => setTexto(e.currentTarget.value)}
+          maxLength={80}
+        />
       </SimpleGrid>
       <Group>
         <Button onClick={buscar}>Buscar</Button>
-        <Button variant="light" onClick={() => descargar('/api/logs/exportar?formato=xlsx&' + aplicado).catch((e: Error) => notifications.show({ color: 'red', message: e.message }))}>
+        <Button
+          variant="light"
+          onClick={() =>
+            descargar('/api/logs/exportar?formato=xlsx&' + aplicado).catch((e: Error) => notifications.show({ color: 'red', message: e.message }))
+          }
+        >
           Descargar Excel
         </Button>
-        <Button variant="light" onClick={() => descargar('/api/logs/exportar?formato=csv&' + aplicado).catch((e: Error) => notifications.show({ color: 'red', message: e.message }))}>
+        <Button
+          variant="light"
+          onClick={() =>
+            descargar('/api/logs/exportar?formato=csv&' + aplicado).catch((e: Error) => notifications.show({ color: 'red', message: e.message }))
+          }
+        >
           Descargar CSV
         </Button>
         <Button variant="light" onClick={() => setEnvio(opciones.data?.correoDefecto ?? '')}>
@@ -155,6 +199,7 @@ export function Logs() {
               <Table.Th>Tipo</Table.Th>
               <Table.Th>Detalle</Table.Th>
               <Table.Th>IP</Table.Th>
+              <Table.Th>Cambios</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -168,6 +213,13 @@ export function Logs() {
                 <Table.Td>{f.tipo}</Table.Td>
                 <Table.Td>{f.descripcion}</Table.Td>
                 <Table.Td>{f.ip}</Table.Td>
+                <Table.Td>
+                  {f.cambios && f.cambios.length > 0 && (
+                    <Button size="xs" variant="light" aria-label={'Ver los cambios del registro ' + f.id} onClick={() => setDetalle(f)}>
+                      Ver ({f.cambios.length})
+                    </Button>
+                  )}
+                </Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>
@@ -179,6 +231,45 @@ export function Logs() {
           Ver más
         </Button>
       )}
+      <Modal opened={detalle !== null} onClose={() => setDetalle(null)} title="Antes y después" size="lg" fullScreen={celular}>
+        {detalle && (
+          <Stack>
+            <Text size="sm">
+              {detalle.fecha} · {detalle.usuario ?? '—'} · {detalle.tipo}
+            </Text>
+            <ScrollArea type="auto">
+              <Table striped miw={480} data-testid="tabla-cambios">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Campo</Table.Th>
+                    <Table.Th>Antes</Table.Th>
+                    <Table.Th>Después</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {(detalle.cambios ?? []).map((c, i) => (
+                    <Table.Tr key={i + '-' + c.campo}>
+                      <Table.Td>{c.campo}</Table.Td>
+                      {c.oculto ? (
+                        <Table.Td colSpan={2}>
+                          <Text size="sm" c="dimmed">
+                            Modificado (dato personal: no se guarda el valor, Ley 1581)
+                          </Text>
+                        </Table.Td>
+                      ) : (
+                        <>
+                          <Table.Td style={{ wordBreak: 'break-word' }}>{c.antes ?? '—'}</Table.Td>
+                          <Table.Td style={{ wordBreak: 'break-word' }}>{c.despues ?? '—'}</Table.Td>
+                        </>
+                      )}
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+          </Stack>
+        )}
+      </Modal>
       <Modal opened={envio !== null} onClose={() => setEnvio(null)} title="Enviar logs por correo">
         <Stack>
           <TextInput label="Correo de destino" type="email" value={envio ?? ''} onChange={(e) => setEnvio(e.currentTarget.value)} />

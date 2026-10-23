@@ -564,4 +564,20 @@ Hecho:
 | 26.7 | **Analista en visitas:** los anexos no le dan funciones en este módulo | Consulta nacional, como la DIGSA, sin solicitar visitas ni descargar los soportes del OPL (decisión del usuario). Si la adenda dice otra cosa, se ajusta con un rol adicional sin programar |
 | 26.8 | **Un rol da consulta, no las acciones de su perfil base:** los servicios de agenda, tablero, ejecución y solicitudes deciden por el perfil directo (`perfilesActuales()`, `hasAnyAuthority`). Un rol con base Coordinador y la pantalla Agenda la ve, pero no actúa como coordinador | Así falla cerrado (P1 de la revisión). Para que un rol pueda actuar, cada servicio tendría que recibir los perfiles según la pantalla: coordinar con la sesión 1 si la DIGSA pide un rol con acciones |
 | 26.9 | **Usuario cuyo único rol está inactivo:** el formulario no muestra el rol inactivo; para editar al usuario hay que marcarle otro perfil o reactivar el rol | La asignación al rol inactivo se conserva al editar |
-| 26.10 | **`AlertaIntervencionApiTest` (módulo ejecución, sesión 1) falla a veces en la corrida completa:** espera 5 s el aviso de la bandeja de salida y la máquina está cargada con las corridas de las dos sesiones | Pasa sola. Sin cambio de código; avisar a la sesión 1 por si conviene ampliar la espera |
+| 26.10 | **`AlertaIntervencionApiTest` (módulo ejecución, sesión 1) falla en cada corrida completa (`mvnw verify`) y pasa sola:** espera 5 s el aviso de la bandeja de salida; en la corrida completa la bandeja trae avisos de las pruebas anteriores y la máquina está cargada | Sin cambio de código (no es de este módulo). Avisar a la sesión 1: ampliar la espera o vaciar la bandeja antes de la prueba |
+
+### E3 · Bitácora con antes y después
+
+Hecho:
+
+- **Antes y después completos** (V32, columna `cambios` jsonb) además del resumen de la descripción. Los datos personales quedan ocultos.
+- **Logs:**
+  - filtros por tipo y por módulo;
+  - botón «Ver» con la tabla campo / antes / después;
+  - columna de cambios en Excel y CSV.
+- **Registro estructurado** (`registrarCambios`) en identidad: usuario editado, estado del usuario, perfil renombrado, rol editado y TIME OUT.
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 26.11 | **Otros módulos** (agenda, alertas, catálogos, maestros, ejecución, OPL, hallazgos) siguen con el antes y el después solo en el texto de la descripción (`Bitacora.cambios`), cortado a 40 caracteres | Coordinar con la sesión 1: basta cambiar `bitacora.registrar(tipo, desc + cambios(...))` por `bitacora.registrarCambios(tipo, desc, antes, despues, sinValor, …)` |
+| 26.12 | **Particiones de la bitácora (17.17):** V1 creó particiones mensuales hasta enero de 2031 (el contrato termina a más tardar en julio de 2030) y una partición por defecto | Cubren todo el contrato; no se agregó tarea. Si el contrato se prorroga, crear las particiones en una migración nueva |

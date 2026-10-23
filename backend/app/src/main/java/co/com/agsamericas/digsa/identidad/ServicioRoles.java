@@ -128,8 +128,7 @@ public class ServicioRoles {
         b.put("nombre", nombre);
         b.put("descripcion", descripcion);
         b.put("pantallas", new TreeSet<>(codigos(pantallas)));
-        String cambios = Bitacora.cambios(a, b, Set.of());
-        bitacora.registrar("rol_editado", "Rol " + id + (cambios.isEmpty() ? " sin cambios" : ": " + cambios), quien.id(), quien.usuario());
+        bitacora.registrarCambios("rol_editado", "Rol " + id, a, b, Set.of(), quien.id(), quien.usuario());
     }
 
     /** Activa o inactiva el rol. Inactivo, deja de dar acceso desde la siguiente petición de sus usuarios. */

@@ -134,6 +134,8 @@ class RolesApiTest extends PruebaIntegracion {
         assertThat(r.estado()).as(r.texto()).isEqualTo(200);
         String fila = jdbc.sql("SELECT descripcion FROM log_transacciones WHERE tipo = 'rol_editado' ORDER BY id DESC LIMIT 1").query(String.class).single();
         assertThat(fila).contains("nombre: «" + nombre + "» → «" + nombre + " B»").contains("pantallas: «CALENDARIO» → «CALENDARIO,REPORTES»");
+        assertThat(jdbc.sql("SELECT cambios::text FROM log_transacciones WHERE tipo = 'rol_editado' ORDER BY id DESC LIMIT 1").query(String.class).single())
+                .as("antes y después estructurados (V32)").contains("\"despues\": \"CALENDARIO,REPORTES\"").contains("\"antes\": \"" + nombre + "\"");
         assertThat(adm.put("/api/usuarios/roles/" + id, rol(nombre, Perfil.SANIDAD.id(), List.of("CALENDARIO"))).mensaje())
                 .contains("no se cambia");
         JsonNode cat = adm.get("/api/usuarios/roles").json();

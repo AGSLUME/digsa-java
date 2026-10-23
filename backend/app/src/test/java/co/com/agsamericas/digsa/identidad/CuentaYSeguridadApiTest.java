@@ -142,6 +142,8 @@ class CuentaYSeguridadApiTest extends PruebaIntegracion {
             assertThat(r.estado()).as(r.texto()).isEqualTo(200);
             assertThat(adm.get("/api/usuarios/seguridad").json().path("minutosSesion").asInt()).isEqualTo(1);
             assertThat(filasDe("parametro_editado", "sesion_minutos: «" + original + "» → «1»")).isEqualTo(1);
+            assertThat(jdbc.sql("SELECT cambios->0->>'antes' || '>' || (cambios->0->>'despues') FROM log_transacciones WHERE tipo = 'parametro_editado' ORDER BY id DESC LIMIT 1")
+                    .query(String.class).single()).as("antes y después estructurados (V32)").isEqualTo(original + ">1");
             assertThat(n.get("/api/sesion").json().path("minutosInactividad").asInt()).isEqualTo(1);
 
             reloj.adelantar(Duration.ofSeconds(61));

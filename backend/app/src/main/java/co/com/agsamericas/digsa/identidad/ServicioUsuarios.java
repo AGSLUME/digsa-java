@@ -157,11 +157,11 @@ public class ServicioUsuarios {
                     usuarios.anularEnlace(actual.id()); // el enlace enviado al correo anterior deja de servir
                 }
             });
-            String cambios = Bitacora.cambios(foto(actual.nombre(), actual.documento(), actual.telefono(), actual.usuario(), actual.correo(),
-                    actual.asignados(), actual.alcanceFuerza(), actual.alcancePunto(), actual.alcanceRegional()),
-                    foto(nombre, documento, telefono, usuario, correo, asignacion.ids(), fuerza, punto, regional), PERSONALES);
-            bitacora.registrar("usuario_editado", "Usuario " + usuario + " editado" + (cambios.isEmpty() ? " (sin cambios)" : ": " + cambios),
-                    quien.id(), quien.usuario());
+            // Ítem 15 b: antes y después completos en la bitácora; los datos personales solo constan como modificados (Ley 1581)
+            bitacora.registrarCambios("usuario_editado", "Usuario " + usuario + " editado",
+                    foto(actual.nombre(), actual.documento(), actual.telefono(), actual.usuario(), actual.correo(), actual.asignados(),
+                            actual.alcanceFuerza(), actual.alcancePunto(), actual.alcanceRegional()),
+                    foto(nombre, documento, telefono, usuario, correo, asignacion.ids(), fuerza, punto, regional), PERSONALES, quien.id(), quien.usuario());
             return new Guardado(actual.id(), false, true, "Usuario actualizado.", null);
         } catch (DuplicateKeyException e) {
             // Dos administradores a la vez (prueba 2: "de forma simultánea en dos equipos"): la base decide quién gana
@@ -181,7 +181,8 @@ public class ServicioUsuarios {
             usuarios.anularEnlace(id); // un enlace pendiente de un usuario inactivado no debe servir
             cerro = usuarios.cerrarCualquierSesion(id);
         }
-        bitacora.registrar("usuario_estado", "Usuario " + u.usuario() + (activo ? " activado" : " inactivado"), quien.id(), quien.usuario());
+        bitacora.registrarCambios("usuario_estado", "Usuario " + u.usuario() + (activo ? " activado" : " inactivado"), Map.of("activo", u.activo()),
+                Map.of("activo", activo), Set.of(), quien.id(), quien.usuario());
         if (cerro) {
             // Decisión 7.3: la salida forzada por la inactivación queda en la bitácora
             bitacora.registrar("sesion_cerrada", "Sesión de " + u.usuario() + " cerrada por inactivación del usuario", quien.id(), quien.usuario());
@@ -243,7 +244,7 @@ public class ServicioUsuarios {
             throw ErrorNegocio.validacion("Ya existe otro perfil con ese nombre.");
         }
         usuarios.renombrarPerfil(id, n, d);
-        bitacora.registrar("perfil_editado", "Perfil " + id + ": nombre «" + Bitacora.cortar(antes.getOrDefault(id, ""), 60) + "» → «" + n + "»",
+        bitacora.registrarCambios("perfil_editado", "Perfil " + id, Map.of("nombre", antes.getOrDefault(id, "")), Map.of("nombre", n), Set.of(),
                 quien.id(), quien.usuario());
     }
 

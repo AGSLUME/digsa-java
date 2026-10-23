@@ -78,8 +78,8 @@ public class ParametrosSeguridad {
                 .param("c", SESION_MINUTOS).param("v", String.valueOf(minutos)).param("u", quien.usuario())
                 .param("ahora", OffsetDateTime.now(reloj)).update();
         cache = null;
-        bitacora.registrar("parametro_editado", "Parámetro " + SESION_MINUTOS + (antes == minutos ? " sin cambios" : ": «" + antes + "» → «" + minutos + "»"),
-                quien.id(), quien.usuario());
+        bitacora.registrarCambios("parametro_editado", "Parámetro de seguridad", java.util.Map.of(SESION_MINUTOS, antes), java.util.Map.of(SESION_MINUTOS, minutos),
+                java.util.Set.of(), quien.id(), quien.usuario());
     }
 
     private Optional<String> guardado() {

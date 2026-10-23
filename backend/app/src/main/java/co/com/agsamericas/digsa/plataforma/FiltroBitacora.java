@@ -88,7 +88,7 @@ public class FiltroBitacora extends OncePerRequestFilter {
         Long id = usuarioId;
         String quien = usuario;
         Bitacora.fila(p, codigo, false).ifPresent(f -> registro.escribir(f.operacion(), f.tipo(), modulo, f.descripcion(), id, quien,
-                req.getRemoteAddr()));
+                req.getRemoteAddr(), f.cambios()));
     }
 
     private static Identificable deLaSesion(HttpServletRequest req) {

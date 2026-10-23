@@ -1,17 +1,24 @@
 import { Button, Group, Modal, Text } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import { api, CLAVE_ACTIVIDAD, CLAVE_MOTIVO, ErrorApi, marcarActividad } from './api';
-import { estadoAviso, mmss } from './inactividad';
+import { estadoAviso, mmss, ultimaActividadDelServidor } from './inactividad';
 
 /**
  * Aviso de cierre por inactividad con cuenta regresiva, «Salir» y «Seguir conectado». La última actividad se comparte entre
  * pestañas (localStorage): si otra pestaña tuvo respuesta del servidor, este aviso se cierra. Al vencer, el servidor confirma el
  * cierre; si no responde (sin red, error) o la sesión ya no existe, se vuelve al ingreso: el aviso nunca se queda en 00:00.
+ *
+ * El administrador puede cambiar el TIME OUT con la sesión abierta (Anexo 5, 3.2): cada minuto, y al vencer el plazo local, se consulta
+ * /api/sesion/estado, que NO renueva la sesión, y se adoptan los minutos y los segundos restantes del servidor.
  */
 export function AvisoInactividad({ minutos, alSalir }: { minutos: number; alSalir: () => void }) {
   const [restantes, setRestantes] = useState<number | null>(null);
+  const [vigentes, setVigentes] = useState(minutos);
   const local = useRef(Date.now());
   const verificando = useRef(false);
+  const sincronizado = useRef(Date.now());
+
+  useEffect(() => setVigentes(minutos), [minutos]);
 
   // Quien está escribiendo o haciendo clic (p. ej. diligenciando el formulario de la visita sin guardar) no está inactivo: se
   // renueva la sesión en el servidor como máximo cada 20 s. Sin interacción, el aviso y el cierre siguen igual.
@@ -23,9 +30,10 @@ export function AvisoInactividad({ minutos, alSalir }: { minutos: number; alSali
       const ahora = Date.now();
       if (ahora - renovado.current < 20_000 || verificando.current) return;
       renovado.current = ahora;
-      api('/api/sesion/mantener')
-        .then(() => {
+      api<{ minutos: number }>('/api/sesion/mantener')
+        .then((r) => {
           local.current = Date.now();
+          setVigentes(r.minutos);
           setRestantes(null);
         })
         .catch(() => {
@@ -46,20 +54,23 @@ export function AvisoInactividad({ minutos, alSalir }: { minutos: number; alSali
       } catch {
         // sin almacenamiento compartido
       }
-      const e = estadoAviso(ultima, Date.now(), minutos);
-      if (e.vencida) {
+      const e = estadoAviso(ultima, Date.now(), vigentes);
+      if (e.vencida || Date.now() - sincronizado.current >= 60_000) {
         if (verificando.current) return;
         verificando.current = true;
-        api('/api/sesion')
-          .then(() => {
-            // El servidor aún la tiene viva (p. ej. relojes distintos): se sigue contando desde ahora
-            local.current = Date.now();
-            setRestantes(null);
+        sincronizado.current = Date.now();
+        api<{ minutos: number; restantes: number }>('/api/sesion/estado')
+          .then((r) => {
+            // El servidor manda: su plazo vigente y lo que le queda (otra pestaña, relojes distintos o un TIME OUT nuevo)
+            local.current = ultimaActividadDelServidor(Date.now(), r.minutos, r.restantes);
+            setVigentes(r.minutos);
+            if (e.vencida) setRestantes(null);
           })
           .catch((x: unknown) => {
             // Un 401 con motivo ya llevó al ingreso con el mensaje del servidor (api.ts); lo demás (sin red, error, sesión que
             // ya no existe en el servidor) también vuelve al ingreso, con el motivo de inactividad
             if (x instanceof ErrorApi && x.estado === 401 && typeof x.datos.motivo === 'string' && x.datos.motivo !== 'sin_sesion') return;
+            if (!e.vencida) return; // la sincronización periódica no cierra por un error pasajero
             try {
               sessionStorage.setItem(CLAVE_MOTIVO, 'La sesión se cerró por inactividad. Vuelva a iniciar sesión.');
             } catch {
@@ -75,12 +86,13 @@ export function AvisoInactividad({ minutos, alSalir }: { minutos: number; alSali
       setRestantes(e.mostrar ? e.restantes : null);
     }, 1000);
     return () => clearInterval(t);
-  }, [minutos, alSalir]);
+  }, [vigentes, alSalir]);
 
   const seguir = async () => {
     try {
-      await api('/api/sesion/mantener');
+      const r = await api<{ minutos: number }>('/api/sesion/mantener');
       local.current = Date.now();
+      setVigentes(r.minutos);
       setRestantes(null);
     } catch (e) {
       if (e instanceof ErrorApi && e.estado === 401) {

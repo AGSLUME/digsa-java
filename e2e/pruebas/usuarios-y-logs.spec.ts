@@ -34,7 +34,7 @@ test('el administrador crea un auditor; el auditor define su contraseña con el 
 
   const otro = await browser.newContext();
   const p2 = await otro.newPage();
-  await p2.goto(enlace!.replace('http://localhost:8080', ''));
+  await p2.goto(new URL(enlace!).pathname + new URL(enlace!).search);
   await p2.getByLabel('Contraseña nueva').fill('Auditor.Prueba.2026');
   await p2.getByLabel('Confirme la contraseña').fill('Auditor.Prueba.2026');
   await p2.getByRole('button', { name: 'Guardar contraseña' }).click();

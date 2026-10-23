@@ -25,6 +25,8 @@ public final class DigsaLocal {
         Path datos = raiz.resolve(".local/pgdata");
         Files.createDirectories(datos);
         int puerto = Integer.parseInt(System.getProperty("digsa.local.pgpuerto", "54329"));
+        // Puerto HTTP (varias sesiones de e2e en el mismo equipo usan puertos distintos): -Ddigsa.local.puerto=18080
+        int puertoHttp = Integer.parseInt(System.getProperty("digsa.local.puerto", "8080"));
         EmbeddedPostgres pg = EmbeddedPostgres.builder()
                 .setDataDirectory(datos)
                 .setCleanDataDirectory(false)
@@ -46,7 +48,8 @@ public final class DigsaLocal {
                 "--digsa.correo.modo=archivo",
                 "--digsa.correo.carpeta=" + raiz.resolve(".local/correos"),
                 "--digsa.archivos.carpeta=" + raiz.resolve(".local/archivos"),
-                "--digsa.url=http://localhost:8080/",
+                "--server.port=" + puertoHttp,
+                "--digsa.url=http://localhost:" + puertoHttp + "/",
                 "--digsa.reportes.dominios-permitidos=example.com",
                 // La SPA compilada se sirve desde el mismo origen (CSP y cookies reales en las pruebas de Playwright)
                 // frontend/dist primero: es la compilación más reciente (target/classes/static puede tener una vieja del último package)

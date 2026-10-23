@@ -29,6 +29,10 @@ public final class Exportacion {
     public static final List<String> TABLAS = List.of(
             // V1 · identidad y bitácora (log_transacciones sale completa: todas sus particiones en un solo CSV, decisión 7.5)
             "perfiles", "usuarios", "usuarios_perfiles", "mfa_codigos", "log_transacciones",
+            // V30 · parámetros de seguridad del administrador (sesión 2: usuarios, roles y logs)
+            "seg_parametros",
+            // V31 · roles adicionales parametrizables (Anexo 5, 1.12)
+            "perfiles_pantallas",
             // V3 · catálogos, maestros y checklist
             "par_departamentos", "par_municipios", "par_unidades", "par_fuerzas", "par_regionales", "par_modalidades", "par_tipos_visita",
             "par_parametros", "par_festivos", "catalogos", "catalogo_valores", "opl", "puntos", "auditores", "chk_versiones", "chk_vacios",
@@ -48,7 +52,12 @@ public final class Exportacion {
             // V17 · alertas de la fase 10: bandeja de correo, SMS y alertas críticas
             "correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos",
             // V50 · sesión de reportes: registro de los reportes generados (código de verificación y huellas, Anexo 5 2.10)
-            "reportes_generados");
+            "reportes_generados",
+            // --- Presupuesto (rama presupuesto): V40 ---
+            "presupuesto_vigencias", "presupuesto_modalidades", "presupuesto_lineas", "presupuesto_saldos", "presupuesto_soportes",
+            "presupuesto_lotes", "presupuesto_movimientos", "presupuesto_movimientos_lineas", "presupuesto_ejecucion", "presupuesto_proyeccion",
+            "presupuesto_consecutivos", "presupuesto_notificaciones", "presupuesto_umbrales", "presupuesto_desviaciones");
+            // --- fin presupuesto ---
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
     public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes");

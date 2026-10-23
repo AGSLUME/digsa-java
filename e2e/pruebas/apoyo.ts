@@ -92,6 +92,34 @@ export async function ingresarConClaveInicial(page: Page, usuario: string, inici
   await expect(page.getByRole('button', { name: 'Salir', exact: true })).toBeVisible();
 }
 
+/**
+ * Administrador propio de la prueba, para no retener al administrador compartido (admin.e2e): con la sesión única (decisión 7.1), una
+ * sesión de admin.e2e que queda abierta bloquea un minuto el ingreso de las demás specs. admin.e2e se usa solo un instante, en un
+ * contexto aparte, para crearlo por la API, y se cierra siempre (finally). La página queda con el administrador propio ya ingresado.
+ */
+export async function ingresarComoAdminPropio(page: Page, prefijo = 'adm'): Promise<string> {
+  const usuario = unico(prefijo);
+  const clave = 'Admin.Propio.E2E.2026';
+  const ctx = await page.context().browser()!.newContext();
+  const temporal = await ctx.newPage();
+  try {
+    await ingresar(temporal, ...ADMIN);
+    const r = await api(temporal, 'POST', '/api/usuarios', {
+      nombre: 'Administrador Propio de Prueba',
+      usuario,
+      correo: `${usuario}@example.com`,
+      perfiles: [1],
+      claveInicial: 'Inicial.Admin.Propio.2026',
+    });
+    expect(r.estado, JSON.stringify(r.datos)).toBe(201);
+  } finally {
+    await salir(temporal);
+    await ctx.close();
+  }
+  await ingresarConClaveInicial(page, usuario, 'Inicial.Admin.Propio.2026', clave);
+  return usuario;
+}
+
 /** Fecha AAAA-MM-DD dentro de n días (hora de Bogotá aproximada por la del equipo). */
 export function dentroDe(dias: number): string {
   const d = new Date();

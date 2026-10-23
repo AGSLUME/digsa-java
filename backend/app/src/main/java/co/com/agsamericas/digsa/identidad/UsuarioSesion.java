@@ -4,6 +4,7 @@ import co.com.agsamericas.digsa.reglas.Alcance;
 import co.com.agsamericas.digsa.reglas.Perfil;
 import java.io.Serial;
 import java.io.Serializable;
+import java.security.Principal;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
@@ -19,12 +20,21 @@ import org.springframework.security.core.context.SecurityContextHolder;
  * Quién está en la sesión. Los perfiles se recalculan desde la base en cada petición (un perfil quitado deja de servir de
  * inmediato), así que aquí solo van id, usuario y nombre.
  */
-public record UsuarioSesion(long id, String usuario, String nombre) implements Serializable, co.com.agsamericas.digsa.plataforma.Identificable {
+public record UsuarioSesion(long id, String usuario, String nombre) implements Serializable, Principal, co.com.agsamericas.digsa.plataforma.Identificable {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
     private static final String PREFIJO = "PERFIL_";
+
+    /**
+     * Nombre de la autenticación: solo el usuario (máximo 50). Spring Session lo guarda en PRINCIPAL_NAME, varchar(100): con el
+     * toString del record (id, usuario y nombre de hasta 150) un usuario de nombre largo no podía ingresar (error 500).
+     */
+    @Override
+    public String getName() {
+        return usuario;
+    }
 
     public static Authentication autenticacion(UsuarioSesion u, Collection<Perfil> perfiles) {
         List<GrantedAuthority> autoridades = perfiles.stream().map(p -> (GrantedAuthority) new SimpleGrantedAuthority(PREFIJO + p.name())).toList();
@@ -52,9 +62,32 @@ public record UsuarioSesion(long id, String usuario, String nombre) implements S
         return s;
     }
 
-    /** Alcance de la petición en curso; lo calcula el filtro de la sesión. */
+    /** Lo que el filtro de la sesión calcula en cada petición (no se guarda en la sesión): alcance de los datos y pantallas permitidas. */
+    public record Acceso(Alcance alcance, Set<co.com.agsamericas.digsa.reglas.Pantallas> pantallas, Set<Integer> asignados) {
+        public Acceso {
+            pantallas = Set.copyOf(pantallas);
+            asignados = Set.copyOf(asignados);
+        }
+    }
+
+    /** Perfiles y roles asignados (ids) de la petición en curso, para mostrarlos con su nombre. */
+    public static Set<Integer> asignadosActuales() {
+        Authentication a = SecurityContextHolder.getContext().getAuthentication();
+        return a != null && a.getDetails() instanceof Acceso ac ? ac.asignados() : Set.of();
+    }
+
+    /** Alcance de la petición en curso; lo calcula el filtro de la sesión. Sin él, ninguno (falla cerrado). */
     public static Alcance alcanceActual() {
         Authentication a = SecurityContextHolder.getContext().getAuthentication();
-        return a != null && a.getDetails() instanceof Alcance al ? al : new Alcance.Ninguno();
+        return a != null && a.getDetails() instanceof Acceso ac ? ac.alcance() : new Alcance.Ninguno();
+    }
+
+    /**
+     * Pantallas de la petición en curso: las de los perfiles directos más las de los roles adicionales (Anexo 5, 1.12). Sin el cálculo del
+     * filtro de la sesión, ninguna (falla cerrado).
+     */
+    public static Set<co.com.agsamericas.digsa.reglas.Pantallas> pantallasActuales() {
+        Authentication a = SecurityContextHolder.getContext().getAuthentication();
+        return a != null && a.getPrincipal() instanceof UsuarioSesion && a.getDetails() instanceof Acceso ac ? ac.pantallas() : Set.of();
     }
 }

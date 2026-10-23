@@ -38,6 +38,7 @@ import {
   puedeEditarPesos,
   puedeRegistrarIncidencias,
   sumaPesos,
+  textoNivel,
   tonoTexto,
   type FilaRiesgo,
   type FormIncidencia,
@@ -190,34 +191,54 @@ function PorFuerza({ t }: { t: TableroRiesgo }) {
           Sin ESM en su alcance.
         </Text>
       ) : (
-        <ScrollArea type="auto">
-          <Table striped miw={620} data-testid="tabla-riesgo-fuerza">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Fuerza</Table.Th>
-                <Table.Th ta="right">ESM</Table.Th>
-                <Table.Th ta="right">Promedio</Table.Th>
-                <Table.Th ta="right">Alto</Table.Th>
-                <Table.Th ta="right">Medio</Table.Th>
-                <Table.Th ta="right">Bajo</Table.Th>
-                <Table.Th>Factor principal</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {t.porFuerza.map((f) => (
-                <Table.Tr key={f.fuerza}>
-                  <Table.Td>{f.fuerza}</Table.Td>
-                  <Table.Td ta="right">{f.agregado.esm}</Table.Td>
-                  <Table.Td ta="right">{decimal(f.agregado.promedio)}</Table.Td>
-                  <Table.Td ta="right">{f.agregado.niveles.alto}</Table.Td>
-                  <Table.Td ta="right">{f.agregado.niveles.medio}</Table.Td>
-                  <Table.Td ta="right">{f.agregado.niveles.bajo}</Table.Td>
-                  <Table.Td>{f.principal}</Table.Td>
+        <>
+          <Stack hiddenFrom="sm" gap="xs" data-testid="tarjetas-riesgo-fuerza">
+            {t.porFuerza.map((f) => (
+              <Card key={f.fuerza} withBorder padding="sm" data-testid={'tarjeta-fuerza-' + f.fuerza}>
+                <Group justify="space-between" gap="xs" wrap="wrap">
+                  <Title order={5}>{f.fuerza}</Title>
+                  <Text size="sm" fw={600}>
+                    Promedio {decimal(f.agregado.promedio)}
+                  </Text>
+                </Group>
+                <Text size="sm">
+                  {f.agregado.esm} ESM · alto {f.agregado.niveles.alto} · medio {f.agregado.niveles.medio} · bajo {f.agregado.niveles.bajo}
+                </Text>
+                <Text size="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
+                  Factor principal: {f.principal}
+                </Text>
+              </Card>
+            ))}
+          </Stack>
+          <ScrollArea type="auto" visibleFrom="sm">
+            <Table striped miw={620} data-testid="tabla-riesgo-fuerza">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Fuerza</Table.Th>
+                  <Table.Th ta="right">ESM</Table.Th>
+                  <Table.Th ta="right">Promedio</Table.Th>
+                  <Table.Th ta="right">Alto</Table.Th>
+                  <Table.Th ta="right">Medio</Table.Th>
+                  <Table.Th ta="right">Bajo</Table.Th>
+                  <Table.Th>Factor principal</Table.Th>
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
+              </Table.Thead>
+              <Table.Tbody>
+                {t.porFuerza.map((f) => (
+                  <Table.Tr key={f.fuerza}>
+                    <Table.Td>{f.fuerza}</Table.Td>
+                    <Table.Td ta="right">{f.agregado.esm}</Table.Td>
+                    <Table.Td ta="right">{decimal(f.agregado.promedio)}</Table.Td>
+                    <Table.Td ta="right">{f.agregado.niveles.alto}</Table.Td>
+                    <Table.Td ta="right">{f.agregado.niveles.medio}</Table.Td>
+                    <Table.Td ta="right">{f.agregado.niveles.bajo}</Table.Td>
+                    <Table.Td>{f.principal}</Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </ScrollArea>
+        </>
       )}
     </Card>
   );
@@ -240,7 +261,8 @@ function TablaEsm({ t }: { t: TableroRiesgo }) {
       <Title order={4} mb="xs">
         Puntaje por ESM
       </Title>
-      <ScrollArea type="auto">
+      <TarjetasEsm t={t} />
+      <ScrollArea type="auto" visibleFrom="sm">
         <Table striped miw={1100} verticalSpacing="sm" data-testid="tabla-riesgo">
           <Table.Thead>
             <Table.Tr>
@@ -318,6 +340,65 @@ function TablaEsm({ t }: { t: TableroRiesgo }) {
         </Table>
       </ScrollArea>
     </Card>
+  );
+}
+
+/**
+ * Celular (menos de 768 px, duda 25.4): una tarjeta por ESM en el orden de la tabla, con el nombre como encabezado, el nivel en texto
+ * («Riesgo alto, 72 de 100»), una barra por factor con «valor de peso», la última visita cerrada y los avisos. Sin desplazamiento
+ * horizontal a 360 px.
+ */
+function TarjetasEsm({ t }: { t: TableroRiesgo }) {
+  return (
+    <Stack hiddenFrom="sm" gap="sm" data-testid="tarjetas-riesgo">
+      {t.esm.length === 0 && (
+        <Text size="sm" c="dimmed">
+          Sin ESM en su alcance.
+        </Text>
+      )}
+      {t.esm.map((e) => {
+        const n = nivelRiesgo(e.nivel);
+        return (
+          <Card key={e.puntoId} withBorder padding="sm" data-testid={'tarjeta-riesgo-' + e.puntoId} style={{ minWidth: 0 }}>
+            <Title order={5} style={{ overflowWrap: 'anywhere' }}>
+              {e.nombre}
+            </Title>
+            <Text size="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
+              {e.fuerza}
+              {e.municipio ? ` · ${e.municipio}` : ''}
+            </Text>
+            <Text fw={700} c={tonoTexto(n.color)} mt={4} data-testid={'nivel-riesgo-' + e.puntoId}>
+              {textoNivel(e.nivel, e.total)}
+            </Text>
+            {e.sinResumen && (
+              <Text size="xs" c="red.8" fw={600}>
+                Visita sin resumen: incumplimiento no medido
+              </Text>
+            )}
+            <Stack gap={4} mt="xs">
+              {t.factores.map((f) => (
+                <BarraHorizontal
+                  key={f}
+                  etiqueta={t.nombres[f] ?? f}
+                  valor={e.factores[f] ?? 0}
+                  maximo={t.pesos[f] ?? 0}
+                  texto={`${decimal(e.factores[f] ?? 0)} de ${t.pesos[f] ?? 0}`}
+                  color={n.color}
+                />
+              ))}
+            </Stack>
+            <Text size="sm" mt="xs">
+              {e.ultimaCerrada
+                ? `Última visita cerrada: ${e.ultimaCerrada}${e.diasSinVisita !== null ? ` · ${e.diasSinVisita} días` : ''}`
+                : 'Sin visita cerrada'}
+            </Text>
+            <Text size="xs" c="dimmed">
+              {textoDatos(e.datos).join(' · ')}
+            </Text>
+          </Card>
+        );
+      })}
+    </Stack>
   );
 }
 
@@ -535,7 +616,50 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
       {lista.isLoading && <Loader size="sm" />}
       {lista.error && <Alert color="red">{lista.error.message}</Alert>}
       {lista.data && (
-        <ScrollArea type="auto">
+        <Stack hiddenFrom="sm" gap="xs" data-testid="lista-incidencias">
+          {lista.data.length === 0 && <Text size="sm">No hay incidencias registradas.</Text>}
+          {lista.data.map((i) => (
+            <Card key={i.id} withBorder padding="sm" data-testid={'incidencia-movil-' + i.id} style={{ minWidth: 0 }}>
+              <Group justify="space-between" gap="xs" wrap="wrap">
+                <Text size="sm" fw={600} style={{ overflowWrap: 'anywhere', minWidth: 0 }}>
+                  {i.punto} ({i.fuerza})
+                </Text>
+                <Badge color={i.estado === 'abierta' ? 'orange.4' : 'gray.7'} variant="filled" autoContrast>
+                  {i.estado === 'abierta' ? 'Abierta' : 'Cerrada'}
+                </Badge>
+              </Group>
+              <Text size="xs" c="dimmed">
+                {i.fecha}
+                {i.fuente ? ` · ${i.fuente}` : ''}
+              </Text>
+              <Text size="sm" mt={4} style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                {i.descripcion}
+              </Text>
+              {i.motivoCierre && (
+                <Text size="xs" c="dimmed" mt={2} style={{ overflowWrap: 'anywhere' }}>
+                  Cierre: {i.motivoCierre}
+                </Text>
+              )}
+              {registra && i.estado === 'abierta' && (
+                <Group mt="xs">
+                  <Button
+                    size="compact-sm"
+                    variant="light"
+                    onClick={() => {
+                      setMotivo('');
+                      setCerrando(i);
+                    }}
+                  >
+                    Cerrar
+                  </Button>
+                </Group>
+              )}
+            </Card>
+          ))}
+        </Stack>
+      )}
+      {lista.data && (
+        <ScrollArea type="auto" visibleFrom="sm">
           <Table striped miw={820} data-testid="tabla-incidencias">
             <Table.Thead>
               <Table.Tr>

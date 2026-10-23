@@ -22,3 +22,11 @@ frontend/*.tsbuildinfo
 
 # Almacén de archivos (evidencias, actas, correos locales): nunca en el repositorio (Ley 1581)
 **/almacen/
+
+# Integración continua y operación: informes del pipeline, respaldos y plantillas de la carga inicial (datos personales)
+artefactos/
+respaldos/
+carga/
+frontend/test-results/
+# Carga inicial de maestros (plantillas diligenciadas e informes): datos personales, nunca en el repositorio (Ley 1581)
+/informe/

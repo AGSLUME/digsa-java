@@ -73,9 +73,28 @@ public class ExportadorTablero {
         return archivo(new Reporte("Dashboard de riesgo por ESM", ahora(), usuario, filtros, columnas, filas), "riesgo", formato);
     }
 
+    /** Nombres de las tablas del dashboard en la descarga (los mismos títulos de la pantalla). */
+    static final String HABILITACION = "Habilitación";
+    static final String CATEGORIAS = "Resultados por categoría";
+    static final String PRESTADORES = "Resultados por prestador";
+    static final String VACIOS = "Vacíos de mayor riesgo con No cumple";
+
+    /** Fila de la descarga del dashboard: tabla, concepto, valor y, en las tablas de resultados, C, NC, NA y sin calificar. */
+    private static List<Object> fila(String tabla, Object concepto, Object valor, Object... cnc) {
+        List<Object> f = new ArrayList<>(java.util.Arrays.asList(tabla, concepto, valor, null, null, null, null));
+        for (int i = 0; i < cnc.length && i < 4; i++) {
+            f.set(3 + i, cnc[i]);
+        }
+        return f;
+    }
+
+    /**
+     * Descarga del dashboard de visitas: se construye con la misma respuesta de {@code ServicioDashboard.datos} que pinta la pantalla
+     * para esos filtros (25.3, Anexo 5 2.10), así las cifras coinciden.
+     */
     @SuppressWarnings("unchecked")
     Archivo dashboard(Map<String, Object> d, String formato, String usuario) {
-        List<String> columnas = List.of("Tabla", "Concepto", "Valor");
+        List<String> columnas = List.of("Tabla", "Concepto", "Valor", "Cumple", "No cumple", "No aplica", "Sin calificar");
         List<List<Object>> filas = new ArrayList<>();
         Map<String, Object> ind = (Map<String, Object>) d.get("indicadores");
         Map<String, String> nombres = new LinkedHashMap<>();
@@ -86,18 +105,33 @@ public class ExportadorTablero {
         nombres.put("canceladas", "Canceladas");
         nombres.put("criticas", "Con alertas críticas");
         nombres.put("planesOplVencidos", "Planes del OPL vencidos (sin firmar a los 5 días hábiles)");
-        nombres.forEach((k, n) -> filas.add(List.of("Indicadores", n, ind.get(k))));
+        nombres.forEach((k, n) -> filas.add(fila("Indicadores", n, ind.get(k))));
         Map<String, Object> lb = (Map<String, Object>) d.get("lineaBase");
-        filas.add(List.of("Línea base", "ESM de dispensación con visita inicial cerrada", lb.get("cerradas") + " de " + lb.get("total")));
-        filas.add(List.of("Línea base", "En curso o programadas", lb.get("enCurso")));
-        filas.add(List.of("Línea base", "Sin programar", lb.get("sinProgramar")));
+        filas.add(fila("Línea base", "ESM de dispensación con visita inicial cerrada", lb.get("cerradas") + " de " + lb.get("total")));
+        filas.add(fila("Línea base", "En curso o programadas", lb.get("enCurso")));
+        filas.add(fila("Línea base", "Sin programar", lb.get("sinProgramar")));
         Map<String, Object> res = (Map<String, Object>) d.get("resultados");
-        filas.add(List.of("Resultados", "Cumple", res.get("c")));
-        filas.add(List.of("Resultados", "No cumple", res.get("nc")));
-        filas.add(List.of("Resultados", "No aplica", res.get("na")));
-        filas.add(List.of("Resultados", "Hallazgos", res.get("hallazgos")));
-        filas.add(List.of("Resultados", "Requieren intervención inmediata del OPL", res.get("inmediata")));
-        filas.add(List.of("Resultados", "Acciones del plan 5W2H abiertas", res.get("planesAbiertos")));
+        filas.add(fila("Resultados", "Cumple", res.get("c")));
+        filas.add(fila("Resultados", "No cumple", res.get("nc")));
+        filas.add(fila("Resultados", "No aplica", res.get("na")));
+        filas.add(fila("Resultados", "Hallazgos", res.get("hallazgos")));
+        filas.add(fila("Resultados", "Requieren intervención inmediata del OPL", res.get("inmediata")));
+        filas.add(fila("Resultados", "Acciones del plan 5W2H abiertas", res.get("planesAbiertos")));
+        Map<String, Object> hab = (Map<String, Object>) res.get("habilitacion");
+        if (hab != null) {
+            filas.add(fila(HABILITACION, "Habilitado", hab.get("habilitado")));
+            filas.add(fila(HABILITACION, "No habilitado · en trámite", hab.get("tramite")));
+            filas.add(fila(HABILITACION, "No habilitado sin soporte", hab.get("no_habilitado")));
+        }
+        for (Map<String, Object> x : (List<Map<String, Object>>) res.getOrDefault("porCategoria", List.of())) {
+            filas.add(fila(CATEGORIAS, etiquetaCategoria(x), null, x.get("c"), x.get("nc"), x.get("na"), x.get("pendientes")));
+        }
+        for (Map<String, Object> x : (List<Map<String, Object>>) res.getOrDefault("porPrestador", List.of())) {
+            filas.add(fila(PRESTADORES, x.get("prestador"), null, x.get("c"), x.get("nc"), x.get("na"), x.get("pendientes")));
+        }
+        for (Map<String, Object> x : (List<Map<String, Object>>) res.getOrDefault("vacios", List.of())) {
+            filas.add(fila(VACIOS, x.get("nombre"), null, null, x.get("nc")));
+        }
         Map<String, String> graficas = new LinkedHashMap<>();
         graficas.put("porTipo", "Visitas por tipo");
         graficas.put("porFuerza", "Visitas por fuerza");
@@ -109,7 +143,7 @@ public class ExportadorTablero {
             if (l instanceof List<?> lista) {
                 for (Object o : lista) {
                     Map<String, Object> x = (Map<String, Object>) o;
-                    filas.add(List.of(n, String.valueOf(x.get("etiqueta")), x.get("valor")));
+                    filas.add(fila(n, String.valueOf(x.get("etiqueta")), x.get("valor")));
                 }
             }
         });
@@ -119,6 +153,13 @@ public class ExportadorTablero {
         }
         filtros.put("Fuente", "Agenda y actas de la Suite DIGSA");
         return archivo(new Reporte("Dashboard de visitas", ahora(), usuario, filtros, columnas, filas), "dashboard", formato);
+    }
+
+    /** «C05 · Nombre» para un componente; las obligaciones solo con su nombre (como en la pantalla). */
+    static String etiquetaCategoria(Map<String, Object> x) {
+        String codigo = texto(x.get("codigo"));
+        String nombre = texto(x.get("nombre"));
+        return "OBL".equals(codigo) || nombre.equals(codigo) ? nombre : codigo + " · " + nombre;
     }
 
     private ZonedDateTime ahora() {

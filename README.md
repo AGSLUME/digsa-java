@@ -58,6 +58,12 @@ docker compose run --rm app --digsa.crear-admin.correo=admin@ejemplo.gov.co --di
 docker compose --profile pruebas up -d   # además, correo de pruebas en http://localhost:8025 (Mailpit)
 ```
 
+- **Carga inicial de maestros** (auditores, puntos y usuarios, sin contraseñas): herramienta de línea de comandos en la misma imagen. Guía completa en `docs/guia_carga_maestros.md`:
+  ```bash
+  docker compose run --rm --no-deps -v "$PWD/carga:/carga" app --digsa.carga.plantillas=/carga                                   # plantillas
+  docker compose run --rm -v "$PWD/carga:/carga" app --digsa.carga.carpeta=/carga --digsa.carga.responsable=admin                 # simular
+  docker compose run --rm -v "$PWD/carga:/carga" app --digsa.carga.carpeta=/carga --digsa.carga.responsable=admin --digsa.carga.modo=aplicar
+  ```
 - **Datos:** los archivos (evidencias y actas) quedan en el volumen `datos-app` (`/datos`) y la base en `datos-db`.
 - **Producción:** se quita el servicio `db` y `DIGSA_DB_URL` apunta a la base administrada (alta disponibilidad).
 - **Validación de arranque:** con `DIGSA_ENTORNO=produccion` la aplicación no arranca sin https, SMTP, remitente y dominios de los reportes.
@@ -72,6 +78,49 @@ cd e2e && npm test                   # Playwright en Chromium, Firefox y WebKit;
 DIGSA_E2E_CANALES=chrome,msedge npx playwright test --project=chrome --project=msedge
 ```
 
+## Integración continua
+
+Toda la lógica vive en `ci/*.sh`, que corren en Linux y, salvo los que usan Docker, también en Git Bash de Windows. Los orquestadores solo llaman a esos scripts:
+- `.github/workflows/ci.yml` (GitHub Actions) es el principal y el recomendado.
+- `azure-pipelines.yml` (Azure DevOps) es el equivalente, con los mismos trabajos y las mismas puertas.
+
+Si se cambia de orquestador, los scripts no se tocan (duda 16.3).
+
+| # | Trabajo | Script | Cuándo | Depende de |
+|---|---|---|---|---|
+| 1 | `secretos` | `ci/secretos.sh`: gitleaks (`.gitleaks.toml`, informe sin valores) y archivos que nunca se versionan (`.env`, `.local/`, `respaldos/`, `carga/`) | siempre | — |
+| 2 | `backend` | `ci/backend.sh`: `mvnw -B -ntp verify` (JUnit, PostgreSQL 16 embebido, Modulith y ArchUnit) | siempre | — |
+| 3 | `frontend` | `ci/frontend.sh`: `npm ci`, `typecheck`, Vitest (JUnit) y `build` | siempre | — |
+| 4 | `e2e` | `ci/e2e.sh`: Playwright en Chromium contra `DigsaLocal`, con la SPA del trabajo 3 | siempre | 3 |
+| 4b | `e2e` en Firefox y WebKit | `DIGSA_E2E_MOTORES="firefox webkit" ci/e2e.sh` | de noche, manual y en etiquetas `v*` | 3 |
+| 5 | `dependencias` | `ci/dependencias.sh`: Trivy sobre `pom.xml` y `package-lock.json` y, como segunda opinión informativa, `npm audit --omit=dev` | siempre | — |
+| 6 | `imagen` | `ci/imagen.sh`: build, prueba de humo con compose, Trivy de la imagen y SBOM CycloneDX | siempre | 2 y 3 |
+| 7 | `publicar` | `ci/publicar.sh`: sube **la misma** imagen probada y, en `v*`, arma el paquete para TI | push a `main` y etiquetas `v*` | 1 a 6 |
+| 8 | `respaldo` | `ci/respaldo_restauracion.sh`: respaldo, `down -v` y restauración con `docker/respaldar.sh` y `docker/restaurar.sh` | de noche, manual y en etiquetas `v*` | 6 |
+
+- **Puertas.** Cualquier trabajo en rojo deja el pipeline en rojo. En GitHub, la regla de la rama `main` exige como *required status checks* `secretos`, `backend`, `frontend`, `e2e`, `dependencias` e `imagen`. En Azure DevOps, la *build validation* de la rama hace lo mismo.
+- **Vulnerabilidades.** Bloquean las CRITICAL o HIGH que tengan versión corregida y la imagen base en fin de vida. Las que no tienen corrección van al informe JSON sin bloquear. Una excepción solo vale en `.trivyignore` con motivo, quién la aceptó y `exp:` a 90 días como máximo; al vencer, vuelve a bloquear.
+- **Etiquetas de la imagen.** Un push a `main` publica `sha-<commit>` y `main`. Una etiqueta `vX.Y.Z` publica `X.Y.Z` y `sha-<commit>`. Nunca se publica `latest`. La imagen lleva las etiquetas OCI `version`, `revision`, `created` y `source`.
+- **Paquete para TI** (etiquetas `v*`):
+  - `digsa-suite_<versión>.tar.gz`, el `docker save` de la imagen, que se carga con `docker load -i`;
+  - `digsa-suite_<versión>_despliegue.tar.gz`, con el compose, `.env.example`, `docker/`, `herramientas/` y la guía de operación;
+  - el SBOM;
+  - `SHA256SUMS`.
+
+  En GitHub queda en el *release* de la etiqueta.
+- **Secretos.** Viven solo en las variables seguras del orquestador:
+  - en GitHub, en el entorno `publicacion`, con aprobación; para GHCR basta `GITHUB_TOKEN`, y otro registro usa la variable `DIGSA_REGISTRO` y los secretos `DIGSA_REGISTRO_USUARIO` y `DIGSA_REGISTRO_CLAVE`;
+  - en Azure DevOps, en el grupo de variables `digsa-publicacion` y el entorno `publicacion`.
+
+  Las pruebas no usan secretos. Con `CI` definido, la contraseña del administrador de Playwright es aleatoria en cada corrida.
+- **Versiones fijas.**
+  - Las acciones de GitHub van por SHA, con su versión al lado. Dependabot (`.github/dependabot.yml`) propone actualizar las acciones, Maven, npm y Docker.
+  - Trivy y gitleaks corren como contenedor con versión y digest fijos, en `ci/comun.sh` (`TRIVY_IMAGEN`, `GITLEAKS_IMAGEN`). Se actualizan a mano con una versión publicada hace al menos dos semanas. Si el binario está instalado en el equipo, se usa ese.
+- **En el equipo** (Git Bash): `bash ci/backend.sh`, `bash ci/frontend.sh` y `bash ci/e2e.sh` dan el mismo resultado que el pipeline sin Docker. `ci/secretos.sh` y `ci/dependencias.sh` necesitan gitleaks y Trivy, o Docker. `ci/imagen.sh`, `ci/publicar.sh` y `ci/respaldo_restauracion.sh` necesitan Docker (ejecutor Linux).
+- **Antes del primer push:** `git update-index --chmod=+x backend/mvnw ci/*.sh docker/*.sh docker/postgres/*.sh`. Los scripts igual dan el permiso a `mvnw` si falta.
+
+La operación del servidor (instalación, respaldo, restauración, actualización y monitoreo) está en [docs/guia_operacion_servidor.md](docs/guia_operacion_servidor.md).
+
 ## Configuración (variables de entorno; nunca en el repositorio)
 
 | Variable | Qué es |
@@ -85,4 +134,4 @@ DIGSA_E2E_CANALES=chrome,msedge npx playwright test --project=chrome --project=m
 | `DIGSA_TURNSTILE_SITIO`, `DIGSA_TURNSTILE_SECRETA` | Captcha Cloudflare Turnstile. Sin clave secreta nadie ingresa, salvo en local |
 | `DIGSA_CORREO_REPORTES` | Correo por defecto para enviar reportes (prueba en sitio: el del comité) |
 
-El primer administrador se crea solo por línea de comandos (`--digsa.crear-admin.correo=… --digsa.crear-admin.nombre=…`). No hay contraseñas en el repositorio.
+El primer administrador se crea solo por línea de comandos (`--digsa.crear-admin.correo=… --digsa.crear-admin.nombre=…`). No hay contraseñas en el repositorio. Los demás usuarios de la carga inicial entran con `--digsa.carga.*` (`docs/guia_carga_maestros.md`) y reciben el enlace para definir su contraseña.

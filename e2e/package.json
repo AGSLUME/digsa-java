@@ -6,7 +6,7 @@
     "test": "playwright test",
     "test:chromium": "playwright test --project=chromium",
     "reporte": "playwright show-report",
-    "pretest": "powershell -NoProfile -Command \"foreach ($p in 8080, 54329) { Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { try { Stop-Process -Id $_ -Force -ErrorAction Stop } catch {} } }\""
+    "pretest": "node limpiar-puertos.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1"

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { defineConfig, devices } from '@playwright/test';
 
 /**
@@ -6,10 +7,30 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * El servidor es el arranque local (PostgreSQL embebido, correo a archivo, SPA en el mismo origen) con 1 minuto de inactividad
  * para poder probar el aviso y el cierre. Antes: `npm --prefix ../frontend run build`.
+ *
+ * Corre igual en Windows (equipo de desarrollo) y en Linux (pipeline: ci/e2e.sh).
  */
+
+// Las fechas de las reglas («hoy», plazos, festivos) se calculan en Bogotá, también en un ejecutor en UTC. Los procesos de las
+// pruebas y el servidor heredan esta variable.
+process.env.TZ ??= 'America/Bogota';
+
+// En el pipeline (CI definido) la contraseña del administrador de las pruebas es aleatoria en cada corrida. Los procesos de las
+// pruebas la heredan por la variable (apoyo.ts la lee de ahí). La clave no lleva «:», que separa usuario y clave.
+if (process.env.CI && !process.env.DIGSA_E2E_ADMIN) {
+  process.env.DIGSA_E2E_ADMIN = `admin.e2e:E2e.${randomBytes(18).toString('base64url')}.9z`;
+}
 const ADMIN = process.env.DIGSA_E2E_ADMIN ?? 'admin.e2e:Admin.E2E.Prueba.2026';
 
 const canales = (process.env.DIGSA_E2E_CANALES ?? '').split(',').filter(Boolean);
+
+// Arranque del servidor: mvnw.cmd en Windows, mvnw en Linux y macOS. JAVA_HOME sale del entorno; en Windows, si no está
+// definido, se usa la instalación portátil de %LOCALAPPDATA% (equipo de desarrollo sin permisos de administrador).
+const windows = process.platform === 'win32';
+const mvnw = windows ? '..\\backend\\mvnw.cmd' : '../backend/mvnw';
+const javaHome =
+  process.env.JAVA_HOME ?? (windows && process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}/Programs/jdk21` : undefined);
+const entornoServidor: Record<string, string> = { TZ: 'America/Bogota', ...(javaHome ? { JAVA_HOME: javaHome } : {}) };
 
 export default defineConfig({
   testDir: './pruebas',
@@ -36,14 +57,15 @@ export default defineConfig({
   ],
   webServer: {
     command:
-      `..\\backend\\mvnw.cmd -q -f ../backend/pom.xml -pl app spring-boot:test-run ` +
+      `${mvnw} -q -f ../backend/pom.xml -pl app spring-boot:test-run ` +
       `-Dspring-boot.run.main-class=co.com.agsamericas.digsa.DigsaLocal ` +
-      `"-Dspring-boot.run.jvmArguments=-Ddigsa.local.admin=${ADMIN} -Ddigsa.local.raiz=${process.cwd().replace(/\\/g, '/')}/.." ` +
+      `"-Dspring-boot.run.jvmArguments=-Duser.timezone=America/Bogota -Ddigsa.local.admin=${ADMIN} ` +
+      `-Ddigsa.local.raiz=${process.cwd().replace(/\\/g, '/')}/.." ` +
       `"-Dspring-boot.run.arguments=--digsa.sesion-minutos=1 --digsa.mfa.codigos-por-hora=1000 --digsa.opl.codigos-por-hora-ip=1000"`,
     url: 'http://localhost:8080/actuator/health',
     timeout: 240_000,
     reuseExistingServer: false,
-    env: { JAVA_HOME: process.env.JAVA_HOME ?? `${process.env.LOCALAPPDATA}/Programs/jdk21` },
+    env: entornoServidor,
     stdout: 'ignore',
     stderr: 'pipe',
   },

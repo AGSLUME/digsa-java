@@ -7,6 +7,7 @@ import { GraficaBarras } from '../shared/Barras';
 import {
   conConsulta,
   consultaFiltros,
+  etiquetaCategoria,
   FILTROS_VACIOS,
   filtrosConsultables,
   FORMATOS_DESCARGA,
@@ -51,7 +52,8 @@ function Tarjeta({
 
 /**
  * «Dashboard» de visitas (docs/especificaciones/riesgo-tablero): indicadores, gráficas por estado, tipo, fuerza, unidad y auditor,
- * línea base de los ESM de dispensación y resultados de las visitas cerradas, con los filtros del alcance y descarga.
+ * línea base de los ESM de dispensación y resultados de las visitas cerradas (por categoría con «Sin calificar» y las obligaciones,
+ * por prestador y vacíos de mayor riesgo: duda 25.3), con los filtros del alcance y descarga con las mismas cifras.
  */
 export function Dashboard() {
   const opciones = useQuery({ queryKey: ['dashboard', 'opciones'], queryFn: () => api<OpcionesDashboard>('/api/dashboard/opciones') });
@@ -238,17 +240,55 @@ function Contenido({ d, o }: { d: DatosDashboard; o: OpcionesDashboard | undefin
             </>
           )}
           <TablaResultados
-            titulo="Resultados por componente"
-            columna="Componente"
-            filas={(r.porComponente ?? []).map((x) => ({ clave: x.codigo, etiqueta: `${x.codigo} · ${x.nombre}`, c: x.c, nc: x.nc, na: x.na }))}
-            testid="tabla-componentes"
+            titulo="Resultados por categoría"
+            columna="Categoría"
+            filas={(r.porCategoria ?? []).map((x) => ({
+              clave: x.codigo,
+              etiqueta: etiquetaCategoria(x),
+              c: x.c,
+              nc: x.nc,
+              na: x.na,
+              sc: x.pendientes,
+            }))}
+            testid="tabla-categorias"
           />
           <TablaResultados
             titulo="Resultados por prestador"
             columna="Prestador"
-            filas={(r.porPrestador ?? []).map((x) => ({ clave: x.prestador, etiqueta: x.prestador || 'Sin prestador', c: x.c, nc: x.nc, na: x.na }))}
+            filas={(r.porPrestador ?? []).map((x) => ({
+              clave: x.prestador,
+              etiqueta: x.prestador || 'Sin prestador',
+              c: x.c,
+              nc: x.nc,
+              na: x.na,
+              sc: x.pendientes,
+            }))}
             testid="tabla-prestadores"
           />
+          <Title order={5} mt="md" mb="xs">
+            Vacíos de mayor riesgo con No cumple
+          </Title>
+          <Table striped data-testid="tabla-vacios">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Vacío de mayor riesgo</Table.Th>
+                <Table.Th ta="right">No cumple</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {(r.vacios ?? []).length === 0 && (
+                <Table.Tr>
+                  <Table.Td colSpan={2}>La versión vigente del checklist no tiene vacíos de mayor riesgo.</Table.Td>
+                </Table.Tr>
+              )}
+              {(r.vacios ?? []).map((x) => (
+                <Table.Tr key={x.codigo} data-testid={'vacio-' + x.codigo}>
+                  <Table.Td style={{ overflowWrap: 'anywhere' }}>{x.nombre}</Table.Td>
+                  <Table.Td ta="right">{x.nc}</Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
         </Card>
       )}
     </>
@@ -263,7 +303,7 @@ function TablaResultados({
 }: {
   titulo: string;
   columna: string;
-  filas: { clave: string; etiqueta: string; c: number; nc: number; na: number }[];
+  filas: { clave: string; etiqueta: string; c: number; nc: number; na: number; sc: number }[];
   testid: string;
 }) {
   return (
@@ -272,27 +312,29 @@ function TablaResultados({
         {titulo}
       </Title>
       <ScrollArea type="auto">
-        <Table striped miw={480} data-testid={testid}>
+        <Table striped miw={520} data-testid={testid}>
           <Table.Thead>
             <Table.Tr>
               <Table.Th>{columna}</Table.Th>
               <Table.Th ta="right">Cumple</Table.Th>
               <Table.Th ta="right">No cumple</Table.Th>
               <Table.Th ta="right">No aplica</Table.Th>
+              <Table.Th ta="right">Sin calificar</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
             {filas.length === 0 && (
               <Table.Tr>
-                <Table.Td colSpan={4}>Sin visitas cerradas con estos filtros.</Table.Td>
+                <Table.Td colSpan={5}>Sin visitas cerradas con estos filtros.</Table.Td>
               </Table.Tr>
             )}
             {filas.map((x) => (
-              <Table.Tr key={x.clave}>
+              <Table.Tr key={x.clave} data-clave={x.clave}>
                 <Table.Td>{x.etiqueta}</Table.Td>
                 <Table.Td ta="right">{x.c}</Table.Td>
                 <Table.Td ta="right">{x.nc}</Table.Td>
                 <Table.Td ta="right">{x.na}</Table.Td>
+                <Table.Td ta="right">{x.sc}</Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>

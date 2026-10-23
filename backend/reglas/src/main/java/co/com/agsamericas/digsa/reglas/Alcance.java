@@ -77,14 +77,15 @@ public sealed interface Alcance {
 
     /** El motivo si la combinación de perfiles no es válida (fase 8 del PHP). */
     static Optional<String> combinacionInvalida(Collection<Perfil> perfiles) {
+        // Primero la entidad auditada: con el Analista (interventoría y, desde la E2, también con alcance) es el motivo más preciso
+        boolean opl = perfiles.stream().anyMatch(Perfil::esOpl);
+        if (opl && perfiles.stream().anyMatch(PERFILES_INTERVENTORIA::contains)) {
+            return Optional.of("Los perfiles del OPL (entidad auditada) no se combinan con los de la interventoría.");
+        }
         List<String> conAlcance = PERFILES_CON_ALCANCE.stream().filter(perfiles::contains).map(Perfil::nombre).toList();
         if (conAlcance.size() > 1) {
             return Optional.of("Un usuario tiene un solo perfil de consulta u OPL (" + String.join(", ", conAlcance)
                     + "): cada uno ve un alcance distinto.");
-        }
-        boolean opl = perfiles.stream().anyMatch(Perfil::esOpl);
-        if (opl && perfiles.stream().anyMatch(PERFILES_INTERVENTORIA::contains)) {
-            return Optional.of("Los perfiles del OPL (entidad auditada) no se combinan con los de la interventoría.");
         }
         return Optional.empty();
     }

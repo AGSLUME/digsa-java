@@ -44,6 +44,9 @@ public final class Bitacora {
             Map.entry("regional_creada", Operacion.INSERCION), Map.entry("regional_editada", Operacion.ACTUALIZACION),
             Map.entry("punto_creado", Operacion.INSERCION), Map.entry("punto_editado", Operacion.ACTUALIZACION),
             Map.entry("auditor_editado", Operacion.ACTUALIZACION), Map.entry("puntos_carga", Operacion.INSERCION),
+            Map.entry("auditor_creado", Operacion.INSERCION),
+            // Carga inicial de maestros por línea de comandos (despliegue-carga, parte B): resumen de cada corrida
+            Map.entry("carga_maestros", Operacion.INSERCION), Map.entry("carga_maestros_simulada", Operacion.CONSULTA),
             Map.entry("fuerza_creada", Operacion.INSERCION), Map.entry("fuerza_editada", Operacion.ACTUALIZACION),
             Map.entry("fuerza_eliminada", Operacion.ELIMINACION),
             Map.entry("visita_programada", Operacion.INSERCION), Map.entry("solicitud_registrada", Operacion.INSERCION), Map.entry("solicitud_aviso_fallido", Operacion.INSERCION), Map.entry("solicitud_anulada", Operacion.ACTUALIZACION), Map.entry("visita_editada", Operacion.ACTUALIZACION),

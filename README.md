@@ -78,6 +78,14 @@ cd e2e && npm test                   # Playwright en Chromium, Firefox y WebKit;
 DIGSA_E2E_CANALES=chrome,msedge npx playwright test --project=chrome --project=msedge
 ```
 
+<!-- --- Presupuesto (rama presupuesto) --- -->
+## Módulo de presupuesto (Anexo 5 §4.6)
+
+Presupuesto del contrato de medicamentos del OPL por vigencia, Fuerza, ESM y modalidad: asignación inicial y novedades con soporte de la DIGSA, ejecución mensual (archivo, registro manual o el puerto `PuertoEjecucion` para cuentas médicas), umbrales del 25 al 100 % y desviación frente a la proyección con notificación formal por correo, tablero y 4 reportes. Especificación y decisiones: `docs/especificaciones/presupuesto/spec.md` (sección «Cambios durante la construcción»). Pantalla: «Presupuesto»; registran Coordinador y Administrador, consultan DIGSA, Analista, Sanidad y ESM en su alcance.
+
+Con varias copias de trabajo en el mismo equipo, conviene instalar en un repositorio Maven propio y leer las dependencias del compartido: `MAVEN_OPTS="-Dmaven.repo.local=<copia>/.local/m2 -Dmaven.repo.local.tail=$HOME/.m2/repository"` (Maven 3.9).
+<!-- --- fin presupuesto --- -->
+
 ## Integración continua
 
 Toda la lógica vive en `ci/*.sh`, que corren en Linux y, salvo los que usan Docker, también en Git Bash de Windows. Los orquestadores solo llaman a esos scripts:

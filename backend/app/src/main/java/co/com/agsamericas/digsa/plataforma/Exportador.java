@@ -144,7 +144,16 @@ public class Exportador {
         com.lowagie.text.Font normal = new com.lowagie.text.Font(com.lowagie.text.Font.HELVETICA, 8);
         com.lowagie.text.Font negrita = new com.lowagie.text.Font(com.lowagie.text.Font.HELVETICA, 8, com.lowagie.text.Font.BOLD);
         try {
-            com.lowagie.text.pdf.PdfWriter.getInstance(doc, out);
+            com.lowagie.text.pdf.PdfWriter escritor = com.lowagie.text.pdf.PdfWriter.getInstance(doc, out);
+            // --- Presupuesto (rama presupuesto): número de página en cada hoja (Anexo 5, 2.9); coordinar con la sesión 1 ---
+            escritor.setPageEvent(new com.lowagie.text.pdf.PdfPageEventHelper() {
+                @Override
+                public void onEndPage(com.lowagie.text.pdf.PdfWriter w, com.lowagie.text.Document d) {
+                    com.lowagie.text.pdf.ColumnText.showTextAligned(w.getDirectContent(), com.lowagie.text.Element.ALIGN_RIGHT,
+                            new com.lowagie.text.Phrase("Página " + w.getPageNumber(), normal), d.right(), d.bottom() - 18, 0);
+                }
+            });
+            // --- fin presupuesto ---
             doc.addTitle(r.titulo());
             doc.open();
             doc.add(new com.lowagie.text.Paragraph(r.titulo(), titulo));

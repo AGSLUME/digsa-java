@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   consultaPresupuesto,
+  mesesDe,
+  cuerpoEjecucion,
+  problemaEjecucion,
   cuerpoNovedad,
   formularioVacio,
   leerMonto,
@@ -91,5 +94,49 @@ describe('cuerpoNovedad y consulta', () => {
   it('consulta solo con los filtros diligenciados y en orden fijo', () => {
     expect(consultaPresupuesto({ punto: '3', vigencia: '2' }, { pagina: 2 })).toBe('vigencia=2&punto=3&pagina=2');
     expect(consultaPresupuesto({})).toBe('');
+  });
+});
+
+describe('problemaEjecucion y cuerpoEjecucion', () => {
+  const base = {
+    vigenciaId: '3',
+    puntoId: '5',
+    modalidad: 'dispensacion',
+    fuerza: '',
+    periodo: '2027-03',
+    facturado: '260.000.000,00',
+    reconocido: '',
+    referencia: '',
+  };
+  it('completo y válido', () => {
+    expect(problemaEjecucion(base)).toBeNull();
+    expect(cuerpoEjecucion(base)).toEqual({
+      vigenciaId: 3,
+      puntoId: 5,
+      modalidad: 'dispensacion',
+      fuerza: null,
+      periodo: '2027-03',
+      facturado: '260000000.00',
+      reconocido: null,
+      referencia: null,
+    });
+  });
+  it('mes, montos y HOMIL', () => {
+    expect(problemaEjecucion({ ...base, periodo: '2027-13' })).toContain('mes');
+    expect(problemaEjecucion({ ...base, facturado: '-1' })).toContain('facturado');
+    expect(problemaEjecucion({ ...base, facturado: '10000000', reconocido: '12000000' })).toBe(
+      'El reconocido (12000000,00) no puede superar el facturado (10000000,00).',
+    );
+    expect(problemaEjecucion({ ...base, facturado: '0' })).toBeNull();
+    expect(problemaEjecucion(base, new Set(['5']))).toBe('Seleccione la fuerza de adscripción.');
+  });
+});
+
+describe('mesesDe', () => {
+  it('meses de una vigencia parcial y de un año completo', () => {
+    expect(mesesDe('2027-03-01', '2027-12-31')).toHaveLength(10);
+    expect(mesesDe('2027-03-01', '2027-12-31')[0]).toBe('2027-03');
+    expect(mesesDe('2026-12-29', '2026-12-31')).toEqual(['2026-12']);
+    expect(mesesDe('2027-01-01', '2027-12-31').at(-1)).toBe('2027-12');
   });
 });

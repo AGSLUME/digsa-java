@@ -211,7 +211,7 @@ export function mostrarMonto(enviado: string | null): string {
   return enviado === null ? '' : enviado.replace('.', ',');
 }
 
-function centavos(m: string): bigint {
+export function centavos(m: string): bigint {
   const negativo = m.startsWith('-');
   const [e, d] = m.replace('-', '').split('.');
   const v = BigInt(e ?? '0') * 100n + BigInt(d ?? '0');
@@ -322,3 +322,105 @@ export function consultaPresupuesto(f: Partial<FiltrosPresupuesto>, extra: Recor
   for (const [k, v] of Object.entries(extra)) p.set(k, String(v));
   return p.toString();
 }
+
+export interface VersionEjecucion {
+  id: number;
+  periodo: string;
+  fuerza: string;
+  esm: string;
+  satelite: string | null;
+  modalidad: string;
+  facturado: string;
+  reconocido: string | null;
+  fuente: string;
+  referencia: string | null;
+  lote: number | null;
+  vigente: boolean;
+  registrado: string;
+  reemplazada: string | null;
+  usuario: string;
+}
+
+export interface Notificacion {
+  id: number;
+  consecutivo: string;
+  tipo: 'umbral' | 'desviacion';
+  nivel: 'esm' | 'fuerza' | 'nacional';
+  fuerza: string | null;
+  corte: string | null;
+  asunto: string;
+  texto: string;
+  estado: 'encolada' | 'fallida' | 'sin_buzon_fuerza' | 'sin_buzon_digsa' | 'sin_destinatarios';
+  envio: string | null;
+  fecha: string;
+}
+
+export interface Pagina<T> {
+  total: number;
+  pagina: number;
+  porPagina: number;
+  items: T[];
+}
+
+export interface FormEjecucion {
+  vigenciaId: string;
+  puntoId: string;
+  modalidad: string;
+  fuerza: string;
+  periodo: string;
+  facturado: string;
+  reconocido: string;
+  referencia: string;
+}
+
+/** El motivo por el que el registro manual de ejecución no se puede enviar, o null. */
+export function problemaEjecucion(f: FormEjecucion, exigenFuerza: ReadonlySet<string> = new Set()): string | null {
+  if (!f.vigenciaId) return 'Seleccione la vigencia.';
+  if (!f.puntoId) return 'Seleccione el ESM.';
+  if (!f.modalidad) return 'Seleccione la modalidad.';
+  if (exigenFuerza.has(f.puntoId) && !f.fuerza) return 'Seleccione la fuerza de adscripción.';
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(f.periodo)) return 'Seleccione el mes (AAAA-MM).';
+  const fac = leerMonto(f.facturado);
+  if (fac === null || fac.startsWith('-')) return 'El facturado debe ser un valor en pesos mayor o igual a 0, con máximo 2 decimales.';
+  if (f.reconocido.trim()) {
+    const rec = leerMonto(f.reconocido);
+    if (rec === null || rec.startsWith('-')) return 'El reconocido debe ser un valor en pesos mayor o igual a 0, con máximo 2 decimales.';
+    if (centavos(rec) > centavos(fac)) return `El reconocido (${mostrarMonto(rec)}) no puede superar el facturado (${mostrarMonto(fac)}).`;
+  }
+  if (f.referencia.trim().length > 120) return 'La referencia tiene máximo 120 caracteres.';
+  return null;
+}
+
+export function cuerpoEjecucion(f: FormEjecucion) {
+  return {
+    vigenciaId: Number(f.vigenciaId),
+    puntoId: Number(f.puntoId),
+    modalidad: f.modalidad,
+    fuerza: f.fuerza || null,
+    periodo: f.periodo,
+    facturado: leerMonto(f.facturado),
+    reconocido: f.reconocido.trim() ? leerMonto(f.reconocido) : null,
+    referencia: f.referencia.trim() || null,
+  };
+}
+
+/** Meses de la vigencia como «AAAA-MM» (para elegir el mes sin input type="month", que Firefox y Safari no tienen). */
+export function mesesDe(inicio: string, fin: string): string[] {
+  const r: string[] = [];
+  let [a, m] = [Number(inicio.substring(0, 4)), Number(inicio.substring(5, 7))];
+  const [af, mf] = [Number(fin.substring(0, 4)), Number(fin.substring(5, 7))];
+  while (a < af || (a === af && m <= mf)) {
+    r.push(`${a}-${String(m).padStart(2, '0')}`);
+    m = m === 12 ? 1 : m + 1;
+    if (m === 1) a++;
+  }
+  return r;
+}
+
+export const ESTADO_NOTIFICACION: Record<string, { color: string; texto: string }> = {
+  encolada: { color: 'green', texto: 'En cola de envío o enviada' },
+  fallida: { color: 'red', texto: 'El correo no se pudo entregar: reenvíela' },
+  sin_buzon_digsa: { color: 'yellow', texto: 'Falta el buzón de la DIGSA (parámetro correo_digsa)' },
+  sin_buzon_fuerza: { color: 'yellow', texto: 'Falta el buzón de la fuerza: salió solo a la DIGSA' },
+  sin_destinatarios: { color: 'red', texto: 'Sin destinatarios: no salió' },
+};

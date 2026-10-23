@@ -555,3 +555,17 @@ Revisión de los agentes: P1 corregidos (reajuste por % calculado con los saldos
 | P.23 | `ejecutado_al_momento` del movimiento guarda lo facturado aunque la base de los umbrales sea «reconocido» | Lo facturado es lo que limita la disminución (spec) |
 | P.24 | Interfaz: Cerrar/Reabrir vigencia y los interruptores de modalidad no piden confirmación ni muestran carga | Pendiente de pulir en F5 |
 | P.25 | El `install` del backend publica en el repositorio Maven compartido y las sesiones se pisan | Para las e2e de presupuesto se usa `MAVEN_OPTS="-Dmaven.repo.local=<worktree>/.local/m2 -Dmaven.repo.local.tail=%USERPROFILE%/.m2/repository"` (Maven 3.9): sugerido para las tres sesiones |
+
+### F3 de presupuesto: ejecución, umbrales y notificación formal (2026-10-22)
+
+Hecho: puerto `PuertoEjecucion` (carga de archivo de la DIGSA o del OPL, registro manual y, después, cuentas médicas) con facturado y reconocido por mes; la versión nueva del mes reemplaza a la anterior sin borrarla y el saldo es la suma de las vigentes; la ejecución puede pasar del 100 %. Umbrales del 25, 50, 75 y 100 % sobre lo facturado (parámetro), uno por línea, solo el más alto con aviso; alerta del catálogo (DIGSA y Coordinador) y notificación formal con consecutivo `PRE-AAAA-NNNN` por correo al buzón de la Sanidad de la fuerza y de la DIGSA, sin SMS. Pantallas «Ejecución» y «Notificaciones» con reenvío.
+
+Revisión de los agentes: P1 corregidos (mes con lista de meses de la vigencia, porque `input type="month"` no existe en Firefox ni en Safari; notificación con correo agotado visible como «fallida» y reenviable; buzón de la DIGSA vacío marcado `sin_buzon_digsa` con V43). También: líneas aseguradas en orden fijo (sin interbloqueos), validaciones del puerto iguales a las del registro manual, línea sin fuerza falla cerrado, índice del saldo vigente.
+
+| # | Pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| P.26 | La desviación de la fuerza y la nacional suma solo las líneas que reportaron el mes del corte (si no, la primera carga del mes daría subejecución falsa) | Así; confirmar con el usuario |
+| P.27 | El reenvío vuelve a mandar a todos los buzones (también a los que ya recibieron) | Se acepta: es una notificación formal y el consecutivo es el mismo |
+| P.28 | El puerto de cuentas médicas no tiene idempotencia por referencia de lote | Se agrega cuando exista el módulo de cuentas |
+| P.29 | Registrar() hace varias sentencias por corte; consecutivo anual serializa a quienes notifican hasta el commit | Aceptable con el volumen esperado; se mide en F6 |
+| P.30 | El historial de versiones muestra el usuario que registró a Sanidad y ESM | Es el registro de la interventoría; confirmar si debe ocultarse |

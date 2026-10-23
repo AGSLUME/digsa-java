@@ -135,3 +135,63 @@ test('M7-1 y M7-2: vigencia, carga del presupuesto, rebalanceo trazado en el his
   await expect(page.getByRole('tab', { name: 'Cargas' })).toHaveCount(0);
   expect((await api(page, 'POST', '/api/presupuesto/vigencias', { anio: 2101 })).estado).toBe(403);
 });
+
+/** POST multipart de una novedad desde la página (misma sesión y token CSRF). */
+async function novedadApi(page: Page, datos: unknown): Promise<number> {
+  return page.evaluate(async (d) => {
+    const t = /(?:^|; )XSRF-TOKEN=([^;]+)/.exec(document.cookie)?.[1];
+    const f = new FormData();
+    f.append('datos', JSON.stringify(d));
+    const r = await fetch('/api/presupuesto/novedades', { method: 'POST', body: f, headers: t ? { 'X-XSRF-TOKEN': decodeURIComponent(t) } : {} });
+    return r.status;
+  }, datos);
+}
+
+test('F3: ejecución manual que cruza el 25 %, versión del mes y notificación formal con consecutivo', async ({ page }) => {
+  await ingresar(page, ...ADMIN);
+  const coordinador = await crearUsuario(page, 'coordeje', 2);
+  await salir(page);
+  await ingresarConClaveInicial(page, coordinador, INICIAL, NUEVA);
+  await page.goto('/presupuesto');
+
+  const o = await api<{ puntos: Punto[]; vigencias: { anio: number }[] }>(page, 'GET', '/api/presupuesto/opciones');
+  const siglas = new Map<string, number>();
+  o.datos.puntos.forEach((p) => p.sigla && siglas.set(p.sigla, (siglas.get(p.sigla) ?? 0) + 1));
+  const esm = o.datos.puntos.find((p) => p.fuerza === 'EJC' && p.modalidad === 'Dispensación' && p.sigla && siglas.get(p.sigla) === 1)!;
+  const usados = new Set(o.datos.vigencias.map((v) => v.anio));
+  let anio = 2030 + ((Date.now() + 37) % 70);
+  for (let i = 0; usados.has(anio) && i < 70; i++) anio = 2030 + ((anio - 2029) % 70);
+  const v = await api<{ id: number }>(page, 'POST', '/api/presupuesto/vigencias', { anio });
+  expect(v.estado).toBe(201);
+  expect(
+    await novedadApi(page, {
+      vigenciaId: v.datos.id,
+      tipo: 'asignacion_inicial',
+      soporte: 'Oficio DIGSA de asignación',
+      items: [{ puntoId: esm.id, modalidad: 'dispensacion', valor: '1000000000' }],
+    }),
+  ).toBe(201);
+  await page.reload();
+
+  await page.getByRole('tab', { name: 'Ejecución' }).click();
+  const manual = page.getByTestId('ejecucion-manual');
+  await elegir(page, manual, 'Vigencia', '', new RegExp(`^${anio}$`));
+  await elegir(page, manual, 'ESM', esm.sigla!, new RegExp(`^${esm.sigla} · `));
+  await elegir(page, manual, 'Modalidad', '', 'Dispensación');
+  await elegir(page, manual, 'Mes', '', `${anio}-03`);
+  await page.getByTestId('ejecucion-facturado').fill('260.000.000,00');
+  await page.getByTestId('ejecucion-registrar').click();
+  await expect(page.getByText(/Ejecución registrada: .*, \d{4}-03\./)).toBeVisible();
+  await expect(page.getByTestId('tabla-ejecucion')).toContainText('260000000,00');
+
+  await page.getByRole('tab', { name: 'Notificaciones' }).click();
+  const tarjeta = page.locator('[data-testid^="notificacion-PRE-"]').filter({ hasText: esm.sigla! }).filter({ hasText: 'alcanzó el 25 %' }).first();
+  await expect(tarjeta).toContainText('alcanzó el 25 % del presupuesto (26,00 %)');
+  await expect(tarjeta).toContainText(/Enviada a la bandeja de salida|Falta el buzón de la fuerza|Sin destinatarios/);
+
+  await page.setViewportSize({ width: 360, height: 740 });
+  await sinDesplazamientoHorizontal(page);
+  await page.getByRole('tab', { name: 'Ejecución' }).click();
+  await sinDesplazamientoHorizontal(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+});

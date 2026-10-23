@@ -26,6 +26,7 @@ import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { api, descargar, ErrorApi, subirArchivos } from '../shared/api';
+import { Ejecucion, Notificaciones } from './PresupuestoEjecucion';
 import {
   AYUDA_TIPO,
   colorSemaforo,
@@ -94,7 +95,9 @@ export function Presupuesto() {
           <Tabs.List style={{ flexWrap: 'nowrap' }}>
             <Tabs.Tab value="lineas">Líneas</Tabs.Tab>
             {o.puedeRegistrar && <Tabs.Tab value="novedad">Novedad presupuestal</Tabs.Tab>}
+            <Tabs.Tab value="ejecucion">Ejecución</Tabs.Tab>
             <Tabs.Tab value="historial">Historial</Tabs.Tab>
+            <Tabs.Tab value="notificaciones">Notificaciones</Tabs.Tab>
             {o.puedeRegistrar && <Tabs.Tab value="cargas">Cargas</Tabs.Tab>}
             {o.puedeRegistrar && <Tabs.Tab value="configuracion">Configuración</Tabs.Tab>}
           </Tabs.List>
@@ -113,6 +116,12 @@ export function Presupuesto() {
             <Novedad o={o} />
           </Tabs.Panel>
         )}
+        <Tabs.Panel value="ejecucion" pt="md">
+          <Ejecucion o={o} />
+        </Tabs.Panel>
+        <Tabs.Panel value="notificaciones" pt="md">
+          <Notificaciones o={o} />
+        </Tabs.Panel>
         <Tabs.Panel value="historial" pt="md">
           <Historial o={o} filtros={filtrosHistorial} setFiltros={setFiltrosHistorial} />
         </Tabs.Panel>

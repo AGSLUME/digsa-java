@@ -82,7 +82,8 @@ public final class Bitacora {
             Map.entry("presupuesto_carga_aplicada", Operacion.INSERCION), Map.entry("presupuesto_ejecucion_carga", Operacion.INSERCION),
             Map.entry("presupuesto_ejecucion_manual", Operacion.INSERCION), Map.entry("presupuesto_proyeccion_carga", Operacion.INSERCION),
             Map.entry("presupuesto_umbral", Operacion.INSERCION), Map.entry("presupuesto_desviacion", Operacion.INSERCION),
-            Map.entry("presupuesto_notificacion_fallida", Operacion.INSERCION), Map.entry("presupuesto_centralizador", Operacion.ACTUALIZACION));
+            Map.entry("presupuesto_notificacion_fallida", Operacion.INSERCION), Map.entry("presupuesto_centralizador", Operacion.ACTUALIZACION),
+            Map.entry("presupuesto_notificacion_reenviada", Operacion.INSERCION));
             // --- fin presupuesto ---
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */

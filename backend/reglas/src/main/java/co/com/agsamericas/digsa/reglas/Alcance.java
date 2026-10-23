@@ -7,7 +7,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Alcance de cada perfil (séptima ronda del 2026-10-15): qué datos ve el usuario. DIGSA, Administrador y Coordinador: todo; OPL
+ * Alcance de cada perfil (séptima ronda del 2026-10-15): qué datos ve el usuario. DIGSA, Administrador, Coordinador y Analista (consulta
+ * nacional en visitas: los anexos solo le dan funciones en cuentas médicas; decisión del usuario del 2026-10-22): todo; OPL
  * nacional: el país sin las visitas a necesidad pendientes; Sanidad (DISAN o JEFSA): su fuerza; OPL regional: su regional; ESM: su
  * ESM; Auditor: las visitas de su equipo. Un perfil sin su dato no da acceso: falla cerrado.
  */
@@ -41,7 +42,8 @@ public sealed interface Alcance {
     /** Solo ellos solicitan visitas a necesidad (decisiones 33 y 35). */
     Set<Perfil> PERFILES_SOLICITAN = EnumSet.of(Perfil.DIGSA, Perfil.SANIDAD);
     /** Un usuario tiene uno solo de estos: cada uno ve un alcance distinto. */
-    Set<Perfil> PERFILES_CON_ALCANCE = EnumSet.of(Perfil.DIGSA, Perfil.SANIDAD, Perfil.ESM, Perfil.OPL_NACIONAL, Perfil.OPL_REGIONAL);
+    Set<Perfil> PERFILES_CON_ALCANCE = EnumSet.of(Perfil.DIGSA, Perfil.SANIDAD, Perfil.ESM, Perfil.OPL_NACIONAL, Perfil.OPL_REGIONAL,
+            Perfil.ANALISTA);
     /** La entidad auditada no combina sus perfiles con los de la interventoría. */
     Set<Perfil> PERFILES_INTERVENTORIA = EnumSet.of(Perfil.AUDITOR, Perfil.COORDINADOR, Perfil.ADMINISTRADOR, Perfil.ANALISTA);
 
@@ -51,7 +53,8 @@ public sealed interface Alcance {
 
     /** Alcance del usuario según sus perfiles, en el orden de la especificación. */
     static Alcance de(Collection<Perfil> perfiles, DatosUsuario u) {
-        if (perfiles.contains(Perfil.ADMINISTRADOR) || perfiles.contains(Perfil.COORDINADOR) || perfiles.contains(Perfil.DIGSA)) {
+        if (perfiles.contains(Perfil.ADMINISTRADOR) || perfiles.contains(Perfil.COORDINADOR) || perfiles.contains(Perfil.DIGSA)
+                || perfiles.contains(Perfil.ANALISTA)) {
             return new Todo();
         }
         if (perfiles.contains(Perfil.OPL_NACIONAL)) {
@@ -74,14 +77,15 @@ public sealed interface Alcance {
 
     /** El motivo si la combinación de perfiles no es válida (fase 8 del PHP). */
     static Optional<String> combinacionInvalida(Collection<Perfil> perfiles) {
+        // Primero la entidad auditada: con el Analista (interventoría y, desde la E2, también con alcance) es el motivo más preciso
+        boolean opl = perfiles.stream().anyMatch(Perfil::esOpl);
+        if (opl && perfiles.stream().anyMatch(PERFILES_INTERVENTORIA::contains)) {
+            return Optional.of("Los perfiles del OPL (entidad auditada) no se combinan con los de la interventoría.");
+        }
         List<String> conAlcance = PERFILES_CON_ALCANCE.stream().filter(perfiles::contains).map(Perfil::nombre).toList();
         if (conAlcance.size() > 1) {
             return Optional.of("Un usuario tiene un solo perfil de consulta u OPL (" + String.join(", ", conAlcance)
                     + "): cada uno ve un alcance distinto.");
-        }
-        boolean opl = perfiles.stream().anyMatch(Perfil::esOpl);
-        if (opl && perfiles.stream().anyMatch(PERFILES_INTERVENTORIA::contains)) {
-            return Optional.of("Los perfiles del OPL (entidad auditada) no se combinan con los de la interventoría.");
         }
         return Optional.empty();
     }

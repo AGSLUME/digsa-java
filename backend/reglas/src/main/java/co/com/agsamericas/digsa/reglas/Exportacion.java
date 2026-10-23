@@ -29,6 +29,10 @@ public final class Exportacion {
     public static final List<String> TABLAS = List.of(
             // V1 · identidad y bitácora (log_transacciones sale completa: todas sus particiones en un solo CSV, decisión 7.5)
             "perfiles", "usuarios", "usuarios_perfiles", "mfa_codigos", "log_transacciones",
+            // V30 · parámetros de seguridad del administrador (sesión 2: usuarios, roles y logs)
+            "seg_parametros",
+            // V31 · roles adicionales parametrizables (Anexo 5, 1.12)
+            "perfiles_pantallas",
             // V3 · catálogos, maestros y checklist
             "par_departamentos", "par_municipios", "par_unidades", "par_fuerzas", "par_regionales", "par_modalidades", "par_tipos_visita",
             "par_parametros", "par_festivos", "catalogos", "catalogo_valores", "opl", "puntos", "auditores", "chk_versiones", "chk_vacios",
@@ -47,6 +51,11 @@ public final class Exportacion {
             "exportaciones",
             // V17 · alertas de la fase 10: bandeja de correo, SMS y alertas críticas
             "correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos",
+            // --- Presupuesto (rama presupuesto): V40 ---
+            "presupuesto_vigencias", "presupuesto_modalidades", "presupuesto_lineas", "presupuesto_saldos", "presupuesto_soportes",
+            "presupuesto_lotes", "presupuesto_movimientos", "presupuesto_movimientos_lineas", "presupuesto_ejecucion", "presupuesto_proyeccion",
+            "presupuesto_consecutivos", "presupuesto_notificaciones", "presupuesto_umbrales", "presupuesto_desviaciones",
+            // --- fin presupuesto ---
             // --- Analítica (rama analitica) ---
             // V60 · ingesta del insumo del OPL: cargues, partes, lotes del servicio web, rechazos, plantillas y dimensión de tiempo (los
             // hechos ana_dispensaciones no van aquí: ver TECNICAS)

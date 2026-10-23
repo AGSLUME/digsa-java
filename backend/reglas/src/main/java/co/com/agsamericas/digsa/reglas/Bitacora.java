@@ -79,6 +79,18 @@ public final class Bitacora {
             Map.entry("exportacion_solicitada", Operacion.INSERCION), Map.entry("exportacion_generada", Operacion.INSERCION),
             Map.entry("exportacion_fallida", Operacion.INSERCION), Map.entry("exportacion_vencida", Operacion.ELIMINACION),
             Map.entry("exportacion_completa", Operacion.CONSULTA), Map.entry("soportes_opl_descargados", Operacion.CONSULTA),
+            // --- Presupuesto (rama presupuesto, docs/especificaciones/presupuesto) ---
+            Map.entry("presupuesto_vigencia", Operacion.ACTUALIZACION), Map.entry("presupuesto_modalidad", Operacion.ACTUALIZACION),
+            Map.entry("presupuesto_movimiento", Operacion.INSERCION), Map.entry("presupuesto_carga_simulada", Operacion.CONSULTA),
+            Map.entry("presupuesto_carga_aplicada", Operacion.INSERCION), Map.entry("presupuesto_ejecucion_carga", Operacion.INSERCION),
+            Map.entry("presupuesto_ejecucion_manual", Operacion.INSERCION), Map.entry("presupuesto_proyeccion_carga", Operacion.INSERCION),
+            Map.entry("presupuesto_umbral", Operacion.INSERCION), Map.entry("presupuesto_desviacion", Operacion.INSERCION),
+            Map.entry("presupuesto_notificacion_fallida", Operacion.INSERCION), Map.entry("presupuesto_centralizador", Operacion.ACTUALIZACION),
+            Map.entry("presupuesto_notificacion_reenviada", Operacion.INSERCION),
+            // --- fin presupuesto ---
+            // Usuarios, roles y logs (sesión 2, rama identidad-roles-logs)
+            Map.entry("usuario_desbloqueado", Operacion.ACTUALIZACION), Map.entry("clave_cambio_fallido", Operacion.ACTUALIZACION),
+            Map.entry("rol_creado", Operacion.INSERCION), Map.entry("rol_editado", Operacion.ACTUALIZACION), Map.entry("rol_estado", Operacion.ACTUALIZACION),
             // --- Analítica (rama analitica) ---
             // Cargues del insumo del OPL (analitica-ingesta): sin datos personales; id del cargue, fuente y conteos
             Map.entry("analitica_cargue_creado", Operacion.INSERCION), Map.entry("analitica_cargue_mapeo", Operacion.ACTUALIZACION),
@@ -102,7 +114,8 @@ public final class Bitacora {
             "anio", "item", "catalogo", "componente", "operacion", "pagina");
 
     /** Nunca van al detalle, aunque alguien las agregue a la lista blanca: secretos del ingreso y de las contraseñas. */
-    public static final Set<String> SECRETOS = Set.of("clave", "confirmacion", "password", "contrasena", "codigo", "tkn", "token", "captcha");
+    public static final Set<String> SECRETOS = Set.of("clave", "confirmacion", "password", "contrasena", "codigo", "tkn", "token", "captcha",
+            "actual");
 
     static final int MAX_VALOR = 60;
     static final int MAX_ESTADO = 20;
@@ -172,11 +185,37 @@ public final class Bitacora {
         }
     }
 
-    public record Anotacion(String tipo, String descripcion) {
+    /** Evento de un servicio; {@code cambios} trae los valores de antes y después de una modificación (vacío si no aplica). */
+    public record Anotacion(String tipo, String descripcion, List<Cambio> cambios) {
+        public Anotacion {
+            cambios = cambios == null ? List.of() : List.copyOf(cambios);
+        }
+
+        public Anotacion(String tipo, String descripcion) {
+            this(tipo, descripcion, List.of());
+        }
     }
 
-    public record Fila(Operacion operacion, String tipo, String descripcion) {
+    /** Fila de la bitácora; {@code cambios} van completos en su columna (V32), aparte de la descripción de 500 caracteres. */
+    public record Fila(Operacion operacion, String tipo, String descripcion, List<Cambio> cambios) {
+        public Fila {
+            cambios = cambios == null ? List.of() : List.copyOf(cambios);
+        }
+
+        public Fila(Operacion operacion, String tipo, String descripcion) {
+            this(operacion, tipo, descripcion, List.of());
+        }
     }
+
+    /**
+     * Un campo modificado, con sus valores completos de antes y después (Anexo 5, ítem 15 b). Un dato personal (Ley 1581) va
+     * {@code oculto}, sin valores: solo consta que cambió.
+     */
+    public record Cambio(String campo, String antes, String despues, boolean oculto) {
+    }
+
+    /** Tope de cada valor guardado: suficiente para un texto largo, sin dejar crecer la fila (CHECK de 20.000 bytes en V32). */
+    public static final int MAX_VALOR_CAMBIO = 1000;
 
     /**
      * Qué se registra al terminar una petición. No: las respuestas rechazadas sin efecto (validación, consultas con error) ni el
@@ -198,7 +237,8 @@ public final class Bitacora {
         String detalle = cortar(detalle(p.modulo(), p.accion(), p.datos()), MAX_DETALLE - largo(sufijo));
         Operacion op = denegado ? operacionDeTipo("acceso_denegado") : operacion.orElse(Operacion.CONSULTA);
         String tipo = denegado ? "acceso_denegado" : anotada ? p.anotaciones().getFirst().tipo() : p.modulo() + "." + p.accion();
-        return Optional.of(new Fila(op, tipo, detalle + sufijo));
+        List<Cambio> cambios = p.anotaciones().stream().flatMap(a -> a.cambios().stream()).toList();
+        return Optional.of(new Fila(op, tipo, detalle + sufijo, cambios));
     }
 
     /**
@@ -209,20 +249,34 @@ public final class Bitacora {
      * @return p. ej. "estado: «programada» → «cancelada»; nombre: modificado" o vacío si nada cambió
      */
     public static String cambios(Map<String, ?> antes, Map<String, ?> despues, Set<String> sinValor) {
-        List<String> partes = new ArrayList<>();
+        return resumen(cambiosDe(antes, despues, sinValor));
+    }
+
+    /**
+     * Los campos que cambiaron, en el orden de {@code despues}, con los valores completos (hasta {@link #MAX_VALOR_CAMBIO} caracteres, sin
+     * correos). Los de {@code sinValor} (datos personales, Ley 1581) van ocultos, sin valores.
+     */
+    public static List<Cambio> cambiosDe(Map<String, ?> antes, Map<String, ?> despues, Set<String> sinValor) {
+        List<Cambio> r = new ArrayList<>();
         for (var e : despues.entrySet()) {
-            Object a = antes.get(e.getKey());
-            Object b = e.getValue();
-            if (java.util.Objects.equals(normalizar(a), normalizar(b))) {
+            String a = normalizar(antes.get(e.getKey()));
+            String b = normalizar(e.getValue());
+            if (a.equals(b)) {
                 continue;
             }
             if (sinValor.contains(e.getKey())) {
-                partes.add(e.getKey() + ": modificado");
+                r.add(new Cambio(e.getKey(), null, null, true));
             } else {
-                partes.add(e.getKey() + ": «" + cortar(sinCorreos(normalizar(a)), 40) + "» → «" + cortar(sinCorreos(normalizar(b)), 40) + "»");
+                r.add(new Cambio(e.getKey(), cortar(sinCorreos(a), MAX_VALOR_CAMBIO), cortar(sinCorreos(b), MAX_VALOR_CAMBIO), false));
             }
         }
-        return String.join("; ", partes);
+        return r;
+    }
+
+    /** Resumen para la descripción (cada valor a 40 caracteres): «estado: «programada» → «cancelada»; nombre: modificado». */
+    public static String resumen(List<Cambio> cambios) {
+        return cambios.stream().map(c -> c.oculto() ? c.campo() + ": modificado"
+                : c.campo() + ": «" + cortar(c.antes(), 40) + "» → «" + cortar(c.despues(), 40) + "»").collect(Collectors.joining("; "));
     }
 
     private static String normalizar(Object v) {
@@ -237,6 +291,11 @@ public final class Bitacora {
     /** Sin correos en la bitácora (Ley 1581): p. ej. un error de SMTP que lista los destinatarios. */
     public static String sinCorreos(String texto) {
         return texto == null ? null : CORREO.matcher(texto).replaceAll("[correo]");
+    }
+
+    /** Corta a {@code max} caracteres marcando el corte con «…». */
+    public static String largoCorte(String s, int max) {
+        return s == null || largo(s) <= max ? s : cortar(s, max - 1) + "…";
     }
 
     /** Usuario escrito en un ingreso fallido: solo los 3 primeros caracteres. */

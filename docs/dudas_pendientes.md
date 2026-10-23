@@ -551,6 +551,185 @@ Implementado según `docs/especificaciones/despliegue-carga`:
 | 27.7 | **Lo que necesita Docker no se ha probado:** imagen, prueba de humo, Trivy y la ida y vuelta del respaldo | Se prueba en la primera corrida del pipeline o cuando TI instale Docker |
 | 27.8 | **Dashboard:** ¿«Farmacia alterna» en una sola fila o una por farmacia? | Una sola fila. La habilitación en trámite cuenta en los vacíos (D5) |
 
+## Presupuesto (rama `presupuesto`, 2026-10-22)
+
+Especificación: `docs/especificaciones/presupuesto/spec.md` (Anexo 5 §4.6, Anexo 2 L739 y L741, casos M7 de la prueba en sitio).
+
+**Resueltas por el usuario el 2026-10-22:** vigencia anual con vista «Contrato»; umbrales sobre lo facturado (parámetro); la ejecución del mes reemplaza con versiones; notificación por ESM × modalidad al buzón de la Sanidad de la Fuerza y al de la DIGSA, más la alerta del catálogo.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| P.6 | **Mapa satélite → centralizador:** ¿quién lo entrega? | Columna `puntos.centralizador_id` editable; la ejecución de un satélite sin centralizador se rechaza |
+| P.7 | **Alcance del Analista:** en esta rama `Alcance.de` le da `Ninguno` | Consulta nacional de solo lectura en presupuesto; se alinea con la rama de identidad al integrar |
+| P.8 | **Quién registra novedades y ejecución** | Coordinador y Administrador; la DIGSA entrega la información y consulta |
+| P.9 | **Qué es un «reajuste»** | Ajuste con signo o porcentaje sobre un ámbito, sin neto cero, con soporte obligatorio |
+| P.10 | **Disminución por debajo de lo ejecutado** | Se rechaza; la adición y la ejecución nunca se bloquean |
+| P.11 | **Tolerancias de la desviación** (10 % exceso, 20 % subejecución) | Parámetros editables |
+| P.12 | **Re-notificar un umbral tras una adición** | No: un aviso por vigencia, línea y umbral |
+| P.13 | **Modalidades:** el Anexo 5 trae 3 y el OPL factura por 5 (anexo OPL §38) | Catálogo editable; activas las 3 del Anexo 5 |
+| P.14 | **Método de proyección** | Lineal, o la cargada por la DIGSA si existe |
+| P.15 | **«Precio techo global de consumo mensual»** (Anexo 2 L1126) | Fuera del módulo |
+| P.16 | **Fuentes que faltan:** «anexo técnico financiero, módulo presupuesto» (Anexo 2 L741), contrato del OPL y formato del archivo de ejecución de la DIGSA | Formato de carga propio (CSV «;» UTF-8 o Excel) documentado en la pantalla |
+
+
+### Revisión de los agentes de la F1 de presupuesto (2026-10-22)
+
+Sin P1. Corregidos: FK compuestas para que un movimiento no cruce vigencias; `evento_id` en los umbrales; desviaciones con `linea_id` y `fuerza` (con FK) en vez de una referencia de texto; miles mal agrupados en los montos; comillas sin cerrar, encabezados desconocidos o repetidos y topes de memoria en el CSV; línea sin saldo que resta (falla cerrado); proyección lineal sin meses negativos; empate del reajuste por % hacia la línea de menor id; base y tolerancias que ya no caen al defecto sin aviso.
+
+| # | Pendiente (P2/P3 sin corregir) | Qué se hizo mientras tanto |
+|---|---|---|
+| P.17 | Vigencia cerrada, periodo dentro de la vigencia y fuerza de la línea = fuerza del ESM solo se garantizan en la aplicación (sin triggers; duda 4.1 de TI) | Validación en el servicio con pruebas de API |
+| P.18 | `GRANT USAGE ON ALL SEQUENCES` y el `RETURN` sin aviso del bloque de permisos siguen el patrón de V16 y V17 | Igual que las demás migraciones |
+| P.19 | `presupuesto_notificaciones.para` repite los destinatarios de `correos_salida` | Se deja por trazabilidad de la notificación formal; `par_fuerzas.correos` debe tener solo buzones institucionales (Ley 1581) |
+| P.20 | La desviación se muestra con 2 decimales y se compara exacta: +10,004 % se ve «10,00 %» y ya es exceso | Así lo pide la spec («se comparan sin redondear») |
+
+### F2 de presupuesto: presupuesto y novedades (2026-10-22)
+
+Hecho: vigencias, modalidades, centralizador de los satélites y parámetros desde la pantalla; asignación inicial por archivo (CSV «;» o .xlsx, simular y aplicar todo o nada, idempotente por huella; M7-1); novedades por formulario (adición, disminución, reajuste por valor o por %, rebalanceo y recomposición) con soporte obligatorio y archivo opcional, saldos bloqueados en orden y antes y después por línea (M7-2); historial paginado y descarga del soporte en el alcance. Pruebas: 12 de API, 99 de Vitest y la e2e en Chromium, Firefox, WebKit, Chrome y Edge.
+
+Revisión de los agentes: P1 corregidos (reajuste por % calculado con los saldos ya bloqueados; Excel medido al descomprimir antes de abrirlo con POI). También: doble asignación inicial simultánea (409), tope de 500 líneas por novedad, HOMIL exige la fuerza en el formulario, columna de vigencia en la vista «Contrato», tope de 5000 líneas con mensaje, nombre del archivo fuera de la observación.
+
+| # | Pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| P.21 | La carga masiva hace varias consultas por fila (asegurar la línea, movimientos): con 5000 filas son miles de idas a la base dentro de la transacción | Se deja para la fase de rendimiento (F6) con inserciones por lote |
+| P.22 | Un usuario ESM de un satélite no ve nada: los satélites no tienen líneas propias (su ejecución está en la línea del centralizador) | Así, por la spec; confirmar si debe ver la línea de su centralizador |
+| P.23 | `ejecutado_al_momento` del movimiento guarda lo facturado aunque la base de los umbrales sea «reconocido» | Lo facturado es lo que limita la disminución (spec) |
+| P.24 | Interfaz: Cerrar/Reabrir vigencia y los interruptores de modalidad no piden confirmación ni muestran carga | Pendiente de pulir en F5 |
+| P.25 | El `install` del backend publica en el repositorio Maven compartido y las sesiones se pisan | Para las e2e de presupuesto se usa `MAVEN_OPTS="-Dmaven.repo.local=<worktree>/.local/m2 -Dmaven.repo.local.tail=%USERPROFILE%/.m2/repository"` (Maven 3.9): sugerido para las tres sesiones |
+
+### F3 de presupuesto: ejecución, umbrales y notificación formal (2026-10-22)
+
+Hecho: puerto `PuertoEjecucion` (carga de archivo de la DIGSA o del OPL, registro manual y, después, cuentas médicas) con facturado y reconocido por mes; la versión nueva del mes reemplaza a la anterior sin borrarla y el saldo es la suma de las vigentes; la ejecución puede pasar del 100 %. Umbrales del 25, 50, 75 y 100 % sobre lo facturado (parámetro), uno por línea, solo el más alto con aviso; alerta del catálogo (DIGSA y Coordinador) y notificación formal con consecutivo `PRE-AAAA-NNNN` por correo al buzón de la Sanidad de la fuerza y de la DIGSA, sin SMS. Pantallas «Ejecución» y «Notificaciones» con reenvío.
+
+Revisión de los agentes: P1 corregidos (mes con lista de meses de la vigencia, porque `input type="month"` no existe en Firefox ni en Safari; notificación con correo agotado visible como «fallida» y reenviable; buzón de la DIGSA vacío marcado `sin_buzon_digsa` con V43). También: líneas aseguradas en orden fijo (sin interbloqueos), validaciones del puerto iguales a las del registro manual, línea sin fuerza falla cerrado, índice del saldo vigente.
+
+| # | Pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| P.26 | La desviación de la fuerza y la nacional suma solo las líneas que reportaron el mes del corte (si no, la primera carga del mes daría subejecución falsa) | Así; confirmar con el usuario |
+| P.27 | El reenvío vuelve a mandar a todos los buzones (también a los que ya recibieron) | Se acepta: es una notificación formal y el consecutivo es el mismo |
+| P.28 | El puerto de cuentas médicas no tiene idempotencia por referencia de lote | Se agrega cuando exista el módulo de cuentas |
+| P.29 | Registrar() hace varias sentencias por corte; consecutivo anual serializa a quienes notifican hasta el commit | Aceptable con el volumen esperado; se mide en F6 |
+| P.30 | El historial de versiones muestra el usuario que registró a Sanidad y ESM | Es el registro de la interventoría; confirmar si debe ocultarse |
+
+### F4 de presupuesto: proyección y desviación (2026-10-22)
+
+Hecho: proyección mensual cargada por archivo (simular y aplicar, versiones, advertencia si no suma el asignado contando lo vigente de los demás meses) o lineal (el asignado repartido en los meses de la vigencia, sin guardarse). Alarma de desviación (M7-3) al corte de cada mes registrado, en tres niveles: ESM × modalidad, fuerza y nacional; exceso por encima de la tolerancia de exceso y subejecución por debajo de la de subejecución (parámetros); una por vigencia, corte, nivel y sentido, con la alerta del catálogo y la notificación formal (la nacional a las tres sanidades y a la DIGSA).
+
+Revisión de los agentes: P1 corregidos (bloqueo consultivo por vigencia al empezar toda escritura del presupuesto: novedades, ejecución y proyección, así dos cargas no se bloquean entre sí ni chocan en el índice de la proyección; prueba de concurrencia). También: con base «reconocido», un mes sin conciliar no cuenta como reportado.
+
+| # | Pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| P.26 (amplía) | La fuerza y el país suman solo las líneas que reportaron el mes del corte. La primera alarma del mes queda fijada aunque luego lleguen las demás líneas, y una línea que nunca reporta no se suma (la spec dice «suma de sus líneas») | Así; alternativa: evaluar fuerza y país solo cuando reporten todas las líneas con asignado, o en una tarea al cierre del mes. Confirmar |
+| P.31 | Al recargar un mes, la alarma anterior no se corrige: si el sentido cambia se crea otra, y si vuelve a la tolerancia la anterior queda | Las alarmas son avisos formales ya enviados; la pantalla muestra todas con su corte |
+| P.32 | La proyección acepta la fuente «OPL» | Se deja: la DIGSA dice que la información la entrega ella, pero el OPL puede aportar la proyección |
+| P.33 | Rendimiento: dos consultas de toda la vigencia por cada mes cargado, dentro de la transacción | Se mide en F6 |
+
+### F5 de presupuesto: tablero (2026-10-22)
+
+Hecho: pestaña «Tablero» (la primera) como en el mockup: cajas de presupuesto vigente (con el número de adiciones), ejecutado y %, saldo y «ESM sobre la proyección: N de M»; tabla Fuerza × modalidad con % de ejecución, % proyectado al corte y umbral alcanzado; ESM con mayor ejecución con barras, marcas de 25/50/75 % y semáforo; detalle por línea con lo proyectado al corte y la desviación. Filtros de vigencia o vista «Contrato», corte, fuerza y modalidad, siempre en el alcance. Caja «Ejecución presupuestal» en el inicio. Con vigencia, todo se mide al corte; la vista «Contrato» cuenta lo ejecutado a la fecha.
+
+Revisión de los agentes: sin P1. Corregidos: cifras al corte en todo el tablero, filtros visibles aunque falle la consulta, columnas de modalidad con datos y nombre de la fuerza; pruebas del corte, del alcance ESM y Analista y del 403.
+
+| # | Pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| P.34 | Faltan en el tablero el filtro por ESM y la elección de varias modalidades (spec L376) | La pestaña «Líneas» filtra por ESM; varias modalidades queda para F6 |
+| P.35 | `Proyecciones.alCorte` calcula toda la vigencia aunque el usuario tenga alcance de fuerza o ESM (también al abrir el inicio) | Correcto en cifras; se optimiza en F6 |
+| P.36 | La tabla por fuerza muestra el umbral alcanzado (la spec habla de notificado); «Mayor ejecución» muestra el umbral notificado más alto de las líneas del ESM | Se rotula «alcanzado» y «notificado»; confirmar |
+
+### F6 de presupuesto: reportes y rendimiento (2026-10-22)
+
+Hecho: 4 reportes (ejecución por fuerza, ESM y modalidad con totales; mensual frente a la proyección con agrupación por mes, bimestre, trimestre, semestre o año; movimientos con antes y después; umbrales y desviaciones notificados), en pantalla y en xlsx, csv, pdf y txt, con envío por correo y bitácora; filtros de una, varias o todas las fuerzas y modalidades. Rendimiento: operaciones por lote y notificación consolidada por fuerza (V44): una carga de 4.428 filas pasó de 463 s a 5 s.
+
+Revisión de los agentes: P1 corregidos (el perfil ESM no ve el detalle de otros ESM en una notificación consolidada; pruebas de la consolidación y del ESM). También: totales visibles en pantalla aunque el reporte pase de 2.000 filas, detalle consolidado dentro del tope de texto, reporte de alertas por ESM con las consolidadas, descarga con los filtros de la tabla vista.
+
+| # | Pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| P.37 | Registrar los 4 reportes como `ProveedorReporte` del módulo de reportes | Alineados al contrato (`DEFINICIONES`); se registran cuando reportes llegue a develop (aviso de la sesión integradora) |
+| P.38 | Número de página del PDF | Bloque aislado en `Exportador.pdf`; al integrar se queda la versión de la sesión de reportes («Página N de M») |
+| P.39 | El establecimiento admite un solo ESM en los reportes (la spec pide «una, varias o todas» también para ESM) | Fuerza y modalidad ya admiten varias; ESM queda con uno, como el filtro de establecimiento del contrato de reportes |
+| P.40 | En el reporte de ejecución, la desviación de los totales suma todas las líneas, mientras la alarma suma solo las que reportaron el mes | Documentado; confirmar junto con P.26 |
+| P.41 | Las desviaciones por ESM aún se registran con un INSERT por línea (los umbrales ya van por lote) | Con la consolidación, la carga de 4.428 filas tarda 5 s |
+
+## Usuarios, roles y logs (sesión 2, rama identidad-roles-logs, 2026-10-22)
+
+Decisiones del usuario del 2026-10-22: el MFA por correo **se deja como está** (siempre encendido, sin interruptor); los roles adicionales son **perfil base + subconjunto de sus pantallas**; el **Analista** tiene consulta nacional en visitas (los anexos solo le dan funciones en cuentas médicas). Entregas: E1 contraseñas y sesión, E2 roles adicionales, E3 bitácora con antes y después, E4 guion de la prueba en sitio.
+
+### E1 · Contraseñas y sesión
+
+Hecho:
+
+- **«Cambiar mi contraseña»** en el menú lateral (`POST /api/cuenta/clave`), sin salir al correo (condición 12):
+  - la actual errada suma intento fallido y, al quinto, bloquea y cierra la sesión;
+  - con el usuario ya bloqueado responde 401 y no cambia nada;
+  - la sesión en curso sigue abierta, con identificador y token CSRF nuevos.
+- **Contraseña vencida (30 días):**
+  - se cambia en el ingreso (paso `cambiar_clave`), sin enlace;
+  - si vence con la sesión abierta, la sesión se cierra con «clave_vencida».
+- **TIME OUT editable por el Administrador** en Usuarios › Seguridad (Anexo 5, 3.2: «parametrizable y ajustable»):
+  - se guarda en `seg_parametros` (V30), aplica en la siguiente petición y queda en la bitácora con el antes y el después;
+  - la SPA consulta `GET /api/sesion/estado`, que no renueva la sesión, y adopta el plazo vigente.
+- **Desbloquear** (Administrador): atómico; si el usuario no estaba bloqueado no borra los intentos.
+- **17.16:**
+  - token CSRF nuevo al ingresar;
+  - «olvidé mi contraseña» en un hilo aparte, con el mismo tiempo de respuesta exista o no el usuario;
+  - un enlace cada 5 minutos por usuario; un enlace que no salió no cuenta.
+- **18.17:** el cierre de sesión por el administrador deja una sola fila de salida.
+- La especificación `identidad-sesion` ya dice que el segundo ingreso se rechaza (decisión 7.1), no «gana el último».
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 28.1 | **CSRF de doble envío:** el token se renueva al ingresar y al cambiar la contraseña, pero no está atado a la sesión. Un token viejo junto con su cookie vieja seguiría pasando, aunque un tercero no puede leer la cookie (SameSite=Strict, mismo origen) | Se deja así: es el patrón documentado de Spring para SPA. Atarlo a la sesión exige cambiar el cliente; queda para después de la prueba si TI lo pide |
+| 28.2 | **Tope de «olvidé mi contraseña» con varias instancias:** se decide leyendo `token_vence` y escribiendo después; con dos instancias, dos pedidos simultáneos pueden enviar dos enlaces (el segundo anula el primero) | Con una instancia, el hilo único lo serializa. Pendiente: UPDATE condicional si se despliega en más de una instancia |
+| 28.3 | **El enlace del QR del OPL** (`opl/ServicioOplPublico`) sigue usando `DIGSA_SESION_MINUTOS`, no el TIME OUT editable | No es una sesión de usuario. Coordinar con la sesión 1 si debe seguir al parámetro |
+| 28.4 | **Ramas 409 sin prueba:** el cambio en el ingreso cuando la contraseña dejó de estar vencida entre los dos pasos, y el cambio concurrente de la propia contraseña | El control optimista (`WHERE clave_hash = :anterior`) está; faltan sus pruebas |
+| 28.5 | **Restablecer el TIME OUT en las e2e:** el servidor de las e2e es compartido; la prueba lo restablece y falla con un mensaje claro si no puede | Hecho |
+| 28.6 | **Coordinación con la exportación (sesión 1):** cada tabla nueva debe ir en `reglas/Exportacion.TABLAS` (lo exige `ExportacionApiTest.tablasContraElEsquema`) | Se agregó `seg_parametros` (V30) con una línea aditiva; las tablas de E2 y E3 se agregarán igual. Avisar a la sesión 1 al integrar |
+
+### E2 · Roles adicionales y Analista
+
+Hecho:
+
+- **Roles adicionales** (Anexo 5, 1.12) en Usuarios › Roles adicionales. Cada rol tiene un perfil base y un subconjunto de sus pantallas, y se asigna en el formulario del usuario.
+- **Autorización:** el menú y `@permisos.pantalla` usan las mismas pantallas calculadas en cada petición. El alcance de los datos sale de los perfiles directos más la base de cada rol.
+- **Falla cerrado (P1 de la revisión de seguridad):**
+  - las autoridades y `perfilesActuales()` llevan **solo los perfiles directos**: un rol no da la identidad de su base en las reglas de los demás módulos (registrar incidencias, decidir prórrogas…);
+  - un usuario con roles no tiene perfiles directos y todos sus roles comparten base; si una mezcla queda por reactivar un rol, el rol no suma nada;
+  - el Auditor no es base, y las pantallas ocultas (Visita) no se eligen;
+  - CHECK en la base: solo bases 2 y 5 a 10.
+- **Analista:** consulta nacional.
+- **Base de datos:** V31 (`perfiles.base_id`, `perfiles_pantallas` y ids desde 100). `perfiles_pantallas` va en `Exportacion.TABLAS`.
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 28.7 | **Analista en visitas:** los anexos no le dan funciones en este módulo | Consulta nacional, como la DIGSA, sin solicitar visitas ni descargar los soportes del OPL (decisión del usuario). Si la adenda dice otra cosa, se ajusta con un rol adicional sin programar |
+| 28.8 | **Un rol da consulta, no las acciones de su perfil base:** los servicios de agenda, tablero, ejecución y solicitudes deciden por el perfil directo (`perfilesActuales()`, `hasAnyAuthority`). Un rol con base Coordinador y la pantalla Agenda la ve, pero no actúa como coordinador | Así falla cerrado (P1 de la revisión). Para que un rol pueda actuar, cada servicio tendría que recibir los perfiles según la pantalla: coordinar con la sesión 1 si la DIGSA pide un rol con acciones |
+| 28.9 | **Usuario cuyo único rol está inactivo:** el formulario no muestra el rol inactivo; para editar al usuario hay que marcarle otro perfil o reactivar el rol | La asignación al rol inactivo se conserva al editar |
+| 28.10 | **`AlertaIntervencionApiTest` (módulo ejecución, sesión 1) falla en cada corrida completa (`mvnw verify`) y pasa sola:** espera 5 s el aviso de la bandeja de salida; en la corrida completa la bandeja trae avisos de las pruebas anteriores y la máquina está cargada | **Cerrada:** corregida en develop (fe9c98e, el aviso puede salir en varios lotes); llegó con el merge de develop |
+
+### E3 · Bitácora con antes y después
+
+Hecho:
+
+- **Antes y después completos** (V32, columna `cambios` jsonb) además del resumen de la descripción. Los datos personales quedan ocultos.
+- **Logs:**
+  - filtros por tipo y por módulo;
+  - botón «Ver» con la tabla campo / antes / después;
+  - columna de cambios en Excel y CSV.
+- **Registro estructurado** (`registrarCambios`) en identidad: usuario editado, estado del usuario, perfil renombrado, rol editado y TIME OUT.
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 28.11 | **Otros módulos** (agenda, alertas, catálogos, maestros, ejecución, OPL, hallazgos) siguen con el antes y el después solo en el texto de la descripción (`Bitacora.cambios`), cortado a 40 caracteres | Coordinar con la sesión 1: basta cambiar `bitacora.registrar(tipo, desc + cambios(...))` por `bitacora.registrarCambios(tipo, desc, antes, despues, sinValor, …)` |
+| 28.12 | **Particiones de la bitácora (17.17):** V1 creó particiones mensuales hasta enero de 2031 (el contrato termina a más tardar en julio de 2030) y una partición por defecto | Cubren todo el contrato; no se agregó tarea. Si el contrato se prorroga, crear las particiones en una migración nueva |
+
+### E5 · E2E aisladas entre specs y entre sesiones
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| 28.13 | **E2E que se bloquean entre sí:** con la sesión única (decisión 7.1), una sesión de `admin.e2e` que queda abierta bloquea un minuto el ingreso de las specs siguientes | Las specs de usuarios, roles y logs usan un administrador propio (`ingresarComoAdminPropio` en `apoyo.ts`) y cierran siempre la sesión (`afterEach`/`finally`) |
+| 28.14 | **Entorno compartido entre sesiones:** <br>- la limpieza versionada mata lo que esté en 8080/54329, aunque sea de otra sesión; <br>- el servidor de las e2e toma el módulo `reglas` del `~/.m2` compartido; <br>- los puertos chocaban entre sesiones | La sesión 1 lo corrige en develop: `DIGSA_E2E_PUERTO`/`DIGSA_E2E_PGPUERTO`, limpieza solo de esos puertos y `MAVEN_OPTS` heredado. Mientras tanto, este worktree corre con una configuración local no versionada (`e2e/.local`): puertos 18180/54349, repositorio Maven propio y limpieza propia |
+| 28.15 | **`riesgo-tablero` (sesión 1) en Firefox:** la notificación «Pesos guardados» a veces tarda más de los 10 s de espera en la corrida completa | Pasa sola (6/6). Sin cambio (no es de este módulo); avisar a la sesión 1 |
+
 ## Analítica · Módulo de analítica farmacéutica con IA (rama analitica, 2026-10-22)
 
 Especificación: `docs/especificaciones/analitica/spec.md` y sus cinco capacidades (ingesta, homologación, tableros, cohortes y alertas, asistente). Aprobada por la sesión 1 el 2026-10-22, por delegación del usuario.

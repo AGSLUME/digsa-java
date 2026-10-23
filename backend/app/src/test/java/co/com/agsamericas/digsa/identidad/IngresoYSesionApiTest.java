@@ -155,6 +155,15 @@ class IngresoYSesionApiTest extends PruebaIntegracion {
     }
 
     @Test
+    @DisplayName("un usuario con nombre largo ingresa: la sesión guarda solo el usuario como principal (PRINCIPAL_NAME varchar(100))")
+    void nombreLargo() {
+        String u = crearUsuario("largo", Perfil.COORDINADOR);
+        jdbc.sql("UPDATE usuarios SET nombre = :n WHERE usuario = :u").param("n", "Nombre muy largo de prueba ".repeat(5).strip()).param("u", u).update();
+        assertThat(navegador().ingresar(u, CLAVE).estado()).as("un nombre de 130 caracteres no rompe la sesión").isEqualTo(200);
+        assertThat(jdbc.sql("SELECT count(*) FROM spring_session WHERE principal_name = :u").param("u", u).query(Long.class).single()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("CSRF: una escritura sin token responde 419 y queda como acceso denegado")
     void csrf() {
         String admin = crearUsuario("admcsrf", Perfil.ADMINISTRADOR);
@@ -221,13 +230,15 @@ class IngresoYSesionApiTest extends PruebaIntegracion {
     }
 
     @Test
-    @DisplayName("contraseña vencida a los 30 días: el ingreso pide definirla y envía el enlace")
+    @DisplayName("contraseña vencida a los 30 días: el ingreso pide cambiarla ahí mismo, sin enlace al correo (condición 12)")
     void claveVencida() {
         String u = crearUsuario("vencida", Perfil.COORDINADOR);
         reloj.adelantar(Duration.ofDays(31));
+        int correosAntes = correos().size();
         Respuesta r = navegador().post("/api/auth/ingreso", Map.of("usuario", u, "clave", CLAVE));
-        assertThat(r.json().path("paso").asText()).isEqualTo("definir_clave");
-        assertThat(r.mensaje()).contains("Debe actualizar su contraseña");
+        assertThat(r.json().path("paso").asText()).isEqualTo("cambiar_clave");
+        assertThat(r.mensaje()).contains("Su contraseña venció");
+        assertThat(correos()).hasSize(correosAntes);
     }
 
     @Test

@@ -5,6 +5,7 @@ import {
   Checkbox,
   Group,
   Modal,
+  NumberInput,
   PasswordInput,
   ScrollArea,
   Select,
@@ -21,11 +22,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState, type FormEvent } from 'react';
 import { errorTelefono } from '../shared/alertas';
 import { api, ErrorApi } from '../shared/api';
+import { RolesAdicionales } from './RolesAdicionales';
 
 interface Perfil {
   id: number;
   nombre: string;
   descripcion: string;
+  /** Rol adicional (Anexo 5, 1.12): su perfil base; nulo en los perfiles base. */
+  baseId: number | null;
 }
 
 interface Usuario {
@@ -90,6 +94,10 @@ export function Usuarios() {
   const [claveDe, setClaveDe] = useState<Usuario | null>(null);
   const [claveNueva, setClaveNueva] = useState('');
   const [verPerfiles, setVerPerfiles] = useState(false);
+  const [verRoles, setVerRoles] = useState(false);
+  const [verSeguridad, setVerSeguridad] = useState(false);
+  /** Lo escrito en el TIME OUT; sin tocar (undefined) se muestra el valor guardado. */
+  const [minutos, setMinutos] = useState<number | string | undefined>(undefined);
   const [nombresPerfiles, setNombresPerfiles] = useState<Record<number, string>>({});
 
   const guardar = useMutation({
@@ -133,6 +141,22 @@ export function Usuarios() {
     onError: (e) => notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo completar la acción.' }),
   });
 
+  const seguridad = useQuery({
+    queryKey: ['usuarios-seguridad'],
+    queryFn: () => api<{ minutosSesion: number; minutosMaximo: number }>('/api/usuarios/seguridad'),
+    enabled: verSeguridad,
+  });
+  const guardarSeguridad = useMutation({
+    mutationFn: (m: number) => api<{ mensaje: string }>('/api/usuarios/seguridad', { metodo: 'PUT', cuerpo: { minutosSesion: m } }),
+    onSuccess: (r) => {
+      notifications.show({ color: 'green', message: r.mensaje });
+      setVerSeguridad(false);
+      qc.invalidateQueries({ queryKey: ['usuarios-seguridad'] });
+      qc.invalidateQueries({ queryKey: ['sesion'] });
+    },
+    onError: (e) => notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo guardar.' }),
+  });
+
   const enviar = (e: FormEvent) => {
     e.preventDefault();
     if (!form) return;
@@ -142,9 +166,12 @@ export function Usuarios() {
 
   const perfiles = datos.data?.perfiles ?? [];
   const nombrePerfil = (id: number) => perfiles.find((p) => p.id === id)?.nombre ?? String(id);
-  const esSanidad = form?.perfiles.includes(SANIDAD);
-  const esEsm = form?.perfiles.includes(ESM);
-  const esOplRegional = form?.perfiles.includes(OPL_REGIONAL);
+  // Un rol adicional pide el mismo dato de alcance que su perfil base
+  const conBase = (base: number) => !!form?.perfiles.some((id) => id === base || perfiles.find((p) => p.id === id)?.baseId === base);
+  const esSanidad = conBase(SANIDAD);
+  const esEsm = conBase(ESM);
+  const esOplRegional = conBase(OPL_REGIONAL);
+  const perfilesBase = perfiles.filter((p) => p.baseId === null);
   // Error del teléfono en el campo: el del servidor si lo menciona; si no, la misma regla del backend (reglas/Alertas) al salir del campo
   const errorDelTelefono =
     (error && /tel[eé]fono/i.test(error) ? error : null) ?? (form?.telefonoTocado ? errorTelefono(form.telefono, form.telefonoGuardado) : null);
@@ -157,11 +184,23 @@ export function Usuarios() {
           <Button
             variant="default"
             onClick={() => {
-              setNombresPerfiles(Object.fromEntries(perfiles.map((p) => [p.id, p.nombre])));
+              setMinutos(undefined);
+              setVerSeguridad(true);
+            }}
+          >
+            Seguridad
+          </Button>
+          <Button
+            variant="default"
+            onClick={() => {
+              setNombresPerfiles(Object.fromEntries(perfilesBase.map((p) => [p.id, p.nombre])));
               setVerPerfiles(true);
             }}
           >
             Nombres de perfiles
+          </Button>
+          <Button variant="default" onClick={() => setVerRoles(true)}>
+            Roles adicionales
           </Button>
           <Button
             onClick={() => {
@@ -286,6 +325,18 @@ export function Usuarios() {
                     >
                       Contraseña inicial
                     </Button>
+                    {u.bloqueado && (
+                      <Button
+                        size="xs"
+                        variant="light"
+                        color="orange"
+                        disabled={accion.isPending}
+                        aria-label={'Desbloquear a ' + u.nombre}
+                        onClick={() => accion.mutate({ ruta: `/api/usuarios/${u.id}/desbloquear`, metodo: 'POST' })}
+                      >
+                        Desbloquear
+                      </Button>
+                    )}
                     {u.sesionAbierta && (
                       <Button
                         size="xs"
@@ -366,7 +417,12 @@ export function Usuarios() {
               <Checkbox.Group label="Perfiles" value={form.perfiles.map(String)} onChange={(v) => setForm({ ...form, perfiles: v.map(Number) })}>
                 <Stack gap={6} mt={6}>
                   {perfiles.map((p) => (
-                    <Checkbox key={p.id} value={String(p.id)} label={p.nombre} description={p.descripcion} />
+                    <Checkbox
+                      key={p.id}
+                      value={String(p.id)}
+                      label={p.baseId === null ? p.nombre : `${p.nombre} (rol adicional · base ${nombrePerfil(p.baseId)})`}
+                      description={p.descripcion}
+                    />
                   ))}
                 </Stack>
               </Checkbox.Group>
@@ -471,12 +527,46 @@ export function Usuarios() {
         )}
       </Modal>
 
+      <Modal opened={verSeguridad} onClose={() => setVerSeguridad(false)} title="Seguridad">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const m = minutos ?? seguridad.data?.minutosSesion;
+            if (typeof m === 'number') guardarSeguridad.mutate(m);
+          }}
+        >
+          <Stack>
+            {seguridad.error && <Alert color="red">{(seguridad.error as Error).message}</Alert>}
+            <NumberInput
+              label="Tiempo de inactividad (TIME OUT), en minutos"
+              description="Anexo 5, 3.2: la sesión se cierra sola tras este tiempo sin actividad. Aplica desde la siguiente acción de cada usuario."
+              min={1}
+              max={seguridad.data?.minutosMaximo ?? 480}
+              allowDecimal={false}
+              allowNegative={false}
+              required
+              value={minutos ?? seguridad.data?.minutosSesion ?? ''}
+              onChange={setMinutos}
+              data-testid="minutos-sesion"
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setVerSeguridad(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" loading={guardarSeguridad.isPending} disabled={!seguridad.data}>
+                Guardar
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+
       <Modal opened={verPerfiles} onClose={() => setVerPerfiles(false)} title="Nombres de perfiles" size="lg">
         <Stack>
           <Text size="xs" c="dimmed">
             Los nombres son configurables mientras llega la adenda con el catálogo final de perfiles. Los permisos no cambian.
           </Text>
-          {perfiles.map((p) => (
+          {perfilesBase.map((p) => (
             <Group key={p.id} wrap="nowrap" align="flex-end">
               <TextInput
                 label={`Perfil ${p.id}`}
@@ -505,6 +595,8 @@ export function Usuarios() {
           ))}
         </Stack>
       </Modal>
+
+      <RolesAdicionales abierto={verRoles} alCerrar={() => setVerRoles(false)} />
     </Stack>
   );
 }

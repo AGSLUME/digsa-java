@@ -276,9 +276,10 @@ class SeguimientoApiTest extends EscenariosVisita {
             String clave = claveNc(e);
             cerrarConHallazgos(e, 1);
             long sid = iniciar(e, ((Number) seguimientoDe(e.id()).get("id")).longValue());
-            // La fecha fin del plan de origen ya pasó y el seguimiento la deja igual (no es prórroga)
-            jdbc.sql("UPDATE visitas_plan SET fin = :f, inicio = NULL WHERE visita_id IN (:o, :s)").param("f", hoy().minusDays(1)).param("o", e.id()).param("s", sid).update();
-            completarSeguimiento(sid, e.lider(), e.regente(), clave, "NC", "Retrasado", hoy().minusDays(1), null);
+            // La fecha fin del plan de origen ya pasó y el seguimiento la deja igual (no es prórroga). Dos días atrás: el inicio real
+            // del seguimiento es «hace 60 minutos» y, entre las 00:00 y la 01:00, cae en el día anterior (la acción vence ese día)
+            jdbc.sql("UPDATE visitas_plan SET fin = :f, inicio = NULL WHERE visita_id IN (:o, :s)").param("f", hoy().minusDays(2)).param("o", e.id()).param("s", sid).update();
+            completarSeguimiento(sid, e.lider(), e.regente(), clave, "NC", "Retrasado", hoy().minusDays(2), null);
             Respuesta envio = e.lider().post("/api/visitas/" + sid + "/acta", null);
             assertThat(envio.json().path("ok").asBoolean()).as(envio.texto()).isTrue();
             assertThat(envio.mensaje()).contains("plan incumplido");

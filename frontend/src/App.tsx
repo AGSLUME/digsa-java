@@ -21,6 +21,10 @@ import { MisVisitas } from './paginas/MisVisitas';
 import { Opl, OplVisita } from './paginas/Opl';
 import { OplResponder } from './paginas/OplResponder';
 import { Prorrogas } from './paginas/Prorrogas';
+// --- Presupuesto (rama presupuesto) ---
+import { Presupuesto } from './paginas/Presupuesto';
+import { ResumenPresupuestoInicio } from './paginas/PresupuestoTablero';
+// --- fin presupuesto ---
 import { Propuesta } from './paginas/Propuesta';
 import { Seguimiento } from './paginas/Seguimiento';
 import { Usuarios } from './paginas/Usuarios';
@@ -38,6 +42,9 @@ function Inicio() {
     <Stack>
       <Title order={3}>Bienvenido, {s.nombre}</Title>
       <Text c="dimmed">Perfiles: {s.perfiles.join(', ')}</Text>
+      {/* --- Presupuesto (rama presupuesto; mockup: «Ejecución presupuestal nacional» en el inicio) --- */}
+      {puedeEntrar(s, 'presupuesto') && <ResumenPresupuestoInicio />}
+      {/* --- fin presupuesto --- */}
     </Stack>
   );
 }
@@ -133,6 +140,9 @@ export function App() {
           <Route path="/opl" element={<Protegida ruta="opl"><Opl /></Protegida>} />
           <Route path="/opl/visita/:id" element={<Protegida ruta="opl"><OplVisita /></Protegida>} />
           <Route path="/calendario/visita/:id" element={<Protegida ruta="calendario"><VisitaDetalle key="calendario" origen="calendario" /></Protegida>} />
+          {/* --- Presupuesto (rama presupuesto; Anexo 5 §4.6) --- */}
+          <Route path="/presupuesto" element={<Protegida ruta="presupuesto"><Presupuesto /></Protegida>} />
+          {/* --- fin presupuesto --- */}
           {/* --- Analítica (rama analitica) --- */}
           <Route path="/analitica/cargues" element={<Protegida ruta="analitica/cargues"><CarguesOpl /></Protegida>} />
           <Route path="/homologacion" element={<Protegida ruta="homologacion"><Homologacion /></Protegida>} />

@@ -180,7 +180,8 @@ public class Navegador {
         return enviar(b);
     }
 
-    private String xsrf() {
+    /** Token CSRF vigente (cookie XSRF-TOKEN), o null. */
+    public String xsrf() {
         return cookies.getCookieStore().getCookies().stream().filter(c -> c.getName().equals("XSRF-TOKEN")).map(HttpCookie::getValue)
                 .findFirst().orElse(null);
     }

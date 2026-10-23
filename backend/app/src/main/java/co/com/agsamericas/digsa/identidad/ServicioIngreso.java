@@ -23,6 +23,7 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,12 +62,16 @@ public class ServicioIngreso {
     private final int codigosPorHora;
     /** Publica el bloqueo de una cuenta (alerta de bloqueo masivo). */
     private final org.springframework.context.ApplicationEventPublisher eventos;
+    private final ParametrosSeguridad parametros;
+    private final CsrfTokenRepository csrf;
 
     public ServicioIngreso(RepositorioUsuarios usuarios, ServicioClaves claves, Captcha captcha, Correo correo, PasswordEncoder codificador,
                            RegistroBitacora bitacora, SecurityContextRepository contextos, ConfiguracionDigsa cfg, JdbcClient jdbc, Clock reloj,
                            @org.springframework.beans.factory.annotation.Value("${digsa.mfa.codigos-por-hora:5}") int codigosPorHora,
-                           org.springframework.context.ApplicationEventPublisher eventos) {
+                           org.springframework.context.ApplicationEventPublisher eventos, ParametrosSeguridad parametros, CsrfTokenRepository csrf) {
         this.eventos = eventos;
+        this.parametros = parametros;
+        this.csrf = csrf;
         this.codigosPorHora = codigosPorHora > 0 ? codigosPorHora : Mfa.CODIGOS_POR_HORA;
         this.usuarios = usuarios;
         this.claves = claves;
@@ -122,12 +127,14 @@ public class ServicioIngreso {
         Usuario u = encontrado.get();
         usuarios.reiniciarIntentos(u.id(), ahora);
         verificarSesionLibre(u, ahora, ip);
-        if (u.claveInicial() && u.debeCambiarClave()) {
-            // Contraseña inicial asignada por el administrador: se cambia aquí mismo, sin ir al correo (prueba 2 y condición 12)
+        if ((u.claveInicial() && u.debeCambiarClave()) || u.claveVencida(ahora)) {
+            // Contraseña inicial del administrador o vencida (30 días): se cambia aquí mismo, sin ir al correo (prueba 2 y condición 12)
             HttpSession s = req.getSession(true);
             s.setAttribute(AtributosSesion.CAMBIO_USUARIO, u.id());
             s.setAttribute(AtributosSesion.CAMBIO_DESDE, ahora.toEpochMilli());
-            return new Paso("cambiar_clave", "Es su primer ingreso con la contraseña que le asignó el administrador: defina una contraseña nueva.",
+            return new Paso("cambiar_clave", u.claveInicial()
+                    ? "Es su primer ingreso con la contraseña que le asignó el administrador: defina una contraseña nueva."
+                    : "Su contraseña venció (vigencia de " + cfg.diasVigenciaClave() + " días): defina una contraseña nueva.",
                     Correos.enmascarar(u.correo()), null);
         }
         if (u.cambioPendiente(ahora)) {
@@ -190,8 +197,9 @@ public class ServicioIngreso {
         s.setAttribute(AtributosSesion.MARCA, marca);
         s.setAttribute(AtributosSesion.INICIO, ahora.toEpochMilli());
         s.setAttribute(AtributosSesion.ULTIMO, ahora.toEpochMilli());
-        s.setMaxInactiveInterval((cfg.minutosSesion() + 5) * 60);
-        if (!usuarios.iniciarSesion(u.id(), Sesion.huella(marca), ahora, cfg.minutosSesion())) {
+        int minutos = parametros.minutosSesion();
+        s.setMaxInactiveInterval((minutos + 5) * 60);
+        if (!usuarios.iniciarSesion(u.id(), Sesion.huella(marca), ahora, minutos)) {
             s.invalidate(); // otra sesión del usuario se abrió mientras tanto
             verificarSesionLibre(usuarios.porId(u.id()).orElseThrow(), ahora, req.getRemoteAddr());
             throw new ErrorNegocio(HttpStatus.CONFLICT, "Su usuario ya tiene una sesión abierta en otro equipo o navegador.",
@@ -203,14 +211,17 @@ public class ServicioIngreso {
         ctx.setAuthentication(UsuarioSesion.autenticacion(us, u.perfiles()));
         SecurityContextHolder.setContext(ctx);
         contextos.saveContext(ctx, req, res);
+        // Token CSRF nuevo con la sesión nueva (duda 17.16): el que circuló antes del ingreso deja de servir
+        csrf.saveToken(csrf.generateToken(req), req, res);
         bitacora.escribir(Bitacora.Operacion.INGRESO, "login", "sesion", "Inicio de sesión", u.id(), u.usuario(), req.getRemoteAddr());
         return us;
     }
 
     /**
-     * Cambio de la contraseña inicial (asignada por el administrador) dentro de la aplicación. Después sigue el código al correo.
+     * Cambio de la contraseña dentro del ingreso, sin ir al correo: la inicial (asignada por el administrador) o la vencida. Después sigue
+     * el código al correo.
      */
-    public Paso cambiarClaveInicial(String nueva, String confirmacion, HttpServletRequest req) {
+    public Paso cambiarClaveEnIngreso(String nueva, String confirmacion, HttpServletRequest req) {
         HttpSession s = req.getSession(false);
         Object id = s == null ? null : s.getAttribute(AtributosSesion.CAMBIO_USUARIO);
         Object desde = s == null ? null : s.getAttribute(AtributosSesion.CAMBIO_DESDE);
@@ -219,8 +230,11 @@ public class ServicioIngreso {
             throw new ErrorNegocio(HttpStatus.UNAUTHORIZED, "La verificación venció. Ingrese de nuevo con su usuario y contraseña.",
                     Map.of("motivo", "mfa_vencido"));
         }
-        Usuario u = usuarios.porId(uid).filter(Usuario::activo).filter(x -> x.claveInicial()).orElseThrow(
-                () -> new ErrorNegocio(HttpStatus.UNAUTHORIZED, MENSAJE_GENERICO));
+        Optional<Usuario> enBase = usuarios.porId(uid).filter(Usuario::activo);
+        if (enBase.isPresent() && !enBase.get().claveInicial() && !enBase.get().claveVencida(ahora)) {
+            throw new ErrorNegocio(HttpStatus.CONFLICT, "La contraseña ya se cambió (¿envió el formulario dos veces?). Ingrese con la contraseña nueva.");
+        }
+        Usuario u = enBase.orElseThrow(() -> new ErrorNegocio(HttpStatus.UNAUTHORIZED, MENSAJE_GENERICO));
         co.com.agsamericas.digsa.reglas.Claves.problema(nueva).ifPresent(p -> {
             throw ErrorNegocio.validacion(p);
         });
@@ -228,13 +242,14 @@ public class ServicioIngreso {
             throw ErrorNegocio.validacion("Las contraseñas no coinciden.");
         }
         if (codificador.matches(nueva, u.claveHash())) {
-            throw ErrorNegocio.validacion("La nueva contraseña debe ser diferente a la que le asignó el administrador.");
+            throw ErrorNegocio.validacion(u.claveInicial() ? "La nueva contraseña debe ser diferente a la que le asignó el administrador."
+                    : "La nueva contraseña debe ser diferente a la actual.");
         }
-        if (!usuarios.cambiarClaveInicial(u.id(), codificador.encode(nueva), ahora.plus(java.time.Duration.ofDays(cfg.diasVigenciaClave())), ahora)) {
+        if (!usuarios.cambiarClave(u.id(), u.claveHash(), codificador.encode(nueva), ahora.plus(java.time.Duration.ofDays(cfg.diasVigenciaClave())), ahora)) {
             throw new ErrorNegocio(HttpStatus.CONFLICT, "La contraseña ya se cambió (¿envió el formulario dos veces?). Ingrese con la contraseña nueva.");
         }
-        bitacora.escribir(Bitacora.Operacion.ACTUALIZACION, "clave_cambio", "sesion", "Contraseña inicial cambiada por el usuario " + u.usuario(),
-                u.id(), u.usuario(), req.getRemoteAddr());
+        bitacora.escribir(Bitacora.Operacion.ACTUALIZACION, "clave_cambio", "sesion", (u.claveInicial() ? "Contraseña inicial" : "Contraseña vencida")
+                + " cambiada por el usuario " + u.usuario(), u.id(), u.usuario(), req.getRemoteAddr());
         s.removeAttribute(AtributosSesion.CAMBIO_USUARIO);
         s.removeAttribute(AtributosSesion.CAMBIO_DESDE);
         enviarCodigo(u, req);
@@ -245,11 +260,12 @@ public class ServicioIngreso {
 
     /** Decisión 7.1: con una sesión abierta y activa, el segundo ingreso se rechaza (no reemplaza a la anterior). */
     private void verificarSesionLibre(Usuario u, Instant ahora, String ip) {
-        if (Sesion.bloqueaNuevoIngreso(u.sesionHuella(), u.sesionUltimo(), ahora, cfg.minutosSesion())) {
+        int minutos = parametros.minutosSesion();
+        if (Sesion.bloqueaNuevoIngreso(u.sesionHuella(), u.sesionUltimo(), ahora, minutos)) {
             bitacora.escribir(Bitacora.Operacion.INGRESO, "login_fallido", "sesion", "Ingreso rechazado: el usuario ya tiene una sesión abierta",
                     u.id(), u.usuario(), ip);
             throw new ErrorNegocio(HttpStatus.CONFLICT, "Su usuario ya tiene una sesión abierta en otro equipo o navegador. Ciérrela con «Salir», "
-                    + "espere " + cfg.minutosSesion() + " minutos sin actividad o pida al administrador que la cierre. Solo se permite una sesión a la vez.",
+                    + "espere " + minutos + " minutos sin actividad o pida al administrador que la cierre. Solo se permite una sesión a la vez.",
                     Map.of("motivo", "sesion_abierta"));
         }
     }

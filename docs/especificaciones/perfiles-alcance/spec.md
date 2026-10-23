@@ -334,3 +334,32 @@ Los perfiles de consulta DEBEN ser DIGSA, Sanidad y ESM; solicitan visitas solo 
 
 <!-- duda: 9.10 · superada: OPL nacional y regional ya tienen la pantalla de respuesta a hallazgos desde la fase 4 -->
 <!-- pendiente: vistas/modulos/usuarios.php, vistas/js/usuarios.js, ajax/consulta.ajax.php (uso del alcance en el calendario), modelos/visitas.modelo.php (uso de Alcance::sql) -->
+
+---
+
+### Requirement: Roles adicionales parametrizables (Java, sesión 2 · E2)
+<!-- decision: Anexo 5, 1.12 («Los roles adicionales que requiera la DIGSA se establecerán durante la ejecución del contrato y deberán ser parametrizados por el contratista»); decisión del usuario del 2026-10-22 -->
+<!-- impuesto_en: reglas/Roles; identidad/ServicioRoles, Usuario.efectivos()/pantallas(), Permisos; V31 -->
+
+El Administrador DEBE poder crear, editar, activar e inactivar roles adicionales. Cada rol tiene un **perfil base** (cualquiera salvo Administrador, Auditor y Consulta), que fija el alcance de los datos, y un **subconjunto no vacío de las pantallas del menú de ese perfil base** (sin las ocultas, como Visita). La base no cambia después de crear el rol. Los roles se asignan a los usuarios como un perfil más. **Falla cerrado:** el rol da pantallas y alcance, pero no la identidad de su base (las autoridades llevan solo los perfiles directos); un usuario con roles no tiene perfiles directos y todos sus roles comparten base.
+
+#### Scenario: Rol limitado
+- **CUANDO** un usuario tiene solo el rol «Gestor del riesgo» (base Coordinador; Riesgo y Dashboard)
+- **ENTONCES** su menú y su API solo admiten esas dos pantallas (y el inicio); la agenda, los maestros y los usuarios responden 403; el alcance es nacional (el del coordinador), pero no registra incidencias ni edita pesos (403): son acciones del coordinador
+
+#### Scenario: Validaciones
+- **CUANDO** se pide un rol con base Administrador, una pantalla que no es de su base, ninguna pantalla o un nombre ya usado (sin importar mayúsculas)
+- **ENTONCES** responde 422
+
+#### Scenario: Alcance y combinaciones con la base
+- **CUANDO** se asigna un rol con base ESM, Sanidad u OPL regional
+- **ENTONCES** se exige el mismo dato de alcance que su base, y las combinaciones de perfiles se validan con las bases (p. ej. rol con base ESM + DIGSA: 422)
+
+#### Scenario: Rol inactivado
+- **CUANDO** el administrador inactiva el rol
+- **ENTONCES** sus usuarios dejan de ver sus pantallas desde la siguiente petición; queda `rol_estado` en la bitácora
+
+### Requirement: Analista (Java, sesión 2 · E2)
+<!-- decision: los anexos solo dan al Analista funciones en cuentas médicas (Anexo 5, prueba en sitio, ítems 5 a 7; respuesta AGS-30); decisión del usuario del 2026-10-22 -->
+
+En visitas, el Analista DEBE tener consulta nacional como la DIGSA: alcance `todo`; calendario, dashboard, riesgo, reportes y prestadores con hallazgos; sin agenda, solicitudes, respuesta del OPL ni administración.

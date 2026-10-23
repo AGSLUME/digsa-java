@@ -194,7 +194,7 @@ test('coordinador: dashboard de riesgo desde el menú, filtro por fuerza y pesos
     await expect(panel.getByTestId('problema-pesos')).toHaveCount(0);
     await expect(guardar).toBeEnabled();
     await guardar.click();
-    await expect(page.getByText(/^Pesos guardados: /)).toBeVisible();
+    await expect(page.getByText(/^Pesos guardados: /)).toBeVisible({ timeout: 30_000 }); // guardar recalcula el tablero: con el equipo cargado pasa de 10 s
     const guardados = await api<{ pesos: Record<string, number> }>(page, 'GET', '/api/riesgo');
     expect(guardados.datos.pesos).toMatchObject({ incumplimiento: 40, recurrencia: 10 });
     await expect(panel.getByTestId('peso-incumplimiento')).toHaveValue('40');

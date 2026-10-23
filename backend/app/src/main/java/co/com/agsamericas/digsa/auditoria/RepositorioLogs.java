@@ -17,11 +17,16 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class RepositorioLogs {
 
+    /** @param cambios valores de antes y después en JSON (V32), o null */
     public record Fila(long id, OffsetDateTime fecha, String operacion, String tipo, String modulo, Long usuarioId, String usuario,
-                       String descripcion, String ip) {
+                       String descripcion, String ip, String cambios) {
     }
 
-    public record Filtro(LocalDate desde, LocalDate hasta, Long usuarioId, String operacion, String texto) {
+    public record Filtro(LocalDate desde, LocalDate hasta, Long usuarioId, String operacion, String texto, String modulo, String tipo) {
+
+        public Filtro(LocalDate desde, LocalDate hasta, Long usuarioId, String operacion, String texto) {
+            this(desde, hasta, usuarioId, operacion, texto, null, null);
+        }
     }
 
     private final JdbcClient jdbc;
@@ -70,15 +75,30 @@ public class RepositorioLogs {
         return n[0] > maximo;
     }
 
+    /**
+     * Módulos que aparecen en la bitácora (opciones del filtro). Recorrido por saltos sobre ix_log_modulo_fecha: un min() por módulo, sin
+     * leer las filas (PostgreSQL 16 no tiene skip scan y un DISTINCT recorrería toda la tabla).
+     */
+    public List<String> modulos() {
+        return jdbc.sql("""
+                WITH RECURSIVE m(modulo) AS (
+                    SELECT min(modulo) FROM log_transacciones
+                    UNION ALL
+                    SELECT (SELECT min(l.modulo) FROM log_transacciones l WHERE l.modulo > m.modulo) FROM m WHERE m.modulo IS NOT NULL)
+                SELECT modulo FROM m WHERE modulo IS NOT NULL""").query(String.class).list();
+    }
+
     public List<java.util.Map<String, Object>> usuarios() {
         return jdbc.sql("SELECT id, nombre, usuario FROM usuarios ORDER BY nombre").query().listOfRows();
     }
 
     private static final String BASE = """
-            SELECT id, fecha, operacion, tipo, modulo, usuario_id, usuario, descripcion, ip FROM log_transacciones
+            SELECT id, fecha, operacion, tipo, modulo, usuario_id, usuario, descripcion, ip, cambios::text AS cambios FROM log_transacciones
             WHERE fecha >= :desde AND fecha < :hasta
               AND (CAST(:usuarioId AS bigint) IS NULL OR usuario_id = :usuarioId)
               AND (CAST(:operacion AS text) IS NULL OR operacion = :operacion)
+              AND (CAST(:modulo AS text) IS NULL OR modulo = :modulo)
+              AND (CAST(:tipo AS text) IS NULL OR tipo = :tipo)
               AND (CAST(:texto AS text) IS NULL OR tipo ILIKE :texto ESCAPE '\\' OR descripcion ILIKE :texto ESCAPE '\\' OR usuario ILIKE :texto ESCAPE '\\')""";
 
     private JdbcClient.StatementSpec parametros(JdbcClient.StatementSpec q, Filtro f) {
@@ -88,6 +108,8 @@ public class RepositorioLogs {
                 .param("hasta", f.hasta().plusDays(1).atStartOfDay(zona).toOffsetDateTime())
                 .param("usuarioId", f.usuarioId())
                 .param("operacion", f.operacion())
+                .param("modulo", f.modulo())
+                .param("tipo", f.tipo())
                 .param("texto", texto);
     }
 }

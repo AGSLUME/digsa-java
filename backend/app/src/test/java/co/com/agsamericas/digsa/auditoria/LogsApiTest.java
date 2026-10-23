@@ -17,6 +17,7 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /** Logs del sistema (Anexo 5, prueba 15; portado de tests/e2e_local.php, sección de logs). */
 class LogsApiTest extends PruebaIntegracion {
@@ -119,5 +120,62 @@ class LogsApiTest extends PruebaIntegracion {
             assertThat(n.get("/api/logs/exportar?formato=csv&usuarioId=" + idDe(adm)).estado()).as("exportación %d", i).isEqualTo(200);
         }
         assertThat(n.get("/api/sesion").estado()).isEqualTo(200);
+    }
+
+    @Autowired
+    private co.com.agsamericas.digsa.plataforma.RegistroBitacora registro;
+
+    @Test
+    @DisplayName("cambios que no caben en 20.000 bytes: la fila se escribe igual, con los valores acortados con «…» y dentro del CHECK de V32")
+    void cambiosQueNoCabenSeAcortan() {
+        String marca = unico("recorte");
+        java.util.List<co.com.agsamericas.digsa.reglas.Bitacora.Cambio> muchos = new java.util.ArrayList<>();
+        for (int i = 0; i < 60; i++) {
+            muchos.add(new co.com.agsamericas.digsa.reglas.Bitacora.Cambio("campo" + i, "á".repeat(1000), "é".repeat(1000), false));
+        }
+        registro.escribir(co.com.agsamericas.digsa.reglas.Bitacora.Operacion.ACTUALIZACION, "prueba_recorte", "pruebas", marca, null, "prueba", null, muchos);
+        Map<String, Object> f = jdbc.sql("SELECT octet_length(cambios::text) AS bytes, cambios->0->>'antes' AS antes, jsonb_array_length(cambios) AS n "
+                + "FROM log_transacciones WHERE descripcion = :d").param("d", marca).query().singleRow();
+        assertThat(((Number) f.get("n")).intValue()).as("no se pierde ningún campo").isEqualTo(60);
+        assertThat(((Number) f.get("bytes")).intValue()).isLessThanOrEqualTo(20_000);
+        assertThat((String) f.get("antes")).endsWith("…");
+    }
+
+    @Test
+    @DisplayName("ítem 15 b: editar un usuario deja el antes y el después completos (datos personales ocultos), filtrables por tipo y módulo y en el CSV")
+    void antesYDespues() {
+        String adm = crearUsuario("admcam", Perfil.ADMINISTRADOR);
+        Navegador n = navegador();
+        n.ingresar(adm, CLAVE);
+        String u = crearUsuario("editado", Perfil.COORDINADOR);
+        String nuevo = (u + "x").substring(0, Math.min(50, u.length() + 1));
+        Map<String, Object> d = new java.util.HashMap<>();
+        d.put("nombre", "Persona Renombrada de Prueba");
+        d.put("usuario", nuevo);
+        d.put("correo", "otro." + u + "@example.com");
+        d.put("documento", "52111222");
+        d.put("perfiles", java.util.List.of(Perfil.COORDINADOR.id(), Perfil.AUDITOR.id()));
+        assertThat(n.put("/api/usuarios/" + idDe(u), d).estado()).isEqualTo(200);
+
+        Respuesta r = n.get("/api/logs?tipo=usuario_editado&modulo=usuarios&usuarioId=" + idDe(adm));
+        JsonNode filas = r.json().path("filas");
+        assertThat(filas.size()).as(r.texto()).isEqualTo(1);
+        JsonNode cambios = filas.get(0).path("cambios");
+        Map<String, JsonNode> porCampo = new java.util.HashMap<>();
+        cambios.forEach(c -> porCampo.put(c.path("campo").asText(), c));
+        assertThat(porCampo.get("usuario").path("antes").asText()).isEqualTo(u);
+        assertThat(porCampo.get("usuario").path("despues").asText()).isEqualTo(nuevo);
+        assertThat(porCampo.get("perfiles").path("despues").asText()).isEqualTo("2,3");
+        assertThat(porCampo.get("nombre").path("oculto").asBoolean()).as("dato personal, Ley 1581").isTrue();
+        assertThat(porCampo.get("nombre").path("antes").isNull()).isTrue();
+        assertThat(porCampo.get("correo").path("oculto").asBoolean()).as("el correo cambiado también va oculto").isTrue();
+        assertThat(cambios.toString()).doesNotContain("Renombrada").doesNotContain("52111222").doesNotContain("@");
+
+        assertThat(n.get("/api/logs?tipo=no_existe&usuarioId=" + idDe(adm)).json().path("filas").size()).isZero();
+        assertThat(n.get("/api/logs?tipo=usuario_editado&modulo=logs&usuarioId=" + idDe(adm)).json().path("filas").size()).isZero();
+        assertThat(n.get("/api/logs/opciones").json().path("modulos").toString()).contains("\"usuarios\"");
+        String csv = n.get("/api/logs/exportar?formato=csv&tipo=usuario_editado&usuarioId=" + idDe(adm)).texto();
+        assertThat(csv).contains("Cambios (antes → después)").contains("usuario: «" + u + "» → «" + nuevo + "»").contains("nombre: modificado")
+                .doesNotContain("Renombrada");
     }
 }

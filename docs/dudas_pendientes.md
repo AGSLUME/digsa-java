@@ -550,3 +550,23 @@ Implementado según `docs/especificaciones/despliegue-carga`:
 | 27.6 | **La carga inicial no se corre en la base de la prueba en sitio:** la condición 4 exige las tablas del proceso vacías | Advertido en la guía |
 | 27.7 | **Lo que necesita Docker no se ha probado:** imagen, prueba de humo, Trivy y la ida y vuelta del respaldo | Se prueba en la primera corrida del pipeline o cuando TI instale Docker |
 | 27.8 | **Dashboard:** ¿«Farmacia alterna» en una sola fila o una por farmacia? | Una sola fila. La habilitación en trámite cuenta en los vacíos (D5) |
+
+## Analítica · Módulo de analítica farmacéutica con IA (rama analitica, 2026-10-22)
+
+Especificación: `docs/especificaciones/analitica/spec.md` y sus cinco capacidades (ingesta, homologación, tableros, cohortes y alertas, asistente). Aprobada por la sesión 1 el 2026-10-22, por delegación del usuario.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| AN.1 | **BLOQUEANTE para el día de la prueba. Proveedor del modelo de IA frente a datos procesados en Colombia** (AGS-29, AGS-77/78, RESP L2187 y L5721; GMI P66 d sin respuesta; caso M8-12) | Aplicada la opción recomendada. Puerto `AsistenteAnalitico` con adaptadores Claude (`claude-opus-5-5`), compatible con OpenAI (modelo alojado en Colombia o local) y `ninguno`, que es el valor por defecto. Al modelo nunca va nada personal ni filas individuales. **El usuario elige el adaptador de la prueba** |
+| AN.2 | **¿Quién pone los datos del ítem 14?** (RESP L2017 frente a L4515 y L4585) | Aplicada. Hay un generador sintético de 2 M filas con errores sembrados y totales esperados, y mapeo de columnas por sinónimos para recibir el insumo de la DIGSA sin diccionario |
+| AN.3 | **Archivo original del insumo**, que trae datos sensibles | Aplicada. Se guarda en el Almacen con su SHA-256, solo lo ve el ADMINISTRADOR y se borra a los 365 días. El paciente solo existe como seudónimo HMAC |
+| AN.4 | **Umbrales de alto costo y poliformulación** (AGS-49 sin respuesta) | Aplicada, con valores parametrizables. Alto costo: percentil 99 del gasto por paciente en 12 meses móviles. Poliformulado: 5 o más principios activos distintos en el mes. Polimedicado: según A4 L275 |
+| AN.5 | **Fuentes de interacciones, uso fuera de indicación, enfermedades huérfanas y biológicos** (RESP L2239: a cargo del contratista) | Aplicada. Son tablas cargables por archivo. Sin fuente, la alerta queda «no evaluado»; en pruebas se usan datos ficticios marcados |
+| AN.6 | **Clave del seudónimo** | Sin `DIGSA_ANALITICA_CLAVE_SEUDONIMO`, la aplicación no arranca en producción. No se rota durante el contrato: rotarla rompe la continuidad de las cohortes. El procedimiento queda documentado |
+| AN.7 | **«Químico farmacéutico» del mockup** | Es un rol de auditor y no se mapea a ANALISTA. El acceso se da asignando pantallas como rol adicional, cuando se integre la rama de identidad |
+| AN.8 | **El Exportador no cubre 14.8** | `ExportadorAnalitica` queda como capa delgada sobre `plataforma/Exportador`. Se sustituye al integrar la R2 de reportes |
+| AN.9 | **11.1.15, indicadores del Anexo Técnico 1** | Va al módulo de reportes, por el contrato `ProveedorReporte`. En analítica aparece «No cubierto en analítica» |
+| AN.10 | **El ESM y la consola de alertas** | El ESM no la ve: tiene 403 en la consola, que es la pantalla ANALITICA_ALERTAS. Sí ve los atípicos agregados de su establecimiento |
+| AN.11 | **Supresión de celdas pequeñas (k)** | Es un parámetro, desactivado por defecto, para que las cifras cuadren con el insumo |
+| AN.12 | **¿El 14.10 es eliminatorio?** | Se trata como eliminatorio |
+| AN.13 | **Código interno SSFM sin entregar** | Es un catálogo cargable. La regla R-030 deja «pendiente de revisión» |

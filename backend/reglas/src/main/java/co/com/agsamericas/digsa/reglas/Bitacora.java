@@ -79,6 +79,10 @@ public final class Bitacora {
             Map.entry("exportacion_solicitada", Operacion.INSERCION), Map.entry("exportacion_generada", Operacion.INSERCION),
             Map.entry("exportacion_fallida", Operacion.INSERCION), Map.entry("exportacion_vencida", Operacion.ELIMINACION),
             Map.entry("exportacion_completa", Operacion.CONSULTA), Map.entry("soportes_opl_descargados", Operacion.CONSULTA),
+            // Módulo de reportes (sesión de reportes, Anexo 5 2.7 a 2.12): cada reporte generado en pantalla y cada verificación
+            Map.entry("reporte_generado", Operacion.CONSULTA), Map.entry("reporte_verificado", Operacion.CONSULTA),
+            Map.entry("reporte_solicitado", Operacion.CONSULTA), Map.entry("reporte_vencido", Operacion.ELIMINACION),
+            Map.entry("reporte_fallido", Operacion.INSERCION),
             // --- Presupuesto (rama presupuesto, docs/especificaciones/presupuesto) ---
             Map.entry("presupuesto_vigencia", Operacion.ACTUALIZACION), Map.entry("presupuesto_modalidad", Operacion.ACTUALIZACION),
             Map.entry("presupuesto_movimiento", Operacion.INSERCION), Map.entry("presupuesto_carga_simulada", Operacion.CONSULTA),

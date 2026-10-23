@@ -90,7 +90,7 @@ class ReportesApiTest extends PruebaIntegracion {
         assertThat(new String(xlsx.cuerpo(), 0, 2, StandardCharsets.ISO_8859_1)).isEqualTo("PK");
         Respuesta csv = x.coord().get("/api/reportes/lugar/exportar?formato=csv" + filtro);
         String textoCsv = new String(csv.cuerpo(), StandardCharsets.UTF_8);
-        assertThat(textoCsv).startsWith("﻿Reporte;Consolidado de visitas por lugar").contains("Filtro: Periodo;").contains(x.lugar());
+        assertThat(textoCsv).startsWith("﻿Reporte;Consolidado de visitas por lugar").contains("\nPeriodo;", "Código de verificación;RPT-").contains(x.lugar());
         Respuesta pdf = x.coord().get("/api/reportes/proceso/exportar?formato=pdf" + filtro);
         assertThat(new String(pdf.cuerpo(), 0, 5, StandardCharsets.ISO_8859_1)).isEqualTo("%PDF-");
         Respuesta txt = x.coord().get("/api/reportes/detalle/exportar?formato=txt" + filtro);

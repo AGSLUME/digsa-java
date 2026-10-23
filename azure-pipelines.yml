@@ -1,0 +1,284 @@
+# Suite DIGSA · integración continua en Azure DevOps Pipelines. EQUIVALENTE de .github/workflows/ci.yml: mismos trabajos, mismas
+# puertas, mismos artefactos; cada paso solo llama a ci/*.sh. Se usa si el repositorio queda en Azure DevOps (duda 16.3).
+#
+#   1 secretos · 2 backend · 3 frontend · 5 dependencias   → en paralelo
+#   4 e2e (Chromium) ← 3        6 imagen ← 2, 3
+#   7 publicar ← 1 a 6, solo main y etiquetas v*           8 respaldo ← 6, solo de noche, manual y en etiquetas v*
+#   Firefox y WebKit: de noche, manual y en etiquetas v*.
+# Para bloquear la fusión: Repos → Branches → main → Branch policies → Build validation con este pipeline.
+# Secretos: solo en el grupo de variables «digsa-publicacion» (secretas o enlazadas a un almacén de secretos) y en el entorno
+# «publicacion» con aprobación. Las compilaciones de bifurcaciones no reciben secretos (opción por defecto: no la active).
+# Retención: los artefactos siguen la política del proyecto; las corridas de etiquetas v* se marcan «Retain» (paquete para TI).
+
+trigger:
+  branches:
+    include: [main]
+  tags:
+    include: ["v*"]
+
+pr:
+  branches:
+    include: [main]
+
+schedules:
+  - cron: "30 7 * * *" # 02:30 en Bogotá
+    displayName: Nocturno (Firefox, WebKit y respaldo)
+    branches:
+      include: [main]
+    always: true
+
+pool:
+  vmImage: ubuntu-24.04
+
+variables:
+  TZ: America/Bogota
+  DIGSA_ARTEFACTOS: $(Build.SourcesDirectory)/artefactos
+  MAVEN_CACHE: $(Pipeline.Workspace)/.m2/repository
+  MAVEN_OPTS: -Dmaven.repo.local=$(MAVEN_CACHE)
+
+jobs:
+  - job: secretos
+    timeoutInMinutes: 15
+    steps:
+      - checkout: self
+        fetchDepth: 0
+      - bash: bash ci/secretos.sh
+        displayName: gitleaks
+      - task: PublishPipelineArtifact@1
+        displayName: Informe de gitleaks (sin valores)
+        condition: always()
+        continueOnError: true
+        inputs:
+          targetPath: artefactos/secretos
+          artifact: secretos
+
+  - job: backend
+    timeoutInMinutes: 40
+    steps:
+      - checkout: self
+      - task: JavaToolInstaller@0
+        inputs:
+          versionSpec: "21"
+          jdkArchitectureOption: x64
+          jdkSourceOption: PreInstalled
+      - task: Cache@2
+        displayName: Caché de Maven
+        inputs:
+          key: 'maven | "$(Agent.OS)" | backend/pom.xml | backend/app/pom.xml | backend/reglas/pom.xml'
+          path: $(MAVEN_CACHE)
+      - bash: bash ci/backend.sh
+        displayName: mvnw verify (PostgreSQL 16 embebido)
+      - task: PublishTestResults@2
+        displayName: Informes JUnit
+        condition: always()
+        inputs:
+          testResultsFormat: JUnit
+          testResultsFiles: |
+            backend/*/target/surefire-reports/TEST-*.xml
+            backend/*/target/failsafe-reports/TEST-*.xml
+          testRunTitle: backend
+
+  - job: frontend
+    timeoutInMinutes: 20
+    steps:
+      - checkout: self
+      - task: NodeTool@0
+        inputs:
+          versionSpec: "20.x"
+      - bash: bash ci/frontend.sh
+        displayName: Tipos, Vitest y compilación
+      - task: PublishTestResults@2
+        displayName: Informe de Vitest
+        condition: always()
+        inputs:
+          testResultsFormat: JUnit
+          testResultsFiles: frontend/test-results/vitest-junit.xml
+          testRunTitle: frontend
+      - task: PublishPipelineArtifact@1
+        displayName: SPA compilada (para e2e)
+        inputs:
+          targetPath: frontend/dist
+          artifact: frontend-dist
+
+  - job: e2e
+    dependsOn: frontend
+    timeoutInMinutes: 60
+    steps:
+      - checkout: self
+      - task: JavaToolInstaller@0
+        inputs:
+          versionSpec: "21"
+          jdkArchitectureOption: x64
+          jdkSourceOption: PreInstalled
+      - task: NodeTool@0
+        inputs:
+          versionSpec: "20.x"
+      - task: Cache@2
+        displayName: Caché de Maven
+        inputs:
+          key: 'maven | "$(Agent.OS)" | backend/pom.xml | backend/app/pom.xml | backend/reglas/pom.xml'
+          path: $(MAVEN_CACHE)
+      - task: DownloadPipelineArtifact@2
+        inputs:
+          artifact: frontend-dist
+          path: frontend/dist
+      - bash: bash ci/e2e.sh
+        displayName: Playwright (Chromium)
+        env:
+          DIGSA_E2E_MOTORES: chromium
+      - task: PublishTestResults@2
+        displayName: Informe JUnit de Playwright
+        condition: always()
+        inputs:
+          testResultsFormat: JUnit
+          testResultsFiles: e2e/test-results/junit.xml
+          testRunTitle: e2e-chromium
+      - task: PublishPipelineArtifact@1
+        displayName: Informe HTML de Playwright (trazas y videos solo de las fallidas)
+        condition: always()
+        continueOnError: true
+        inputs:
+          targetPath: e2e/playwright-report
+          artifact: e2e-chromium-$(System.JobAttempt)
+
+  - job: e2e_otros_motores
+    displayName: e2e (Firefox y WebKit)
+    dependsOn: frontend
+    condition: and(succeeded(), or(eq(variables['Build.Reason'], 'Schedule'), eq(variables['Build.Reason'], 'Manual'), startsWith(variables['Build.SourceBranch'], 'refs/tags/v')))
+    timeoutInMinutes: 90
+    strategy:
+      matrix:
+        firefox:
+          motor: firefox
+        webkit:
+          motor: webkit
+    steps:
+      - checkout: self
+      - task: JavaToolInstaller@0
+        inputs:
+          versionSpec: "21"
+          jdkArchitectureOption: x64
+          jdkSourceOption: PreInstalled
+      - task: NodeTool@0
+        inputs:
+          versionSpec: "20.x"
+      - task: Cache@2
+        displayName: Caché de Maven
+        inputs:
+          key: 'maven | "$(Agent.OS)" | backend/pom.xml | backend/app/pom.xml | backend/reglas/pom.xml'
+          path: $(MAVEN_CACHE)
+      - task: DownloadPipelineArtifact@2
+        inputs:
+          artifact: frontend-dist
+          path: frontend/dist
+      - bash: bash ci/e2e.sh
+        displayName: Playwright ($(motor))
+        env:
+          DIGSA_E2E_MOTORES: $(motor)
+      - task: PublishTestResults@2
+        condition: always()
+        inputs:
+          testResultsFormat: JUnit
+          testResultsFiles: e2e/test-results/junit.xml
+          testRunTitle: e2e-$(motor)
+      - task: PublishPipelineArtifact@1
+        condition: always()
+        continueOnError: true
+        inputs:
+          targetPath: e2e/playwright-report
+          artifact: e2e-$(motor)-$(System.JobAttempt)
+
+  - job: dependencias
+    timeoutInMinutes: 20
+    steps:
+      - checkout: self
+      - task: NodeTool@0
+        inputs:
+          versionSpec: "20.x"
+      - bash: bash ci/dependencias.sh
+        displayName: Trivy (pom.xml y package-lock.json) y npm audit
+      - task: PublishPipelineArtifact@1
+        displayName: Informe de Trivy
+        condition: always()
+        continueOnError: true
+        inputs:
+          targetPath: artefactos/trivy
+          artifact: trivy-dependencias
+
+  - job: imagen
+    dependsOn: [backend, frontend]
+    timeoutInMinutes: 45
+    steps:
+      - checkout: self
+      - bash: bash ci/imagen.sh
+        displayName: Construcción, prueba de humo, Trivy y SBOM
+        env:
+          DIGSA_ORIGEN: $(Build.Repository.Uri)
+      - task: PublishPipelineArtifact@1
+        displayName: Imagen probada (para publicar y para la prueba de respaldo)
+        inputs:
+          targetPath: artefactos/imagen
+          artifact: imagen
+      - task: PublishPipelineArtifact@1
+        displayName: Informe de Trivy de la imagen
+        condition: always()
+        continueOnError: true
+        inputs:
+          targetPath: artefactos/trivy
+          artifact: trivy-imagen
+
+  - deployment: publicar
+    dependsOn: [secretos, backend, frontend, e2e, dependencias, imagen]
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'), ne(variables['Build.Reason'], 'Schedule'), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), startsWith(variables['Build.SourceBranch'], 'refs/tags/v')))
+    timeoutInMinutes: 30
+    # Entorno con aprobación; el grupo trae DIGSA_REGISTRO (p. ej. agsdigsa.azurecr.io/digsa-suite), DIGSA_REGISTRO_USUARIO y
+    # DIGSA_REGISTRO_CLAVE (secreta)
+    environment: publicacion
+    variables:
+      - group: digsa-publicacion
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - checkout: self
+            - task: DownloadPipelineArtifact@2
+              inputs:
+                artifact: imagen
+                path: artefactos/imagen
+            - bash: bash ci/publicar.sh
+              displayName: Publicar la imagen probada (y el paquete en etiquetas v*)
+              env:
+                DIGSA_REGISTRO: $(DIGSA_REGISTRO)
+                DIGSA_REGISTRO_USUARIO: $(DIGSA_REGISTRO_USUARIO)
+                DIGSA_REGISTRO_CLAVE: $(DIGSA_REGISTRO_CLAVE)
+            - task: PublishPipelineArtifact@1
+              displayName: Registro de la publicación
+              inputs:
+                targetPath: artefactos/publicacion
+                artifact: publicacion
+            - task: PublishPipelineArtifact@1
+              displayName: Paquete para TI
+              condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
+              inputs:
+                targetPath: artefactos/paquete
+                artifact: paquete
+
+  - job: respaldo
+    dependsOn: imagen
+    condition: and(succeeded(), or(eq(variables['Build.Reason'], 'Schedule'), eq(variables['Build.Reason'], 'Manual'), startsWith(variables['Build.SourceBranch'], 'refs/tags/v')))
+    timeoutInMinutes: 30
+    steps:
+      - checkout: self
+      - task: DownloadPipelineArtifact@2
+        inputs:
+          artifact: imagen
+          path: artefactos/imagen
+      - bash: bash ci/respaldo_restauracion.sh
+        displayName: Respaldo, destrucción de volúmenes y restauración (docker/respaldar.sh y docker/restaurar.sh)
+      - task: PublishPipelineArtifact@1
+        displayName: Bitácora y conteos de la prueba
+        condition: always()
+        continueOnError: true
+        inputs:
+          targetPath: artefactos/respaldo
+          artifact: respaldo

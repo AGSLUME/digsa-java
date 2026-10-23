@@ -5,6 +5,7 @@ import {
   consultaFiltros,
   cuerpoPesos,
   decimal,
+  etiquetaCategoria,
   fechaCompleta,
   FILTROS_VACIOS,
   filtrosConsultables,
@@ -18,6 +19,7 @@ import {
   puedeEditarPesos,
   puedeRegistrarIncidencias,
   sumaPesos,
+  textoNivel,
   textoFiltrosAplicados,
   textoPlanesVencidos,
   tonoTexto,
@@ -181,5 +183,21 @@ describe('incidencias de la DIGSA', () => {
     expect(problemaCierre('Atendida por el OPL')).toBeNull();
     expect(problemaCierre('   corto   ')).not.toBeNull();
     expect(problemaCierre('m'.repeat(801))).not.toBeNull();
+  });
+});
+
+describe('resultados del dashboard (25.3) y tarjetas del riesgo (25.4)', () => {
+  it('etiqueta de la categoría: código y nombre; las obligaciones solo con su nombre', () => {
+    expect(etiquetaCategoria({ codigo: 'C05', nombre: 'Capacidad instalada e infraestructura' })).toBe('C05 · Capacidad instalada e infraestructura');
+    expect(etiquetaCategoria({ codigo: 'OBL', nombre: 'Obligaciones del contrato' })).toBe('Obligaciones del contrato');
+    expect(etiquetaCategoria({ codigo: 'C99', nombre: 'C99' })).toBe('C99');
+    expect(etiquetaCategoria({ codigo: 'C98', nombre: '' })).toBe('C98');
+  });
+
+  it('nivel en texto para el lector de pantalla', () => {
+    expect(textoNivel('alto', 72)).toBe('Riesgo alto, 72 de 100');
+    expect(textoNivel('medio', 41.256)).toBe('Riesgo medio, 41,26 de 100');
+    expect(textoNivel('bajo', 0)).toBe('Riesgo bajo, 0 de 100');
+    expect(textoNivel('raro', 5)).toBe('Riesgo raro, 5 de 100');
   });
 });

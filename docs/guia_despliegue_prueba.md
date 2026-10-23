@@ -1,6 +1,8 @@
 # Despliegue para la prueba en sitio (equipo de AGS)
 
-Guía para dejar la Suite DIGSA (visitas de seguimiento) lista en un equipo de AGS para la prueba del Anexo 5. La prueba se hace del 11 al 27 de noviembre de 2026. Para Azure, ver `docs/guia_despliegue_azure.md`.
+Guía para dejar la Suite DIGSA (visitas de seguimiento) lista en un equipo de AGS para la prueba del Anexo 5. La prueba se hace del 11 al 27 de noviembre de 2026.
+
+Para un servidor con Docker (datacenter en Colombia o nube con región en Colombia), la guía es [guia_operacion_servidor.md](guia_operacion_servidor.md). Allí están la instalación con la imagen del pipeline, el respaldo, la restauración y la actualización.
 
 **El día de la prueba no se usa el modo local.** Ese modo muestra el código MFA en la pantalla y guarda los correos en archivo. La prueba corre en modo `produccion`, con correo real y HTTPS.
 
@@ -56,6 +58,7 @@ psql "postgresql://digsa_migracion@localhost/digsa" -f herramientas/verificar_ba
 | Variable | Ejemplo | Para qué |
 |---|---|---|
 | `DIGSA_ENTORNO` | `produccion` | Nunca `local` en la prueba |
+| `DIGSA_SMS_MODO` | el proveedor contratado | Las alertas críticas van por correo y además por SMS (respuesta P77 b). Con `produccion` y sin proveedor la aplicación **no arranca**. Si el proveedor no está contratado para la prueba: `DIGSA_ENTORNO=pruebas` y `DIGSA_SMS_MODO=ninguno` (las críticas salen solo por correo; ver duda 26.1) |
 | `DIGSA_URL` | `https://digsa-prueba.ags.local/` | Enlaces de los correos y cookies seguras |
 | `DIGSA_DB_URL` | `jdbc:postgresql://localhost:5432/digsa` | |
 | `DIGSA_DB_USUARIO` / `DIGSA_DB_CLAVE` | `digsa_app` / … | Rol de la aplicación |
@@ -108,4 +111,4 @@ Con `tls internal`, los equipos del comité deben confiar en la raíz de Caddy, 
 7. Ítem 10: acta en PDF con firmas; reabrir la visita con motivo y volver a enviar el acta.
 8. Ítem 13: los tres reportes con filtros; descarga en Excel, CSV, PDF y TXT; envío al correo del comité.
 9. Ítem 15: logs en pantalla, con descarga y envío.
-10. Copia de seguridad: `pg_dump -Fc digsa > digsa_antes_prueba.dump` y copia de `DIGSA_ARCHIVOS_CARPETA`.
+10. Copia de seguridad de la base y de los archivos, juntos: `pg_dump -Fc -f digsa_antes_prueba.dump digsa` y luego una copia de `DIGSA_ARCHIVOS_CARPETA`. Use `-f` y no `>`, porque en Windows PowerShell 5.1 la redirección corrompe el archivo. Con Docker se usa `docker/respaldar.sh` o `dockerespaldar.ps1` ([guia_operacion_servidor.md](guia_operacion_servidor.md), §6).

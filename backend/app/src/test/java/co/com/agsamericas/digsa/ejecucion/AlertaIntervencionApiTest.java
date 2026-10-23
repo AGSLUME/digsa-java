@@ -45,11 +45,13 @@ class AlertaIntervencionApiTest extends EscenariosVisita {
         long actaId = jdbc.sql("SELECT id FROM visitas_actas WHERE visita_id = :v").param("v", e.id()).query(Long.class).single();
         assertThat(jdbc.sql("SELECT count(*) FROM alertas_eventos WHERE tipo = 'intervencion_inmediata' AND clave = :c AND NOT abierta")
                 .param("c", "acta:" + actaId).query(Long.class).single()).isEqualTo(1);
+        // Con más de 100 destinatarios (en la suite completa se acumulan usuarios DIGSA y de la coordinación) el aviso sale en varios lotes:
+        // todos deben quedar enviados, y la latencia es la del último lote
         esperar(() -> jdbc.sql("""
-                SELECT count(*) FROM correos_salida c JOIN alertas_eventos a ON a.id = c.alerta_id WHERE a.clave = :c AND c.estado = 'enviado'""")
-                .param("c", "acta:" + actaId).query(Long.class).single() == 1, "aviso enviado");
+                SELECT count(*) FILTER (WHERE c.estado <> 'enviado') = 0 AND count(*) >= 1 FROM correos_salida c JOIN alertas_eventos a ON a.id = c.alerta_id
+                WHERE a.clave = :c""").param("c", "acta:" + actaId).query(Boolean.class).single(), "aviso enviado");
         double latencia = jdbc.sql("""
-                SELECT extract(epoch FROM c.enviado - a.creado) * 1000 FROM correos_salida c JOIN alertas_eventos a ON a.id = c.alerta_id
+                SELECT max(extract(epoch FROM c.enviado - a.creado)) * 1000 FROM correos_salida c JOIN alertas_eventos a ON a.id = c.alerta_id
                 WHERE a.clave = :c AND a.tipo = 'intervencion_inmediata'""").param("c", "acta:" + actaId).query(Double.class).single();
         System.out.println("[latencia] intervención inmediata: respuesta del acta → aviso entregado en " + ms + " ms; evento → envío guardado " + Math.round(latencia) + " ms");
         assertThat(latencia).isLessThan(3000);

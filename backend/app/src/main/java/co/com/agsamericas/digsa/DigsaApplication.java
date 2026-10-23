@@ -15,6 +15,19 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class DigsaApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(DigsaApplication.class, args);
+        SpringApplication.run(DigsaApplication.class, argumentos(args));
+    }
+
+    /**
+     * La herramienta de carga de maestros ({@code --digsa.carga.*}, maestros/carga/CargaMaestrosCli) corre sin abrir el puerto
+     * (server.port=-1: el contexto web existe pero no escucha) y sin las tareas diarias (cron «-»), para poder ejecutarla con
+     * {@code docker compose run} mientras la aplicación sigue en servicio.
+     */
+    public static String[] argumentos(String[] args) {
+        if (java.util.Arrays.stream(args).noneMatch(a -> a.startsWith("--digsa.carga."))) {
+            return args;
+        }
+        return java.util.stream.Stream.concat(java.util.Arrays.stream(args),
+                java.util.stream.Stream.of("--server.port=-1", "--digsa.opl.cron=-", "--digsa.seguimiento.cron=-")).toArray(String[]::new);
     }
 }

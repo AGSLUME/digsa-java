@@ -1,0 +1,14 @@
+# Suite DIGSA · excepciones de vulnerabilidades para Trivy (trabajos «dependencias» e «imagen»).
+#
+# Una excepción solo vale con este formato (ci/comun.sh validar_trivyignore lo exige y, si no, el trabajo falla):
+#
+#   # motivo: por qué no aplica o por qué no se puede corregir aún (p. ej. la función vulnerable no se usa)
+#   # aceptó: nombre y cargo de quien asume el riesgo, fecha de aceptación
+#   CVE-AAAA-NNNNN exp:AAAA-MM-DD
+#
+# - El identificador es un CVE o un GHSA.
+# - exp: es la fecha de vencimiento, a 90 días como máximo desde hoy. Vencida, Trivy deja de ignorarla y el trabajo vuelve a
+#   fallar: hay que corregir o renovar la excepción con una nueva aceptación.
+# - Una línea en blanco separa una excepción de la siguiente.
+#
+# Sin excepciones vigentes.

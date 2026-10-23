@@ -74,6 +74,9 @@ management:
   endpoint:
     health:
       show-details: never
+      # /actuator/health/liveness y /readiness (healthcheck de la imagen y orquestadores), también fuera de Kubernetes
+      probes:
+        enabled: true
 
 digsa:
   url: ${DIGSA_URL:http://localhost:8080/}

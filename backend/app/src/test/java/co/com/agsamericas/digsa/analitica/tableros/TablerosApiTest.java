@@ -745,7 +745,6 @@ class TablerosApiTest extends PruebaIntegracion {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("SUSTITUIR al integrar reportes R2: RESP L555 (PDF protegido); duda AN.17")
     @DisplayName("PDF sin edición: cifrado con permisos solo de impresión y copia (RESP L555)")
     void pdfSinEdicion() throws IOException {
         base();
@@ -753,6 +752,10 @@ class TablerosApiTest extends PruebaIntegracion {
         com.lowagie.text.pdf.PdfReader lector = new com.lowagie.text.pdf.PdfReader(p.cuerpo());
         assertThat(lector.isEncrypted()).isTrue();
         assertThat(lector.getPermissions() & com.lowagie.text.pdf.PdfWriter.ALLOW_MODIFY_CONTENTS).isZero();
+        assertThat(lector.getPermissions() & com.lowagie.text.pdf.PdfWriter.ALLOW_MODIFY_ANNOTATIONS).isZero();
+        assertThat(lector.getPermissions() & com.lowagie.text.pdf.PdfWriter.ALLOW_PRINTING).isNotZero();
+        assertThat(lector.getPermissions() & com.lowagie.text.pdf.PdfWriter.ALLOW_COPY).isNotZero();
+        lector.close();
     }
 
     @Test

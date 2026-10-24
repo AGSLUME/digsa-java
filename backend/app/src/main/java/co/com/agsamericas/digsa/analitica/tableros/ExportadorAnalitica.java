@@ -40,14 +40,17 @@ import org.springframework.stereotype.Component;
  * Excel y CSV; dibujados en PDF), observaciones y la huella SHA-256 del contenido.
  *
  * <p><b>Capa delgada</b> sobre {@link Exportador} (dueño: la sesión de reportes): cada tabla sale de sus rutinas públicas
- * ({@code excel}, {@code csv}, {@code pdf}: coma decimal, BOM, «;», sin fórmulas, Excel en streaming) y aquí solo se agregan los
- * metadatos, el armado en hojas o secciones, los gráficos del PDF y el «Página n de m», que el Exportador aún no ofrece (su
- * encabezado es fijo y su PDF numera «Página n» sin total). No se modifica el Exportador. La restricción de edición del PDF (RESP L555)
- * queda para el R2 de reportes: el cifrado de OpenPDF exige BouncyCastle, que no está en el proyecto, y no se agrega una dependencia.
+ * ({@code excel}, {@code csv}, {@code pdf}: coma decimal, BOM, «;», sin fórmulas, Excel en streaming; el PDF con el encabezado 2.9 del
+ * R2, letra Unicode incrustada, «Página N de M» y cifrado) y aquí solo se agregan los metadatos de 14.8, el armado en hojas o secciones
+ * y los gráficos del PDF. No se modifica el Exportador.
+ *
+ * <p>El PDF de un tablero se compone de varios documentos (portada con metadatos y gráficos, y una sección del Exportador por tabla).
+ * El «Página N de M» del R2 cuenta dentro de cada sección, así que el pie del documento compuesto lo cubre con el total global. El
+ * documento compuesto se protege como el del R2 (RESP L555): AES-256 con contraseña de propietario aleatoria que no se guarda, sin
+ * contraseña de apertura y permisos solo de impresión y copia (BouncyCastle ya viene con develop por la sesión de reportes).
  */
-// SUSTITUIR al integrar reportes R2: el encabezado 2.9 con «Página N de M», la escritura en flujo y el PDF protegido pasan a
-// plataforma/Exportador (contrato-proveedor.md de la sesión de reportes); entonces esta clase solo aporta los metadatos de 14.8 y los
-// gráficos, y desaparece el recubrimiento del pie de página de aquí.
+// Duda AN.17 (coordinar con reportes): plataforma no expone en su API pública ni el PDF de varias secciones con portada ni la
+// protección de un PDF ya armado; si los expone, el pie global y el cifrado de proteger() se sustituyen por esas rutinas.
 @Component
 public class ExportadorAnalitica {
 
@@ -268,7 +271,7 @@ public class ExportadorAnalitica {
         for (Tabla t : secciones(r)) {
             partes.add(exportador.pdf(reporte(r, t, usuario, generado, true)));
         }
-        return numerar(unir(partes));
+        return proteger(unir(partes));
     }
 
     /** Metadatos y gráficos dibujados (barras y series en vectores; el mapa de calor va como tabla). */
@@ -435,7 +438,7 @@ public class ExportadorAnalitica {
         return com.lowagie.text.Image.getInstance(p);
     }
 
-    /** Une los PDF parciales en uno solo. */
+    /** Une los PDF parciales en uno solo (las secciones del Exportador vienen cifradas sin contraseña de apertura: se leen y copian). */
     private static byte[] unir(List<byte[]> partes) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         com.lowagie.text.Document doc = new com.lowagie.text.Document();
@@ -457,14 +460,24 @@ public class ExportadorAnalitica {
         return out.toByteArray();
     }
 
+    private static final java.security.SecureRandom AZAR = new java.security.SecureRandom();
+
     /**
-     * «Página n de m» en el pie de cada página (cubre el «Página n» de cada sección del Exportador).
+     * «Página n de m» del documento compuesto en el pie de cada página (cubre el «Página N de M» de cada sección del Exportador, que
+     * cuenta solo su sección) y protección contra edición como el PDF del R2: AES-256, contraseña de propietario aleatoria por archivo
+     * (nunca guardada ni registrada), sin contraseña de apertura, permisos solo de impresión y copia (RESP L555).
      */
-    private static byte[] numerar(byte[] pdf) {
+    private static byte[] proteger(byte[] pdf) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try {
             com.lowagie.text.pdf.PdfReader lector = new com.lowagie.text.pdf.PdfReader(pdf);
             com.lowagie.text.pdf.PdfStamper sello = new com.lowagie.text.pdf.PdfStamper(lector, out);
+            byte[] propietario = new byte[32];
+            AZAR.nextBytes(propietario);
+            sello.setEncryption(null, java.util.HexFormat.of().formatHex(propietario).getBytes(StandardCharsets.US_ASCII),
+                    com.lowagie.text.pdf.PdfWriter.ALLOW_PRINTING | com.lowagie.text.pdf.PdfWriter.ALLOW_COPY
+                            | com.lowagie.text.pdf.PdfWriter.ALLOW_SCREENREADERS | com.lowagie.text.pdf.PdfWriter.ALLOW_DEGRADED_PRINTING,
+                    com.lowagie.text.pdf.PdfWriter.ENCRYPTION_AES_256_V3);
             int m = lector.getNumberOfPages();
             com.lowagie.text.pdf.BaseFont bf = NORMAL.getCalculatedBaseFont(false);
             for (int i = 1; i <= m; i++) {
@@ -482,7 +495,7 @@ public class ExportadorAnalitica {
             sello.close();
             lector.close();
         } catch (com.lowagie.text.DocumentException | IOException e) {
-            throw new IllegalStateException("No se pudo numerar el PDF de analítica", e);
+            throw new IllegalStateException("No se pudo numerar y proteger el PDF de analítica", e);
         }
         return out.toByteArray();
     }

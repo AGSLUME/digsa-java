@@ -29,6 +29,14 @@ export function colorEstado(e: string): string {
   return ESTADOS.find((x) => x.codigo === e)?.color ?? 'gray';
 }
 
+/** Duda AN.16: los tableros leen el corte del último cargue visible, así que una decisión de Revisión no los cambia al instante. */
+export const AVISO_TABLEROS = 'Se verá en los tableros con el próximo cargue';
+
+/** Notificación de éxito de la Revisión, con el aviso de los tableros. */
+export function mensajeRevision(accion: 'aprobar' | 'devolver'): string {
+  return `${accion === 'aprobar' ? 'Homologación aprobada' : 'Registro devuelto al OPL'}. ${AVISO_TABLEROS}.`;
+}
+
 export interface Version {
   id: number;
   numero: number;

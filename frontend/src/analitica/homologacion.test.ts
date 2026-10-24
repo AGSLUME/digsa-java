@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AVISO_TABLEROS,
   colorEstado,
   consultaCalidad,
   consultaTabla,
@@ -11,6 +12,7 @@ import {
   fechaCorta,
   fuenteTexto,
   leerEntradas,
+  mensajeRevision,
   porcentaje,
   problemaCargue,
   problemaMotivo,
@@ -32,6 +34,14 @@ describe('homologación: formato de los KPI de calidad (A5 2.4)', () => {
     expect(sumaPorcentajes([{ porcentaje: 33.34 }, { porcentaje: 33.33 }, { porcentaje: 33.33 }])).toBe(100);
     expect(colorEstado('homologado')).toBe('green');
     expect(colorEstado('otro')).toBe('gray');
+  });
+});
+
+describe('homologación: aviso de la Revisión (duda AN.16)', () => {
+  it('aprobar o devolver avisa que se verá en los tableros con el próximo cargue', () => {
+    expect(AVISO_TABLEROS).toBe('Se verá en los tableros con el próximo cargue');
+    expect(mensajeRevision('aprobar')).toBe('Homologación aprobada. Se verá en los tableros con el próximo cargue.');
+    expect(mensajeRevision('devolver')).toBe('Registro devuelto al OPL. Se verá en los tableros con el próximo cargue.');
   });
 });
 

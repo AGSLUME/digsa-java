@@ -28,6 +28,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect, useState, type ReactNode } from 'react';
 import { cifra, fechaHora } from '../analitica/cargues';
 import {
+  AVISO_TABLEROS,
   colorEstado,
   consultaCalidad,
   consultaTabla,
@@ -40,6 +41,7 @@ import {
   fuenteTexto,
   leerEntradas,
   MAX_MOTIVO,
+  mensajeRevision,
   motivoVersion,
   NOMBRE_ESTADO,
   NOMBRE_PARAMETRO,
@@ -878,13 +880,19 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
   const aprobar = useMutation({
     mutationFn: () => api(`/api/homologacion/revision/${origenId}/aprobar`, { metodo: 'POST', cuerpo: cum ? { cum, version } : { version } }),
     onMutate: () => setError(null),
-    onSuccess: terminar,
+    onSuccess: () => {
+      notifications.show({ color: 'green', message: mensajeRevision('aprobar') });
+      terminar();
+    },
     onError: (e) => fallo(e, 'No se pudo aprobar.'),
   });
   const devolver = useMutation({
     mutationFn: () => api(`/api/homologacion/revision/${origenId}/devolver`, { metodo: 'POST', cuerpo: { motivo, version } }),
     onMutate: () => setError(null),
-    onSuccess: terminar,
+    onSuccess: () => {
+      notifications.show({ color: 'green', message: mensajeRevision('devolver') });
+      terminar();
+    },
     onError: (e) => fallo(e, 'No se pudo devolver.'),
   });
   const pedirSugerencia = useMutation({
@@ -997,6 +1005,9 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
         </Text>
       )}
       {error && <Alert color="red">{error}</Alert>}
+      <Text size="sm" c="dimmed" data-testid="aviso-tableros">
+        Al aprobar o devolver: {AVISO_TABLEROS}.
+      </Text>
       {devolviendo && (
         <Textarea
           label="Motivo de la devolución"

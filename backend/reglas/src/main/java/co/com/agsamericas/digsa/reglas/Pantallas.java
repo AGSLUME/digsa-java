@@ -55,7 +55,14 @@ public enum Pantallas {
      * tabla maestra. Pantalla aparte para asignarla por rol; Sanidad y ESM no la tienen (decisión de diseño 2026-10-22).
      */
     ANALITICA_TRAZABILIDAD("analitica/trazabilidad", "Trazabilidad de cifras", "Información",
-            Set.of(Perfil.COORDINADOR, Perfil.ANALISTA, Perfil.DIGSA));
+            Set.of(Perfil.COORDINADOR, Perfil.ANALISTA, Perfil.DIGSA)),
+    /**
+     * Consola de alertas tempranas de la analítica (analitica-cohortes-alertas; A5 14.7 «consultables únicamente por los perfiles
+     * autorizados»): Administrador, Coordinador, Analista y DIGSA nacional; Sanidad las de su Fuerza. El ESM no la tiene (403; ve los
+     * atípicos agregados de su establecimiento en el tablero 11). Pantalla aparte para negar la consola sin negar los tableros.
+     */
+    ANALITICA_ALERTAS("analitica/alertas", "Alertas analíticas", "Información",
+            Set.of(Perfil.COORDINADOR, Perfil.ANALISTA, Perfil.DIGSA, Perfil.SANIDAD));
 
     private final String ruta;
     private final String titulo;

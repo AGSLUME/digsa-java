@@ -35,7 +35,7 @@ import org.springframework.http.HttpStatus;
  * versión publicada vigente al corte; todo estado distinto de «homologado» va a «Sin homologar». Filtro, dimensión y rastreo usan el
  * MISMO código: el final homologado (ATC y CIE-10 por prefijo), así la traza de una celda suma exactamente su cifra (14.9).
  */
-final class SemanticaSql {
+public final class SemanticaSql {
 
     /** Tabla de las cifras de los tableros. */
     static final String TABLERO = "ana_hechos_tablero";
@@ -46,7 +46,7 @@ final class SemanticaSql {
     }
 
     /** Fecha de corte resuelta: el cargue elegido, el instante que fija, los cargues visibles y la versión de la tabla maestra. */
-    record Corte(long cargueId, OffsetDateTime aplicadoEn, OffsetDateTime instante, Integer homVersion, Integer homNumero, List<Long> cargues,
+    public record Corte(long cargueId, OffsetDateTime aplicadoEn, OffsetDateTime instante, Integer homVersion, Integer homNumero, List<Long> cargues,
                  LocalDate datosDesde, LocalDate datosHasta) {
     }
 
@@ -123,12 +123,12 @@ final class SemanticaSql {
         }
     }
 
-    static final String CTE_TM = """
+    public static final String CTE_TM = """
             tm AS MATERIALIZED (
                 SELECT origen_id, estado, fin_atc, fin_principio_activo, fin_cum, fin_nombre_comercial, fin_dci, fin_concentracion, fin_forma,
                        fin_presentacion, fin_registro_sanitario, fin_codigo_ssfm, regla, orig_cum, orig_descripcion, fuente_codigo
                 FROM hom_tabla_maestra_version(CAST(:hv AS integer)))""";
-    static final String CTE_TC = """
+    public static final String CTE_TC = """
             tc AS MATERIALIZED (
                 SELECT o.codigo_original, t.codigo_final, t.estado
                 FROM hom_tabla_cie10_version(CAST(:hv AS integer)) t JOIN hom_cie10_origen o ON o.id = t.origen_id)""";
@@ -143,7 +143,7 @@ final class SemanticaSql {
      * Expresión de la clave de una dimensión (nunca nula: lo no homologado y lo que falta van a sus valores especiales), con intercalación
      * «C»: agrupar u ordenar las claves compara bytes y no la intercalación de la base (las claves son códigos; el orden visible es de Java).
      */
-    static String expresion(Dimension d, Granularidad g) {
+    public static String expresion(Dimension d, Granularidad g) {
         return "(" + expresionBase(d, g) + ") COLLATE \"C\"";
     }
 

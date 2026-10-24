@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { FiltrosAnalitica } from '../analitica/FiltrosAnalitica';
 import { GraficoTabla, TACTIL, type AccionesFila } from '../analitica/GraficosAnalitica';
+import { PanelAtipicos } from '../analitica/PanelAtipicos';
+import { PanelCohortes } from '../analitica/PanelCohortes';
 import { PanelTraza } from '../analitica/PanelTraza';
 import {
   abrirReporte,
@@ -77,12 +79,14 @@ export function Analitica() {
     staleTime: 60_000,
   });
   const problema = problemaPeriodo(estado.generales.desde, estado.generales.hasta);
+  // Cohortes y atípicos (A4) tienen su propio panel con la misma barra de filtros, corte y alcance
+  const panelA4 = estado.tablero === 'cohortes' || estado.tablero === 'atipicos';
   const ruta = rutaTablero(estado);
   const datos = useQuery({
     queryKey: ['analitica', 'tablero', ruta],
     queryFn: () => api<ResultadoTablero>(ruta),
     placeholderData: keepPreviousData,
-    enabled: !problema && !!catalogo.data,
+    enabled: !problema && !!catalogo.data && !panelA4,
     retry: false,
   });
   const [traza, setTraza] = useState<{ rastreo: Record<string, string>; que: string; metrica?: string } | null>(null);
@@ -256,7 +260,8 @@ export function Analitica() {
           <Loader />
         </Center>
       )}
-      {r && (
+      {panelA4 && !problema && (estado.tablero === 'cohortes' ? <PanelCohortes estado={estado} /> : <PanelAtipicos estado={estado} />)}
+      {r && !panelA4 && (
         <Stack data-testid="tablero" aria-busy={datos.isFetching} style={{ opacity: problema || datos.isPlaceholderData ? 0.55 : 1 }}>
           <Title order={3}>{r.titulo}</Title>
           {r.advertencias.map((a) => (

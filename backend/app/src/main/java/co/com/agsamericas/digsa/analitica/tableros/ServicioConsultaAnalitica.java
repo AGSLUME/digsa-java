@@ -94,7 +94,7 @@ public class ServicioConsultaAnalitica {
     // ---------- Transacción de lectura ----------
 
     /** Lectura con el presupuesto de una petición en pantalla (≤ 3 min, A5 2.7). */
-    <T> T leer(Function<JdbcClient, T> f) {
+    public <T> T leer(Function<JdbcClient, T> f) {
         return leer(propiedades.tiempoMaximo(), true, f);
     }
 
@@ -110,7 +110,7 @@ public class ServicioConsultaAnalitica {
      *
      * @param verificarAlFinal también rechaza el resultado si la petición completa pasó del presupuesto (no en el CSV en flujo: ya salió)
      */
-    <T> T leer(int segundos, boolean verificarAlFinal, Function<JdbcClient, T> f) {
+    public <T> T leer(int segundos, boolean verificarAlFinal, Function<JdbcClient, T> f) {
         Plazo plazo = new Plazo(jdbc, segundos * 1000L);
         try {
             T r = lectura.execute(s -> {
@@ -153,7 +153,7 @@ public class ServicioConsultaAnalitica {
      * cambian ningún corte existente (mismo corte ⇒ mismo resultado, 14.8) y se ven con el siguiente cargue; mientras tanto el resultado
      * lo advierte (ver {@link #tablaMaestraPosterior}).
      */
-    Optional<Corte> corte(JdbcClient j, Long cargue) {
+    public Optional<Corte> corte(JdbcClient j, Long cargue) {
         List<Object[]> c = j.sql("""
                 SELECT c.id, c.aplicado_en,
                        greatest(c.aplicado_en, coalesce((SELECT max(v.creada) FROM hom_version v WHERE v.cargue_id = c.id AND v.estado = 'publicada'),
@@ -633,7 +633,7 @@ public class ServicioConsultaAnalitica {
     }
 
     /** Texto de la regla de supresión para los metadatos. */
-    String textoSupresion() {
+    public String textoSupresion() {
         int k = propiedades.supresion();
         return k <= 0 ? "Desactivada (todas las cifras se muestran; parámetro supresion-minima = 0)"
                 : "Celdas con menos de " + k + " pacientes distintos: se ocultan sus pacientes y promedios por paciente («<" + k
@@ -707,7 +707,7 @@ public class ServicioConsultaAnalitica {
     }
 
     /** Alcance legible: «Nacional», «Fuerza EJC», «ESM BAS02 · Nombre». */
-    String alcanceTexto(JdbcClient j, Alcance a) {
+    public String alcanceTexto(JdbcClient j, Alcance a) {
         return switch (a) {
             case Alcance.Todo t -> "Nacional";
             case Alcance.Fuerza f -> "Fuerza " + f.codigo();
@@ -718,7 +718,7 @@ public class ServicioConsultaAnalitica {
     }
 
     /** Código estable del alcance (para la huella: no depende del nombre del ESM en el catálogo). */
-    static String alcanceCodigo(Alcance a) {
+    public static String alcanceCodigo(Alcance a) {
         return switch (a) {
             case Alcance.Todo t -> "nacional";
             case Alcance.Fuerza f -> "fuerza:" + f.codigo();

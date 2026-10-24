@@ -66,6 +66,7 @@ class IngestaPrivilegiosTest extends PruebaIntegracion {
             s.execute(bloque);
             s.execute(bloque("/db/migration/V61__analitica_homologacion.sql"));
             s.execute(bloque("/db/migration/V62__analitica_tableros.sql"));
+            s.execute(bloque("/db/migration/V63__analitica_cohortes_alertas.sql"));
         }
     }
 
@@ -121,6 +122,42 @@ class IngestaPrivilegiosTest extends PruebaIntegracion {
         }
         assertThat(jdbc.sql("SELECT has_column_privilege(:r, 'ana_cargues', 'campos_presentes', 'UPDATE')").param("r", ROL).query(Boolean.class).single())
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("V63: el rol tiene lo que usan cohortes y alertas; la traza (historiales, filas de referencia) no se modifica ni se borra; las alertas no se borran")
+    void privilegiosCohortesAlertas() {
+        List<String[]> usados = List.of(
+                new String[] {"ana_cohortes", "SELECT"}, new String[] {"ana_cohortes", "INSERT"}, new String[] {"ana_cohortes", "UPDATE"},
+                new String[] {"ana_cohortes_versiones", "INSERT"}, new String[] {"ana_cohortes_versiones", "UPDATE"},
+                new String[] {"ana_cohortes_ejecuciones", "INSERT"}, new String[] {"ana_cohortes_ejecuciones", "UPDATE"},
+                new String[] {"ana_cohortes_resultados", "INSERT"}, new String[] {"ana_cohortes_resultados", "UPDATE"},
+                new String[] {"ana_cohortes_serie", "INSERT"}, new String[] {"ana_cohortes_serie", "DELETE"},
+                new String[] {"ana_cohortes_miembros", "INSERT"}, new String[] {"ana_cohortes_miembros", "DELETE"},
+                new String[] {"ana_cohortes_conteos", "INSERT"}, new String[] {"ana_cohortes_conteos", "DELETE"}, new String[] {"ana_cohortes_conteos", "SELECT"},
+                new String[] {"ana_alertas_parametros", "INSERT"}, new String[] {"ana_alertas_parametros", "UPDATE"},
+                new String[] {"ana_alertas_parametros_historial", "INSERT"}, new String[] {"ana_alertas", "INSERT"}, new String[] {"ana_alertas", "UPDATE"},
+                new String[] {"ana_alertas_historial", "INSERT"}, new String[] {"ana_alertas_ejecuciones", "INSERT"},
+                new String[] {"ana_alertas_ejecuciones", "UPDATE"}, new String[] {"ana_ref_versiones", "INSERT"}, new String[] {"ana_ref_versiones", "UPDATE"},
+                new String[] {"ana_ref_filas", "INSERT"});
+        List<String[]> prohibidos = List.of(
+                new String[] {"ana_alertas", "DELETE"}, new String[] {"ana_alertas_historial", "UPDATE"}, new String[] {"ana_alertas_historial", "DELETE"},
+                new String[] {"ana_alertas_parametros_historial", "UPDATE"}, new String[] {"ana_alertas_parametros_historial", "DELETE"},
+                new String[] {"ana_ref_filas", "UPDATE"}, new String[] {"ana_ref_filas", "DELETE"}, new String[] {"ana_cohortes", "DELETE"},
+                new String[] {"ana_cohortes_versiones", "DELETE"}, new String[] {"ana_cohortes_conteos", "UPDATE"});
+        for (String[] u : usados) {
+            assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, :p)").param("r", ROL).param("t", u[0]).param("p", u[1]).query(Boolean.class).single())
+                    .as(u[1] + " sobre " + u[0]).isTrue();
+        }
+        for (String[] u : prohibidos) {
+            assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, :p)").param("r", ROL).param("t", u[0]).param("p", u[1]).query(Boolean.class).single())
+                    .as("sin " + u[1] + " sobre " + u[0]).isFalse();
+        }
+        for (String s : List.of("ana_cohortes_id_seq", "ana_alertas_id_seq", "ana_ref_versiones_id_seq")) {
+            assertThat(jdbc.sql("SELECT has_sequence_privilege(:r, :s, 'USAGE')").param("r", ROL).param("s", s).query(Boolean.class).single()).as(s).isTrue();
+        }
+        // El aviso de severidad alta es operativo: solo correo
+        assertThat(jdbc.sql("SELECT critica OR sms FROM alertas_criticas WHERE tipo = 'analitica_alerta_alta'").query(Boolean.class).single()).isFalse();
     }
 
     @Test

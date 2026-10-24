@@ -67,7 +67,13 @@ public final class Exportacion {
             "hom_catalogo", "hom_version", "hom_medicamento_origen", "hom_tabla_maestra", "hom_cie10_origen", "hom_tabla_cie10",
             "hom_cargue_origen", "hom_cargue_mes", "hom_revision", "hom_devolucion",
             // V62 · tableros: bitácora de consultas, descargas y rastreos de analítica (los agregados van en TECNICAS)
-            "ana_consultas");
+            "ana_consultas",
+            // V63 · cohortes y alertas tempranas: definiciones y versiones de cohortes, sus series agregadas por corte y ejecuciones;
+            // parámetros de alertas con su historial, alertas con su análisis técnico y validación humana, ejecuciones del motor y
+            // referencias cargables (interacciones, indicaciones, huérfanas). La membresía (paciente por mes) va en TECNICAS
+            "ana_cohortes", "ana_cohortes_versiones", "ana_cohortes_resultados", "ana_cohortes_serie", "ana_cohortes_conteos", "ana_cohortes_ejecuciones",
+            "ana_alertas_parametros", "ana_alertas_parametros_historial", "ana_alertas", "ana_alertas_historial", "ana_alertas_ejecuciones",
+            "ana_ref_versiones", "ana_ref_filas");
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
     public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes",
@@ -82,6 +88,9 @@ public final class Exportacion {
             // Tablas de apoyo de los tableros (V62): copia angosta de los hechos, numeración de pacientes y valores de filtro por cargue; se
             // derivan de los hechos de cada cargue y se reconstruyen de ellos
             "ana_hechos_tablero", "ana_pacientes", "ana_cargue_valores",
+            // Membresía de las cohortes (V63): número de paciente por mes y versión, solo del último corte; se deriva de los hechos y no
+            // sale de la base salvo como conteos (A5 14.6 «nunca individualizada»)
+            "ana_cohortes_miembros",
             // Staging de la carga del CUM del INVIMA (UNLOGGED, se vacía al terminar cada versión)
             "ref_cum_staging");
 

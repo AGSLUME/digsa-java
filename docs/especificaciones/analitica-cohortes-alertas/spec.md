@@ -16,12 +16,12 @@
 Una cohorte DEBE guardarse como objeto con código, nombre, descripción, criterios combinados y versión; NO DEBE ser un filtro efímero. Editar los criterios DEBE crear una versión nueva (la anterior queda consultable con sus resultados); los resultados de cada versión se recalculan sobre **toda** la historia disponible. Criterios admitidos, combinables con Y / O y negación: CIE-10 (código o prefijo, del histórico de diagnósticos del paciente), ATC (cualquier nivel), principio activo, medicamento normalizado (tabla maestra), grupo farmacológico, lista de referencia (estrecho margen, control especial, biológicos, huérfanas, crónicos), patrones de consumo (n.º de principios activos distintos por mes, meses consecutivos, gasto en ventana móvil) y variables de la operación (Fuerza, ESM, modalidad). Cada criterio lleva su ventana de observación.
 
 #### Scenario: Cohorte que indica el comité
-<!-- test: M8-6; por escribir: CohortesApiTest#creaYCalculaCohorteNueva -->
+<!-- test: M8-6; CohortesApiTest#creaYCalculaCohorteNueva -->
 - **CUANDO** un ANALISTA crea «Diabetes con insulina» = CIE-10 E10–E14 Y ATC A10A, en la ventana 2024-2025
 - **ENTONCES** la cohorte queda guardada como versión 1, se calcula sobre el corte vigente sin esperar otro cargue y su tarjeta muestra el conteo agregado y el criterio
 
 #### Scenario: Edición de criterios
-<!-- test: por escribir: CohortesApiTest#editarCreaVersion -->
+<!-- test: CohortesApiTest#editarCreaVersion -->
 - **CUANDO** se cambia el umbral de poliformulados de 5 a 6 principios activos
 - **ENTONCES** nace la versión 2 con su propia serie; la versión 1 y los reportes generados con ella siguen reproducibles; la bitácora registra `analitica_cohorte_version` con antes y después
 
@@ -32,6 +32,7 @@ Una cohorte DEBE guardarse como objeto con código, nombre, descripción, criter
 <!-- entidades: Cohorte -->
 <!-- impuesto_en: A4 L684–706 §11.1 e (alto costo, polimedicados, huérfanas, VIH, renal, biológicos, control especial, estrecho margen, GRC, GCF) | A4 L787 11.2.4 (poliformulados, pluripatológicos, por diagnóstico, medicamento y principio activo) | A4 L275 | A4 L304 -->
 <!-- decision: diseño 2026-10-22 -->
+<!-- decision: A4 2026-10-23 — parámetros de cada cohorte en su criterio versionado (jsonb), no en par_parametros. Alto costo: umbral POR MES = percentile_disc(0,99) del gasto en 12 meses móviles de los pacientes con dispensaciones en el mes (la tarjeta muestra el del último mes en pesos). Biológicos y crónicos son prefijos ATC/CIE-10 del criterio (parametrizables); huérfanas, una referencia cargable (ana_ref_*); estrecho margen y control especial, la lista publicada de A2 (ref_lista_normativa). Sin su lista: «no evaluado: sin lista de … cargada». -->
 
 El sistema DEBE traer predefinidas (marcadas `predefinida`, editables en sus parámetros, no eliminables) estas cohortes con criterio por defecto:
 
@@ -53,12 +54,12 @@ El sistema DEBE traer predefinidas (marcadas `predefinida`, editables en sus par
 <!-- duda: 1 (umbral de alto costo) | 2 (poliformulado) | 4 (listas de huérfanas, biológicos, crónicos) -->
 
 #### Scenario: Polimedicado con cinco meses
-<!-- test: por escribir: AnaliticaCohortesTest#polimedicadoExigeSeisMeses -->
+<!-- test: AnaliticaCohortesTest#polimedicadoExigeSeisMeses -->
 - **CUANDO** un paciente recibe 6 principios activos distintos en cada mes de enero a mayo y 3 en junio
 - **ENTONCES** es poliformulado en cada uno de esos 5 meses pero NO es polimedicado
 
 #### Scenario: Cambio de marca no suma medicamentos
-<!-- test: por escribir: AnaliticaCohortesTest#mismoPrincipioDosCumCuentaUno -->
+<!-- test: AnaliticaCohortesTest#mismoPrincipioDosCumCuentaUno -->
 - **CUANDO** en un mes el paciente recibe losartán de dos CUM distintos y otros 3 principios activos
 - **ENTONCES** cuenta 4 principios activos distintos (no 5)
 
@@ -73,12 +74,12 @@ El sistema DEBE traer predefinidas (marcadas `predefinida`, editables en sus par
 GCF y GRC DEBEN ser particiones: cada paciente del periodo pertenece a exactamente un grupo (o a «sin gasto» / «sin diagnóstico crónico»). La pantalla DEBE mostrar, junto a los conteos, la regla de asignación y un enlace al documento de metodología (variables, parámetros, supuestos, versión), entregable a la DIGSA.
 
 #### Scenario: Empate en GCF
-<!-- test: por escribir: AnaliticaCohortesTest#gcfEmpateDeterminista -->
+<!-- test: AnaliticaCohortesTest#gcfEmpateDeterminista -->
 - **CUANDO** el gasto de un paciente se reparte por igual entre C09 y A10
 - **ENTONCES** se asigna al código ATC2 menor en orden alfabético (A10), siempre igual en cada recálculo
 
 #### Scenario: Suma de la partición
-<!-- test: M8-6; por escribir: CohortesApiTest#gcfSumaElTotal -->
+<!-- test: M8-6; CohortesApiTest#gcfSumaElTotal -->
 - **CUANDO** se consulta GCF a nivel nacional para un periodo
 - **ENTONCES** la suma de pacientes de todos los grupos es igual al total de pacientes distintos del periodo
 
@@ -89,11 +90,13 @@ GCF y GRC DEBEN ser particiones: cada paciente del periodo pertenece a exactamen
 <!-- entidades: CohorteVersion, CohorteMiembro, CohorteSerie, Cargue -->
 <!-- impuesto_en: RESP L5145 («la actualice conforme ingresa nueva información») | A4 L787 (periodicidad mensual) -->
 <!-- decision: diseño 2026-10-22 -->
+<!-- decision: A4 2026-10-23 — el recálculo corre después de confirmar el cargue (evento CargueAplicado; un hilo y advisory lock; el cargue no espera ni falla) en dos transacciones: lectura REPEATABLE READ (una foto: catálogo, umbrales y UN recorrido de ana_hechos_tablero por paciente y fecha) y escritura atómica (serie, membresía, alertas, aviso). La serie se guarda por (versión, corte): un corte anterior da siempre las mismas cifras. La membresía (número de paciente) se conserva para los últimos 6 cortes de cada versión (digsa.analitica.riesgo.cortes-con-membresia); en un corte más antiguo la tarjeta usa el máximo mensual de la serie con nota y la composición responde 422 (desviación de «recalcula al vuelo»; duda AN.19). digsa.analitica.riesgo.recalcular-al-aplicar=false en las pruebas que no son de A4. -->
+<!-- decision: revisión A4 2026-10-24 — robustez: cada detector, la base por medicamento y el conteo de pacientes corren en un punto de guardado (PROPAGATION_NESTED; una falla SQL deja solo su tipo en «error»); la evaluación de cada versión de cohorte y de cada tipo de secuencia se aísla (versión «no evaluada: error», ejecución «con_fallos»); la escritura de alertas va en su propio punto de guardado (la serie se guarda igual). Un Error del hilo deja la ejecución en «error»; al arrancar, las «en_curso» huérfanas pasan a «interrumpida» y se re-encola el último corte (origen «reinicio»). Un pedido de usuario con otra corrida pendiente del corte: 409. Serie y alertas de nivel ESM por (Fuerza de la dispensación, ESM): un ESM compartido no mezcla cifras en el alcance de Sanidad. Ingreso = sin membresía en la celda en los 2 meses de gracia previos y fuera del calentamiento (meses consecutivos del criterio, mínimo gracia + 1); salida = no vuelve dentro de la gracia (AN.25). Las tarjetas del periodo por defecto leen los pacientes distintos contados en el recorrido (ana_cohortes_conteos). -->
 
 Al quedar «aplicado» un cargue, el sistema DEBE recalcular todas las versiones vigentes de cohortes activas sobre el nuevo corte (proceso diferido con el patrón de `exportacion/`: un hilo, advisory lock, estado y progreso consultables), y DEBE permitir recalcular una cohorte bajo demanda. El cálculo es determinista: mismo corte + misma versión = mismos miembros y misma serie. La consulta de un corte anterior se recalcula al vuelo con los hechos de los cargues ≤ ese corte.
 
 #### Scenario: Cargue nuevo
-<!-- test: por escribir: CohortesApiTest#cargueActualizaSerie -->
+<!-- test: CohortesApiTest#cargueActualizaSerieYCorteAnteriorReproducible -->
 - **CUANDO** se aplica el cargue de noviembre
 - **ENTONCES** la serie de cada cohorte gana el punto de noviembre, la ejecución queda en la bitácora (`analitica_cohorte_recalculo`) con duración y versiones, y las tarjetas muestran el corte nuevo
 ---
@@ -103,16 +106,17 @@ Al quedar «aplicado» un cargue, el sistema DEBE recalcular todas las versiones
 <!-- entidades: CohorteSerie -->
 <!-- impuesto_en: RESP L5143–5145 (seguimiento en el tiempo, caracterización agregada del consumo y gasto, comparación entre periodos y niveles) | PLIEGO L2430 P5 (agrupado por nivel ATC, principio activo, medicamento normalizado, Fuerza y ESM, exportación) | A4 L787 -->
 <!-- decision: diseño 2026-10-22 -->
+<!-- decision: A4 2026-10-23 — la composición por ATC, principio y medicamento usa la tabla maestra vigente al corte, como los tableros («Sin homologar» si no está homologado); la cohorte como filtro de los tableros 1–12 queda pendiente (duda AN.22). -->
 
 Para cada cohorte el sistema DEBE dar: (a) serie mensual de pacientes, ingresos, salidas, dispensaciones, unidades y gasto; (b) comparación entre dos periodos (variación absoluta y %) y entre niveles (nacional, Fuerza, DISAN, ESM); (c) composición del gasto y de los pacientes por nivel ATC, principio activo, medicamento normalizado, CIE-10, Fuerza y ESM, con Top 20; (d) poliformulados y alto costo **dentro** de la cohorte; (e) alertas asociadas (enlace a la consola filtrada por la cohorte). La cohorte DEBE estar disponible como filtro en los tableros 1–12. Serie, comparación y composición DEBEN descargarse en Excel, CSV y PDF (P5: «Exportación de la información») con los metadatos de 14.8 más el criterio y la versión, solo con cifras agregadas y por el mismo mecanismo de los tableros.
 
 #### Scenario: Cohorte por CIE-10 agrupada por ATC
-<!-- test: M8-6; por escribir: CohortesApiTest#composicionPorAtcCuadra -->
+<!-- test: M8-6; CohortesApiTest#composicionPorAtcCuadra -->
 - **CUANDO** se consulta la composición de «renal» por ATC nivel 3 en 2025
 - **ENTONCES** la suma del gasto de los grupos es igual al gasto total de la cohorte en 2025 y coincide con el tablero 3 filtrado por esa cohorte
 
 #### Scenario: Descarga
-<!-- test: por escribir: CohortesApiTest#exportaSinSeudonimos -->
+<!-- test: CohortesApiTest#exportaSinSeudonimos -->
 - **CUANDO** se descarga la composición de «biológicos» en CSV
 - **ENTONCES** el encabezado trae criterio y versión y no hay ninguna columna de paciente ni seudónimo
 
@@ -123,11 +127,12 @@ Para cada cohorte el sistema DEBE dar: (a) serie mensual de pacientes, ingresos,
 <!-- entidades: Cohorte -->
 <!-- impuesto_en: A5 L962 14.6 («los criterios de cohorte son consultables, con cifras trazables al insumo») | caso M8-6 («Siempre agregados y con el criterio visible») | mockup #analitica tarjeta «Cohortes (conteos agregados)» -->
 <!-- decision: diseño 2026-10-22 -->
+<!-- decision: A4 2026-10-23 — el conteo de la tarjeta = pacientes distintos que son miembros en algún mes del periodo (la membresía se evalúa en los meses con dispensaciones); en GCF y GRC, la partición del último mes del periodo (suma = pacientes del mes). ATC y principio «clínicos»: el final homologado o, si no lo está, el del insumo normalizado (las fuentes de la tarjeta dicen cuántos datos originales usan el del insumo; duda AN.20). -->
 
 El tablero 10 («Cohortes y riesgo») DEBE mostrar una tarjeta por cohorte con el conteo de pacientes distintos y, **en la misma tarjeta**, el criterio en texto generado desde la definición (p. ej. «≥ 5 principios activos distintos en ≥ 6 meses consecutivos · v1»), el periodo, el corte y el n.º de registros que la sustentan; más las particiones GCF y GRC. Las seis del mockup (alto costo, polimedicados, renal, VIH, biológicos, huérfanas) van primero; las demás debajo.
 
 #### Scenario: Criterio a la vista
-<!-- test: M8-6; por escribir: e2e cohortes.spec.ts -->
+<!-- test: M8-6; e2e analitica-cohortes-alertas.spec.ts -->
 - **CUANDO** el comité abre «Cohortes y riesgo»
 - **ENTONCES** cada tarjeta muestra número, criterio, versión y corte, sin abrir otra pantalla
 
@@ -138,16 +143,18 @@ El tablero 10 («Cohortes y riesgo») DEBE mostrar una tarjeta por cohorte con e
 <!-- entidades: AlertaAnalitica, EjecucionMotor, ParametroAlerta -->
 <!-- impuesto_en: A4 L650–682 §11.1 d («Generación automática de alertas») | RESP L5647 (i) «automatizada [...] sin intervención manual» | RESP L2217 (críticas en tiempo real o cuasi real) | A5 L962 14.7 -->
 <!-- decision: diseño 2026-10-22 -->
+<!-- decision: A4 2026-10-23 — un detector que lanza deja su tipo en «error» y los demás siguen (ejecución «con_fallos»). Reevaluar actualiza cifras, causa y valoración; la versión de parámetros, el umbral y la recomendación con que nació solo cambian si sube de banda. -->
+<!-- decision: revisión A4 2026-10-24 — las alertas validadas o descartadas no se reevalúan (conservan las cifras con que se juzgaron); la consola muestra el corte de nacimiento y el de las cifras (última evaluación). Cada tipo admite solo los niveles que su detector evalúa (AnaliticaAlertas.Tipo.nivelesAdmitidos; otro: 422); umbrales y extras hasta 10^12. -->
 
 El motor DEBE correr al aplicar cada cargue (después del recálculo de cohortes) y bajo demanda, evaluar cada tipo activo con su versión de parámetros en los niveles configurados (nacional, Fuerza, ESM) y guardar cada alerta con una llave natural `(tipo, nivel, dimensión, valor, periodo)`. Reejecutar sobre el mismo corte NO DEBE duplicar: actualiza el valor observado de la alerta abierta y anota el corte de su última evaluación. Las reglas son puras (`reglas/AnaliticaAlertas`); la IA no decide si hay alerta. Cada ejecución queda en `ana_alertas_ejecuciones` y la bitácora (`analitica_alerta_generada`, 4.7.4 «alertas generadas»).
 
 #### Scenario: Reejecución
-<!-- test: por escribir: AlertasApiTest#reejecutarNoDuplica -->
+<!-- test: AlertasApiTest#reejecutarNoDuplica -->
 - **CUANDO** se ejecuta el motor dos veces sobre el mismo corte
 - **ENTONCES** el número de alertas es el mismo y la ejecución 2 informa 0 nuevas
 
 #### Scenario: Un tipo falla
-<!-- test: por escribir: AlertasApiTest#tipoConErrorNoTumbaLosDemas -->
+<!-- test: AlertasApiTest#tipoConErrorNoTumbaLosDemas (error SQL real y excepción de secuencia), #versionConErrorNoTumbaLasDemas, #ejecucionHuerfanaSeCierraAlArrancar -->
 - **CUANDO** la evaluación de un tipo lanza un error
 - **ENTONCES** los demás tipos se evalúan, la ejecución queda «con fallos» con el tipo y el error, y el cargue sigue «aplicado»
 
@@ -158,31 +165,33 @@ El motor DEBE correr al aplicar cada cargue (después del recálculo de cohortes
 <!-- entidades: AlertaAnalitica, ParametroAlerta -->
 <!-- impuesto_en: A4 L650–682 (10 tipos) | A5 L627–647 tablero 11 (formulaciones inusuales, concentraciones o presentaciones inconsistentes, severidad) | PLIEGO L2428 P4 | mockup «Alertas de comportamientos atípicos» -->
 <!-- decision: diseño 2026-10-22 -->
+<!-- decision: A4 2026-10-23 — bandas no fijadas por la fuente (parametrizables): alto costo y polimedicados por ingresos del mes 3/5/10 (niveles Fuerza y ESM); formulación inusual por registros 1/5/20 con escala robusta mínima 0,25 · mediana (sin ella una historia de cantidad constante marcaría el doble como atípico) y 30 registros de base; concentración 50/70/90 % con «alto costo» = ATC L01, L04 (parametrizable) más la lista de control especial, contando dispensaciones con profesional; desabastecimiento: caída 50/75/100 % con base mínima de 10. Presentación inconsistente también por el insumo: un mismo CUM con concentraciones distintas en la descripción (además del estado «inconsistente» de la tabla maestra). -->
 
 El motor DEBE implementar estos tipos (umbrales, ventanas, niveles y severidades parametrizables):
 
 | Tipo | Regla por defecto | Unidad de la alerta |
 |---|---|---|
-| `incremento_gasto` | gasto del mes vs. media de los 3 meses previos: variación ≥ 30 % y desviación robusta (mediana/MAD de ≥ 6 meses) ≥ 3; gasto base mínimo parametrizable | dimensión (ATC 1–3, principio activo, ESM, Fuerza) × mes |
+| `incremento_gasto` | gasto del mes vs. media de los 3 meses previos: variación ≥ 30 % y desviación robusta (mediana/MAD de ≥ 6 meses) ≥ 3; gasto base mínimo y ≥ 30 dispensaciones al mes en la base (parametrizables) | dimensión (ATC 1–3, principio activo, ESM, Fuerza) × mes |
 | `incremento_consumo` | igual sobre unidades dispensadas | ídem |
-| `alto_costo` | ingresos del mes a la cohorte `alto_costo` ≥ N | ESM o Fuerza × mes |
-| `polimedicados` | ingresos del mes a `polimedicados` ≥ N | ESM o Fuerza × mes |
+| `alto_costo` | ingresos del mes a la cohorte `alto_costo` ≥ N y (ingresos − media de 3 meses) / √media ≥ 3, fuera del calentamiento | ESM o Fuerza × mes |
+| `polimedicados` | ídem con `polimedicados` | ESM o Fuerza × mes |
 | `duplicidad_terapeutica` | mismo paciente con dos principios activos distintos del mismo ATC nivel 4 dispensados con cobertura superpuesta (días de tratamiento si el insumo los trae; si no, ventana de 30 días); exclusiones parametrizables | ATC4 × mes (pacientes y ESM afectados) |
 | `interaccion` | par de principios activos de la tabla de interacciones con cobertura superpuesta | par × mes |
 | `fuera_indicacion` | dispensación cuyo CIE-10 no está entre los pares ATC–CIE-10 admitidos | ATC × mes |
 | `marca_estrecho_margen` | cambio de CUM (titular) entre dispensaciones consecutivas del mismo paciente y principio activo de estrecho margen | principio activo × ESM × mes |
 | `desabastecimiento` | caída de dispensación de un medicamento vital ≥ 50 % frente a su media de 3 meses (aproximación; ver duda 7) | medicamento × ESM × mes |
-| `concentracion_prescripciones` | un profesional concentra ≥ 50 % de las fórmulas de control especial o alto costo de un ESM con ≥ 20 fórmulas en el mes | ESM × mes |
+| `concentracion_prescripciones` | un profesional concentra ≥ 50 % de las fórmulas de un principio de control especial o alto costo en un ESM con ≥ 20 en el mes | ESM × principio × mes |
 | `formulacion_inusual` | cantidad por dispensación > mediana + k·MAD del mismo CUM (k = 5) | CUM × mes |
 | `presentacion_inconsistente` | registro homologado con estado «diferencia en concentración, forma o presentación» | medicamento × mes |
 
 #### Scenario: Incremento del mockup
-<!-- test: M8-7; por escribir: AnaliticaAlertasTest#incrementoConsumoL04 -->
+<!-- test: M8-7; AnaliticaAlertasTest#incrementoConsumoL04 -->
 - **CUANDO** las unidades de ATC L04 del Ejército pasan de una media de 1000 (jun–ago) a 1420 en septiembre, con historia estable
-- **ENTONCES** sale `incremento_consumo` · Fuerza EJC · ATC L04 · sep 2026 · observado 42,00 % · umbral 30,00 % · severidad media
+- **ENTONCES** sale `incremento_consumo` · Fuerza EJC · ATC L04 · sep 2026 · observado 42,00 % · umbral 30,00 % · severidad baja
+<!-- decision: A4 2026-10-23 — con las bandas 30/60/100 el 42 % es severidad BAJA (el escenario decía «media»; AnaliticaAlertasTest#incrementoConsumoL04 lo fija). -->
 
 #### Scenario: Duplicidad terapéutica
-<!-- test: M8-7; por escribir: AnaliticaAlertasTest#duplicidadAnticoagulantes -->
+<!-- test: M8-7; AnaliticaAlertasTest#duplicidadAnticoagulantes -->
 - **CUANDO** 38 pacientes en 6 ESM reciben warfarina y apixabán (ATC4 B01AA y B01AF son distintos) y otros 12 reciben apixabán y rivaroxabán (B01AF ambos) en 20 días
 - **ENTONCES** sale una alerta B01AF con 12 pacientes; la combinación B01AA + B01AF solo sale si el par está en la tabla de interacciones
 
@@ -195,16 +204,17 @@ El motor DEBE implementar estos tipos (umbrales, ventanas, niveles y severidades
 <!-- entidades: AlertaAnalitica -->
 <!-- impuesto_en: A5 L948 14.7 («con su contexto (umbral, periodo, dimensión y severidad)») | PLIEGO L2429 P4 («Cada alerta generada deberá presentar su respectivo análisis técnico, evidenciando la causa de la alerta, la valoración del riesgo o impacto identificado, así como las acciones y recomendaciones») | caso M8-7 -->
 <!-- decision: diseño 2026-10-22 -->
+<!-- decision: A4 2026-10-23 — la selección guardada es la consulta de la trazabilidad (tablero general, periodo de la alerta, nivel y los CUM involucrados, hasta 50): contiene los registros de origen; los registros y pacientes de la alerta son los del detector. -->
 
 Toda alerta DEBE guardar y mostrar: tipo, regla y versión de parámetros, severidad (alta, media, baja), umbral aplicado, valor observado, valor de referencia (línea base), unidad, periodo (desde–hasta), nivel, dimensión y valor, n.º de registros, n.º de pacientes (distintos, agregado), gasto involucrado, corte y fecha de generación; y su **análisis técnico**: causa (texto armado por plantilla con las cifras, p. ej. «el aumento es por volumen: el valor unitario varió 0,40 %»), valoración del riesgo o impacto (gasto, pacientes y severidad) y recomendación (plantilla por tipo, parametrizable). La severidad DEBE ser la banda más alta alcanzada entre tres umbrales ordenados por tipo (A5 tablero 11: «alertas clasificadas por severidad»); por defecto: incrementos 30 / 60 / 100 %; duplicidad, interacción y marca ≥ 1 / 10 / 30 pacientes; presentación inconsistente baja, media desde 100 registros. La prioridad DEBE ser severidad y luego gasto involucrado. Una alerta sin alguno de estos campos NO DEBE guardarse (NOT NULL en `ana_alertas`).
 
 #### Scenario: Banda alta
-<!-- test: por escribir: AnaliticaAlertasTest#bandas -->
+<!-- test: AnaliticaAlertasTest#bandas -->
 - **CUANDO** el incremento de gasto es 120 %
 - **ENTONCES** la severidad es alta y el umbral mostrado es 100,00 %
 
 #### Scenario: Consola con contexto
-<!-- test: M8-7; por escribir: AlertasApiTest#contextoCompleto -->
+<!-- test: M8-7; AlertasApiTest#contextoCompleto -->
 - **CUANDO** se abre una alerta en la consola
 - **ENTONCES** se ven umbral, periodo, dimensión y severidad como columnas, y causa, valoración y recomendación en el detalle
 
@@ -219,7 +229,7 @@ Toda alerta DEBE guardar y mostrar: tipo, regla y versión de parámetros, sever
 Cada alerta DEBE cumplir los cinco criterios: nace del motor; su lista de registros de origen no está vacía y se recorre desde la consola (14.9); guarda la regla, la versión y los parámetros; su causa cita la fuente de referencia usada (con versión) cuando aplica; y se presenta agregada con severidad. Un tipo que no se puede evaluar (falta su fuente o su campo) NO DEBE callar: la consola y el tablero 11 DEBEN mostrarlo como «no evaluado: <motivo>».
 
 #### Scenario: Sin tabla de interacciones
-<!-- test: por escribir: AlertasApiTest#tipoSinFuenteSeInforma -->
+<!-- test: AlertasApiTest#tipoSinFuenteSeInformaYConFuenteSeDetecta -->
 - **CUANDO** el motor corre sin pares de interacción cargados
 - **ENTONCES** la ejecución registra `interaccion` = «no evaluado: sin fuente de interacciones cargada» y la consola lo muestra en el resumen por tipo
 
@@ -234,12 +244,12 @@ Cada alerta DEBE cumplir los cinco criterios: nace del motor; su lista de regist
 El generador sintético de 2 M filas DEBE sembrar, con semilla fija, al menos un caso conocido por tipo evaluable (incremento de gasto, incremento de consumo, alto costo, polimedicados, duplicidad, marca de estrecho margen, formulación inusual, presentación inconsistente, concentración de prescripciones cuando el archivo trae profesional, y pares de interacción y fuera de indicación de ejemplo marcados como ficticios) y escribir el archivo de alertas esperadas (tipo, nivel, dimensión, valor, periodo, pacientes). La prueba de integración DEBE fallar si falta una alerta esperada o si su contexto no coincide.
 
 #### Scenario: Cuadre de alertas sembradas
-<!-- test: M8-7; por escribir: AlertasSembradasIT#todasLasEsperadas -->
+<!-- test: M8-7; AlertasApiTest#todasLasEsperadas -->
 - **CUANDO** se carga el archivo generado y corre el motor
 - **ENTONCES** cada alerta del archivo de esperadas existe con su tipo, dimensión, periodo y pacientes; el informe lista las faltantes (debe ser vacío)
 
 #### Scenario: Serie de control sin siembra
-<!-- test: por escribir: AlertasSembradasIT#sinFalsosPositivosEnControl -->
+<!-- test: AlertasSembradasTest#sinFalsosPositivosEnControl (desviación revisión A4: 0 media o alta salvo incrementos de gasto o consumo, 20 en el control sintético por biológicos aleatorios en ESM pequeños; ninguna sembrada con su medida; calibración en AN.21); a 2 M: RendimientoCohortesAlertasTest falla si falta una sembrada o no cuadra una cohorte -->
 - **CUANDO** se evalúa el conjunto de control del generador (sin casos sembrados)
 - **ENTONCES** no sale ninguna alerta de severidad media o alta
 
@@ -254,12 +264,12 @@ El generador sintético de 2 M filas DEBE sembrar, con semilla fija, al menos un
 Los estados DEBEN ser `nueva` → `en_revision` → `validada` | `descartada` (y `descartada` → `en_revision` para reabrir). Validar o descartar exige nota (≥ 10 caracteres) y lo hacen ADMINISTRADOR, COORDINADOR o ANALISTA. Cada cambio queda en `ana_alertas_historial` y en la bitácora (`analitica_alerta_estado`). Solo una alerta `validada` puede citarse como soporte de un hallazgo; la generación nunca espera la validación.
 
 #### Scenario: Descartar sin nota
-<!-- test: por escribir: AlertasApiTest#descartarExigeNota -->
+<!-- test: AlertasApiTest#validacionHumana -->
 - **CUANDO** un ANALISTA descarta una alerta sin nota
 - **ENTONCES** 422 «Escriba el motivo (mínimo 10 caracteres)» y el estado no cambia
 
 #### Scenario: Perfil sin permiso
-<!-- test: por escribir: AlertasApiTest#digsaNoValida -->
+<!-- test: AlertasApiTest#validacionHumana -->
 - **CUANDO** un usuario DIGSA intenta validar
 - **ENTONCES** 403
 <!-- duda: 5 (validación por la Entidad) -->
@@ -275,12 +285,12 @@ Los estados DEBEN ser `nueva` → `en_revision` → `validada` | `descartada` (y
 La consola (`Pantallas.ANALITICA_ALERTAS`) DEBE abrirse solo para ADMINISTRADOR, COORDINADOR, ANALISTA, DIGSA (nacional) y SANIDAD (solo alertas de nivel Fuerza o ESM de su Fuerza). El perfil ESM no la ve (403) y en el tablero 11 solo ve las métricas agregadas de atípicos de su establecimiento, sin lista de alertas. Filtros: tipo, severidad, estado, periodo, nivel, Fuerza, ESM, cohorte; orden por prioridad; descarga con los metadatos de 14.8. Cada consulta queda en la bitácora.
 
 #### Scenario: Sanidad de otra Fuerza
-<!-- test: M8-2, M8-7; por escribir: AlertasApiTest#sanidadSoloSuFuerza -->
+<!-- test: M8-2, M8-7; AlertasApiTest#perfiles -->
 - **CUANDO** Sanidad ARC lista alertas
 - **ENTONCES** no ve alertas nacionales ni del Ejército, y pedir por id una del Ejército da 404
 
 #### Scenario: ESM
-<!-- test: por escribir: AlertasApiTest#esmSinConsola -->
+<!-- test: AlertasApiTest#perfiles -->
 - **CUANDO** un usuario ESM llama `GET /api/analitica/alertas`
 - **ENTONCES** 403 y la entrada no aparece en su menú
 <!-- duda: 3 -->
@@ -296,7 +306,7 @@ La consola (`Pantallas.ANALITICA_ALERTAS`) DEBE abrirse solo para ADMINISTRADOR,
 ADMINISTRADOR y ANALISTA DEBEN poder activar o desactivar un tipo y editar umbrales, bandas, ventana, niveles, exclusiones y plantilla de recomendación desde la interfaz; COORDINADOR los consulta. Cada guardado crea una versión nueva con usuario, fecha, antes y después (jsonb) y bitácora `analitica_parametro_alerta`. Las alertas ya generadas conservan la versión con que nacieron; «Reejecutar» aplica la nueva versión al corte vigente.
 
 #### Scenario: Cambio en vivo
-<!-- test: por escribir: AlertasApiTest#cambioUmbralYReejecucion -->
+<!-- test: AlertasApiTest#cambioUmbralYReejecucion -->
 - **CUANDO** el comité pide bajar el umbral de `incremento_gasto` de 30 % a 20 % y se reejecuta
 - **ENTONCES** aparecen las alertas nuevas con la versión 2; las de la versión 1 siguen con su umbral 30,00 %; el historial muestra 30 → 20 con usuario y hora
 
@@ -307,11 +317,12 @@ ADMINISTRADOR y ANALISTA DEBEN poder activar o desactivar un tipo y editar umbra
 <!-- entidades: AlertaAnalitica, AlertaEvento -->
 <!-- impuesto_en: RESP L2259 (GMI P77 b: informativas y operativas por correo; críticas de continuidad, seguridad, disponibilidad o integridad por correo y SMS) | alertas/ServicioAlertas.java disparar() | V17 alertas_criticas CHECK (critica OR NOT sms) -->
 <!-- decision: diseño 2026-10-22 -->
+<!-- decision: revisión A4 2026-10-24 (sustituye la del 2026-10-23) — correo por alerta (clave ana:<id>, aviso_unico, nunca SMS, conteos 0 < n < k como «<k») solo para las altas de los últimos 3 meses del corte (digsa.analitica.riesgo.meses-aviso); las anteriores quedan «agrupado» en un aviso resumen por ejecución (ana_ej:<n>). Si el aviso no queda registrado, la alerta queda «pendiente» y se reintenta (cada 15 min y en cada corrida) sin duplicar; la ejecución queda «con_fallos» (AN.18). -->
 
 Al crearse una alerta analítica **nueva** de severidad alta, el motor DEBE llamar `ServicioAlertas.disparar("analitica_alerta_alta", clave, detalle)` dentro de su transacción (si la ejecución se revierte, no sale correo). El tipo se crea en V63 con `INSERT ... ON CONFLICT (tipo) DO NOTHING` como **operativo** (`critica = false`, `sms = false`, perfiles `{COORDINADOR,DIGSA,ANALISTA}`): solo correo, sin SMS, porque no es una alerta de continuidad o integridad. La `clave` es `ana:<id de la alerta analítica>` (≤ 120): como las operativas avisan una vez por `(tipo, clave)`, reejecutar el motor no repite el correo. El `detalle` (≤ 500) lleva tipo, dimensión, periodo, valor observado, umbral, n.º de pacientes y el número de la alerta; nunca seudónimos, documentos ni nombres. Subir de media a alta en una reevaluación también dispara (misma clave, un solo aviso).
 
 #### Scenario: Alta nueva
-<!-- test: por escribir: AlertasApiTest#altaEncolaCorreoSinSms -->
+<!-- test: AlertasApiTest#altaEncolaCorreoSinSms -->
 - **CUANDO** el motor crea una duplicidad de severidad alta
 - **ENTONCES** `alertas_eventos` tiene un evento `analitica_alerta_alta` cerrado con `aviso_unico`, `correos_salida` un correo a los destinatarios del tipo y `sms_salida` nada
 
@@ -324,11 +335,12 @@ Al crearse una alerta analítica **nueva** de severidad alta, el motor DEBE llam
 <!-- entidades: ReferenciaInteraccion, ReferenciaIndicacion, ParametroAlerta -->
 <!-- impuesto_en: RESP L2239–2241 (interacciones, indicaciones y estrecho margen: fuentes oficiales y referencias reconocidas, «corresponde al contratista disponer, a su costo, de las fuentes») | RESP L3917 (variables mínimas del insumo: sin profesional) | A4 L682 -->
 <!-- decision: diseño 2026-10-22 -->
+<!-- decision: A4 2026-10-23 — referencias cargables genéricas: ana_ref_versiones + ana_ref_filas (interacciones, indicaciones, huérfanas; vigente = la última cargada; la ejecución usa la vigente y la cita con su versión). Vitales: ref_vital_no_disponible publicada (A2). -->
 
 `interaccion`, `fuera_indicacion`, `marca_estrecho_margen`, `desabastecimiento` y las listas de huérfanas, biológicos y crónicos DEBEN leer tablas de referencia versionadas (fuente, versión, fecha, SHA-256) que se cargan por archivo desde la interfaz; `concentracion_prescripciones` DEBE evaluarse solo si el cargue trae `profesional_seudo`. Sin fuente o sin campo, el tipo queda «no evaluado» con el motivo (requisito «Alerta válida»). Los datos de ejemplo del generador van marcados como ficticios y no se cargan en producción.
 
 #### Scenario: Insumo sin profesional
-<!-- test: por escribir: AnaliticaAlertasTest#sinProfesionalNoEvaluado -->
+<!-- test: AnaliticaAlertasTest#sinProfesionalNoEvaluado -->
 - **CUANDO** el archivo de la prueba no trae columna de profesional
 - **ENTONCES** `concentracion_prescripciones` = «no evaluado: el insumo no trae profesional»; los demás tipos corren
 <!-- duda: 4 | 6 | 7 -->
@@ -395,7 +407,8 @@ La pantalla DEBE mostrar el gráfico (línea continua observada, discontinua pro
 ### Invariant: Ninguna salida de cohortes, alertas o predicción identifica a un paciente
 <!-- entidades: Cohorte, AlertaAnalitica, Proyeccion -->
 <!-- impuesto_en: A5 L739 4.7.3 («deberán identificarse mediante resultados consolidados y agregados») | A5 L962 14.6 («nunca individualizada») | RESP L2209 | RESP L4551–4577 -->
-<!-- verificado_por: por escribir: PrivacidadAnaliticaTest (respuestas JSON y descargas sin seudónimo, documento, nombre ni fecha de nacimiento) -->
+<!-- verificado_por: cohortes y alertas: PruebaRiesgo#sinIndividualizacion en CohortesApiTest y AlertasApiTest (JSON, descargas y aviso); SupresionRiesgoApiTest (k = 5: lista, detalle, CSV, correo, tarjeta, serie, comparación, composición, particiones); CohortesApiTest#sensibleEnNivelEsm; predicción en A5 -->
+<!-- decision: revisión A4 2026-10-24 — supresión completa: los conteos de pacientes de causa, valoración y detalle se guardan marcados y se escriben al mostrarlos (AnaliticaAlertas.mostrar); en «pacientes» también el observado y la referencia; una celda oculta oculta su gasto, registros, dispensaciones, unidades, ingresos y salidas; ingresos y salidas también por su propio valor; supresión complementaria en particiones, niveles y composición. VIH y huérfanas en nivel ESM: k ≥ 5 aunque el general sea 0, sin ingresos ni salidas ni composición clínica para el ESM (AN.24). -->
 
 Las respuestas y descargas de cohortes, consola, tablero 11 y predicción DEBEN tener solo cifras agregadas; el seudónimo vive en `ana_cohortes_miembros` y en los hechos y solo sale en la trazabilidad 14.9 para perfiles autorizados. Al correo de alertas y al modelo de IA nunca van seudónimos.
 
@@ -404,7 +417,7 @@ Las respuestas y descargas de cohortes, consola, tablero 11 y predicción DEBEN 
 ### Invariant: Los pacientes no se suman entre celdas
 <!-- entidades: CohorteSerie -->
 <!-- impuesto_en: diseño 2026-10-22 (modelo analítico: conteos exactos con count(distinct)) -->
-<!-- verificado_por: por escribir: CohortesApiTest#nacionalNoEsSumaDeEsm -->
+<!-- verificado_por: CohortesApiTest#nacionalNoEsSumaDeEsm, #nivelesConEsmCompartido -->
 
 Todo conteo de pacientes de una cohorte o alerta en un nivel DEBE calcularse como pacientes distintos en ese nivel; la cifra nacional no es la suma de las de los ESM (un paciente atendido en dos ESM cuenta una vez).
 
@@ -413,7 +426,7 @@ Todo conteo de pacientes de una cohorte o alerta en un nivel DEBE calcularse com
 ### Invariant: Toda cifra de cohorte o alerta es trazable a registros de origen
 <!-- entidades: CohorteVersion, AlertaAnalitica -->
 <!-- impuesto_en: RESP L3989 | RESP L5173 («cualquier resultado que no pueda ser [...] vinculado a los registros [...] será considerado inconsistente») | RESP L5647 (iii) -->
-<!-- verificado_por: por escribir: AlertasApiTest#registrosDeOrigenNoVacios -->
+<!-- verificado_por: AlertasApiTest#registrosDeOrigenNoVacios -->
 
 Cada alerta DEBE guardar su selección (jsonb con regla, versión, filtros y periodo) que reproduce la lista de registros de origen; cada cifra de cohorte, la versión y el corte. Una alerta cuya selección no devuelve registros es un error del motor.
 
@@ -422,7 +435,7 @@ Cada alerta DEBE guardar su selección (jsonb con regla, versión, filtros y per
 ### Invariant: Las alertas analíticas no van por SMS
 <!-- entidades: AlertaCritica -->
 <!-- impuesto_en: RESP L2259 | V17 CHECK (critica OR NOT sms) | ServicioCatalogoAlertas (la edición no cambia `critica`) -->
-<!-- verificado_por: por escribir: AlertasApiTest#tipoAnaliticoOperativo -->
+<!-- verificado_por: AlertasApiTest#altaEncolaCorreoSinSms, IngestaPrivilegiosTest#privilegiosCohortesAlertas -->
 
 `analitica_alerta_alta` DEBE ser operativo (`critica = false`); la base impide `sms = true` en un tipo no crítico y el catálogo no permite cambiar `critica`.
 
@@ -431,7 +444,7 @@ Cada alerta DEBE guardar su selección (jsonb con regla, versión, filtros y per
 ### Invariant: Resultados reproducibles por corte y versión
 <!-- entidades: CohorteVersion, ParametroAlerta, Entrenamiento -->
 <!-- impuesto_en: A5 L723–731 (reproducible) | A4 L883 | RESP L5361–5367 -->
-<!-- verificado_por: por escribir: CohortesApiTest#corteAnteriorReproducible, AnaliticaPrediccionTest#mismaEntradaMismaSalida -->
+<!-- verificado_por: CohortesApiTest#cargueActualizaSerieYCorteAnteriorReproducible, AnaliticaPrediccionTest#mismaEntradaMismaSalida -->
 
 Mismo corte + misma versión de cohorte, de parámetros de alerta o del algoritmo + mismo alcance DEBEN dar las mismas cifras, alertas y proyecciones, hoy o después de nuevos cargues.
 
@@ -457,35 +470,24 @@ Mismo corte + misma versión de cohorte, de parámetros de alerta o del algoritm
 5. **Validación por la Entidad** («instancias competentes», RESP L5175). Recomendada: DIGSA registra una observación sobre la alerta sin cambiar su estado. Mientras tanto: solo la interventoría valida; DIGSA consulta.
 6. **Profesional en el insumo** (concentración de prescripciones, 11.1.8, 11.1.19, 11.1.20). Recomendada: mapear la columna si viene, seudonimizada. Mientras tanto: el tipo queda «no evaluado» sin ella.
 7. **Riesgo de desabastecimiento.** Recomendada: aproximación por caída de dispensación de vitales (referencia V61) y, cuando existan, los pendientes del OPL de interoperabilidad. Mientras tanto: solo la aproximación, rotulada como tal.
-8. **Supresión de celdas pequeñas en VIH y huérfanas por ESM.** Recomendada: k = 5 solo para esas cohortes a nivel ESM, desactivable. Mientras tanto: desactivada, como el resto del módulo, para que las cifras cuadren con el insumo.
+8. **Supresión de celdas pequeñas en VIH y huérfanas por ESM.** Recomendada: k = 5 solo para esas cohortes a nivel ESM, desactivable. Mientras tanto (revisión A4 2026-10-24): aplicada por defecto (`supresion-sensibles = 5`, 0 la apaga) con ingresos, salidas y composición clínica ocultos para el ESM; falta la decisión de la DIGSA (AN.24).
 9. **Escenarios del dashboard prospectivo** (11.2.7). Recomendada: base, inferior, superior y ajuste por %. Mientras tanto: esos.
 
-## Datos y piezas a construir
+## Piezas construidas (A4) y lo que queda para A5
 
-**V63 (cohortes y alertas analíticas):**
+<!-- decision: A4 2026-10-23 — sustituye la tabla «Datos y piezas a construir» del diseño. -->
+**V63:** `ana_cohortes` (las 12 del A4), `ana_cohortes_versiones` (criterios jsonb y texto; una vigente), `ana_cohortes_ejecuciones`, `ana_cohortes_resultados` (por versión y corte: evaluada o «no evaluada: motivo», umbrales por mes, fuentes, si conserva la membresía), `ana_cohortes_serie` (por versión, corte, mes, nivel, código y grupo), `ana_cohortes_miembros` (número de paciente; técnica, en `Exportacion.TECNICAS`), `ana_alertas_parametros` + `_historial` (antes/después), `ana_alertas` (contexto NOT NULL, análisis técnico, selección, estado, evento del aviso), `ana_alertas_historial`, `ana_alertas_ejecuciones` (resumen por tipo), `ana_ref_versiones` + `ana_ref_filas`; tipo `analitica_alerta_alta` (operativo, `{COORDINADOR,DIGSA,ANALISTA}`); GRANT mínimos (IngestaPrivilegiosTest). Las versiones 1 y los parámetros por defecto los siembra la aplicación desde las reglas puras.
 
-| Tabla | Columnas principales |
-|---|---|
-| `ana_cohortes` | id, codigo único `^[a-z_]{3,40}$`, nombre, descripcion, predefinida, activa, creada, creada_por |
-| `ana_cohortes_versiones` | id, cohorte_id, version, criterios jsonb, criterio_texto, vigente (único por cohorte), creada, creada_por; único (cohorte_id, version) |
-| `ana_cohortes_miembros` | version_id, mes, paciente_seudo, grupo (GCF/GRC, nulo en las demás); PK (version_id, mes, paciente_seudo); solo el corte vigente |
-| `ana_cohortes_serie` | version_id, corte_cargue_id, mes, nivel, codigo_nivel, pacientes, ingresos, salidas, dispensaciones, unidades, gasto (caché del corte vigente) |
-| `ana_cohortes_ejecuciones` | id, origen (cargue/usuario), cargue_id, inicio, fin, estado, versiones, duracion_ms, error |
-| `ana_alertas_parametros` | tipo PK, activo, version, niveles text[], ventana, umbrales jsonb (baja/media/alta), exclusiones jsonb, plantilla_recomendacion, actualizado, actualizado_por |
-| `ana_alertas_parametros_historial` | id, tipo, version, antes jsonb, despues jsonb, usuario_id, fecha |
-| `ana_alertas` | id, tipo, parametros_version, llave única, nivel, fuerza, punto_id, dimension, valor_dimension, cohorte_id, periodo_desde, periodo_hasta, severidad CHECK, umbral, valor_observado, valor_referencia, unidad, registros, pacientes, gasto, causa, valoracion, recomendacion, seleccion jsonb, estado CHECK, corte_cargue_id, ultima_evaluacion_cargue_id, generada, evento_alerta_id → alertas_eventos |
-| `ana_alertas_historial` | id, alerta_id, de, a, nota, usuario_id, fecha |
-| `ana_alertas_ejecuciones` | id, origen, cargue_id, usuario_id, inicio, fin, estado, nuevas, actualizadas, por_tipo jsonb (incluye «no evaluado: motivo») |
-| `ana_ref_interacciones`, `ana_ref_indicaciones`, `ana_ref_cie10_listas` | pares o listas (huérfanas, crónicos, biológicos) con fuente, version, fecha_fuente, sha256, ficticio |
+**Reglas puras:** `AnaliticaCohortes` (criterios, texto, predefinidas, evaluación por paciente y mes, GCF, GRC, percentil discreto) y `AnaliticaAlertas` (12 tipos, parámetros, bandas, incremento con z robusta, caída, umbral de cantidad, duplicidad, interacción, cambio de marca, concentración, firma de concentración, «no evaluado», análisis técnico, llave, detalle del aviso). `Bitacora.TIPOS`: `analitica_cohorte_{version,recalculo,consulta,descarga}`, `analitica_alerta_{generada,estado,parametro,consulta,descarga,referencia}` (`analitica_alerta_parametro` en lugar de `analitica_parametro_alerta`).
 
-Más: `INSERT INTO alertas_criticas (tipo, nombre, descripcion, critica, sms, perfiles) VALUES ('analitica_alerta_alta', 'Alerta analítica de severidad alta', 'El motor de analítica generó una alerta de severidad alta (solo correo; sin datos personales)', false, false, '{COORDINADOR,DIGSA,ANALISTA}') ON CONFLICT (tipo) DO NOTHING`; filas de `ana_alertas_parametros` y de las cohortes predefinidas; `par_parametros` (`analitica_alto_costo_modo`, `analitica_alto_costo_percentil`, `analitica_poliformulado_minimo`); todas las tablas en `Exportacion.TABLAS` salvo `ana_cohortes_miembros` (en EXCLUIDAS, contiene seudónimos y es derivable); GRANT al `${rol_app}`.
+**Servicio** (`analitica.riesgo`): `RecalculoRiesgo` (programación, candado, lectura, escritura, aviso), `MotorRiesgo` (recorrido), `DetectoresAlertas`, `CatalogoClinico`, `ServicioCohortes`, `ServicioAlertasAnaliticas`, `PermisosRiesgo`; `PropiedadesRiesgo` (`digsa.analitica.riesgo.*`).
 
-**V64 (predicción):** `ana_pred_entrenamientos` (id, metrica, nivel, codigo_nivel, dimension, valor_dimension, corte_cargue_id, origen, usuario_id, metodo, parametros jsonb, evaluados jsonb, historia_desde, historia_hasta, meses, backtest_meses, mape, wmape, version_algoritmo, sha256_serie, estado CHECK (`ok`, `historia_insuficiente`, `error`), mensaje, entrenado, duracion_ms); `ana_pred_proyecciones` (entrenamiento_id, mes, valor, ic_inferior, ic_superior; PK (entrenamiento_id, mes)); `par_parametros` `analitica_pred_horizonte` (6, mínimo 6), `analitica_pred_backtest` (3), `analitica_pred_historia_minima` (6), `analitica_pred_top` (20).
+**Endpoints:** `GET /api/analitica/cohortes` (tarjetas), `GET|PUT /cohortes/{id}`, `POST /cohortes`, `POST /cohortes/{id}/recalcular`, `GET /cohortes/{id}/composicion?por=`, `GET /cohortes/{id}/descarga?formato&vista`, `GET /cohortes/ejecuciones`, `GET /atipicos` (pantalla ANALITICA); `GET /alertas`, `GET /alertas/{id}`, `POST /alertas/{id}/estado`, `POST /alertas/ejecutar` (202), `GET /alertas/ejecuciones`, `GET|PUT /alertas/parametros[/{tipo}]`, `GET /alertas/parametros/{tipo}/historial`, `GET|POST /alertas/referencias[/{lista}]`, `GET /alertas/descarga`, `GET /alertas/catalogo` (pantalla ANALITICA_ALERTAS). Los registros de origen se recorren en «Trazabilidad de cifras» con la selección de la alerta (no hay `alertas/{id}/registros`).
 
-**Reglas puras (backend/reglas, JUnit):** `AnaliticaCohortes` (criterios → predicado, polimedicado, poliformulado, alto costo por percentil, GCF, GRC, `criterioTexto`), `AnaliticaAlertas` (los 12 tipos sobre series y conteos ya agregados, bandas, línea base mediana/MAD, plantillas de causa, valoración y recomendación, llave natural), `AnaliticaPrediccion` (Holt, Holt-Winters aditivo, regresión, rejilla, backtesting, MAPE/WMAPE, IC). `Bitacora.TIPOS`: `analitica_cohorte_version`, `analitica_cohorte_recalculo`, `analitica_alerta_generada`, `analitica_alerta_estado`, `analitica_parametro_alerta`, `analitica_prediccion_entrenamiento`.
+**Pantallas:** tablero 10 (`PanelCohortes`: tarjetas, GCF/GRC, detalle con serie, comparación entre periodos y niveles, composición, descargas, editor de criterios Y/O), tablero 11 (`PanelAtipicos`: conteos por tipo y severidad, no evaluados, Top 10 si hay consola) y `AlertasAnaliticas` (consola, ejecuciones, parámetros con historial, referencias).
 
-**Endpoints (`/api/analitica`, todos con `@Accion` y alcance en SQL):** `GET|POST cohortes`, `GET|PUT cohortes/{id}`, `POST cohortes/{id}/recalcular`, `GET cohortes/{id}/serie`, `GET cohortes/{id}/composicion?por=`, `GET cohortes/{id}/exportar?formato=`; `GET alertas`, `GET alertas/{id}`, `POST alertas/{id}/estado`, `GET alertas/{id}/registros` (14.9), `POST alertas/ejecutar`, `GET alertas/ejecuciones`, `GET|PUT alertas/parametros/{tipo}`, `GET alertas/parametros/{tipo}/historial`, `GET alertas/exportar`; `POST referencias/{lista}` (carga por archivo); `GET prediccion?metrica&nivel&dimension&valor`, `POST prediccion/entrenar`, `GET prediccion/entrenamientos`.
+**Generador:** `GeneradorSintetico.generar(…, patrones = true)` siembra un caso por tipo (duplicidad B01AF, alto costo DMBOG y concentración de adalimumab BAS10 que crecen con el volumen, polimedicados DMBAQ, cambio de marca de carbamazepina en el BAS02 también para 3 pacientes de la Armada —ESM compartido—, formulación de losartán, presentación de amlodipino, incrementos de N02 y de gasto por precio de alopurinol, e interacción, fuera de indicación y desabastecimiento con referencias ficticias), renal, VIH y huérfanas, y escribe las esperadas, los conteos por cohorte y `version_patrones` (sin patrones el archivo es el de siempre). Decisión revisión A4 2026-10-24: un solo umbral de alto costo, el de la cohorte, también en el tablero 8 (AN.26).
 
-**Pantallas:** dentro de ANALITICA, los tableros 10 (tarjetas, GCF/GRC, gestor de cohortes con editor de criterios), 11 (atípicos agregados) y 12 (gráfico SVG accesible, metadatos, escenarios, proyectado vs observado, entrenamientos); nueva `Pantallas.ANALITICA_ALERTAS` (ruta `analitica/alertas`, grupo «Información», {ADMINISTRADOR, COORDINADOR, ANALISTA, DIGSA, SANIDAD}) con la consola y la pestaña de parámetros (edición solo ADMINISTRADOR y ANALISTA). <!-- decision: diseño 2026-10-22 (la pantalla aparte permite negar la consola al ESM sin negarle los tableros) -->
+**V64 (A5, predicción):** `ana_pred_entrenamientos` (métrica, nivel, dimensión, corte, origen, usuario, método, parámetros, evaluados, historia, backtest, MAPE/WMAPE, versión del algoritmo, SHA-256 de la serie, estado `ok`/`historia_insuficiente`/`error`, duración) y `ana_pred_proyecciones` (entrenamiento, mes, valor, IC); `AnaliticaPrediccion` y `analitica_prediccion_entrenamiento`. El chip «Predictivo» sigue en «Disponible en la siguiente fase».
 
-<!-- pendiente: contrato de la capa de ingesta (nombres finales de `ana_dispensaciones` y del corte) y de las referencias V61 (estrecho margen, control especial, vitales), que escriben las especificaciones hermanas; documento de metodología de GCF, GRC, alertas y predicción (entregable) -->
+<!-- pendiente: cohorte como filtro de los tableros 1–12 (AN.22); recálculo incremental en lugar de toda la historia (A7, AN.23); documento entregable de metodología de GCF, GRC y alertas (la pantalla muestra la metodología). -->

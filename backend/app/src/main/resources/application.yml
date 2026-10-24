@@ -143,6 +143,17 @@ digsa:
       paralelos: ${DIGSA_ANALITICA_PARALELOS:2}                            # max_parallel_workers_per_gather
       cache-resultados: ${DIGSA_ANALITICA_CACHE_RESULTADOS:200}           # resultados en caché (mismo corte = mismo resultado)
       precalentar: ${DIGSA_ANALITICA_PRECALENTAR:true}                   # tableros por defecto del nuevo corte en segundo plano
+    # --- Cohortes y alertas tempranas (A4, analitica-cohortes-alertas; PropiedadesRiesgo) ---
+    riesgo:
+      recalcular-al-aplicar: ${DIGSA_ANALITICA_RECALCULAR_RIESGO:true}  # cohortes y motor de alertas al aplicar cada cargue (en segundo plano)
+      tiempo-maximo-minutos: ${DIGSA_ANALITICA_RIESGO_MINUTOS:30}         # statement_timeout de cada sentencia del recálculo
+      memoria-trabajo-mb: ${DIGSA_ANALITICA_RIESGO_WORK_MEM_MB:256}       # work_mem del recálculo (orden de 2 M filas por paciente)
+      por-pagina: 50                                                    # alertas por página en la consola
+      cortes-con-membresia: ${DIGSA_ANALITICA_CORTES_MEMBRESIA:6}         # cortes por versión con la membresía (pacientes del periodo reproducibles)
+      meses-gracia: ${DIGSA_ANALITICA_MESES_GRACIA:2}                     # meses sin dispensar que no cortan la membresía (ni dan ingreso ni salida)
+      supresion-sensibles: ${DIGSA_ANALITICA_SUPRESION_SENSIBLES:5}       # k de las cohortes sensibles a nivel ESM (0 la apaga; duda AN de supresión)
+      cohortes-sensibles: ${DIGSA_ANALITICA_COHORTES_SENSIBLES:vih,huerfanas}
+      meses-aviso: ${DIGSA_ANALITICA_MESES_AVISO:3}                       # avisos por correo solo para alertas de los últimos N meses del corte
 
 logging:
   level:

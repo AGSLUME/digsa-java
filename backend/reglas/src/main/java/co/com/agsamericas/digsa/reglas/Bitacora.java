@@ -109,7 +109,14 @@ public final class Bitacora {
             // Tableros de analítica (analitica-tableros, A5 4.7.4 y 14.9): consultas, descargas y rastreos; sin datos personales (códigos
             // de filtro, corte, n.º de registros y huella)
             Map.entry("analitica_consulta", Operacion.CONSULTA), Map.entry("analitica_descarga", Operacion.CONSULTA),
-            Map.entry("analitica_traza", Operacion.CONSULTA), Map.entry("analitica_traza_descarga", Operacion.CONSULTA));
+            Map.entry("analitica_traza", Operacion.CONSULTA), Map.entry("analitica_traza_descarga", Operacion.CONSULTA),
+            // Cohortes y alertas tempranas (analitica-cohortes-alertas, A5 4.7.4 «alertas generadas»): sin datos personales (códigos,
+            // versiones, cortes y conteos agregados)
+            Map.entry("analitica_cohorte_version", Operacion.INSERCION), Map.entry("analitica_cohorte_recalculo", Operacion.INSERCION),
+            Map.entry("analitica_cohorte_consulta", Operacion.CONSULTA), Map.entry("analitica_cohorte_descarga", Operacion.CONSULTA),
+            Map.entry("analitica_alerta_generada", Operacion.INSERCION), Map.entry("analitica_alerta_estado", Operacion.ACTUALIZACION),
+            Map.entry("analitica_alerta_parametro", Operacion.ACTUALIZACION), Map.entry("analitica_alerta_consulta", Operacion.CONSULTA),
+            Map.entry("analitica_alerta_descarga", Operacion.CONSULTA), Map.entry("analitica_alerta_referencia", Operacion.INSERCION));
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

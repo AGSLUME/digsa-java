@@ -45,6 +45,22 @@ class GeneradorSinteticoTest {
     }
 
     @Test
+    @DisplayName("patrones clínicos (A4): sin patrones el archivo no cambia; con patrones se agregan filas válidas, las alertas esperadas y los conteos por cohorte")
+    void patrones() throws IOException {
+        GeneradorSintetico.Resultado sin = GeneradorSintetico.generar(dir.resolve("sin"), "s", 3000, 11L);
+        GeneradorSintetico.Resultado con = GeneradorSintetico.generar(dir.resolve("con"), "s", 3000, 11L, true);
+        GeneradorSintetico.Resultado otra = GeneradorSintetico.generar(dir.resolve("otra"), "s", 3000, 11L, true);
+        assertThat(Huellas.sha256(Files.readAllBytes(con.csv()))).isEqualTo(Huellas.sha256(Files.readAllBytes(otra.csv())));
+        assertThat(con.recibidos()).isGreaterThan(sin.recibidos());
+        assertThat(con.recibidos() - con.procesados()).isEqualTo(sin.recibidos() - sin.procesados());
+        String json = Files.readString(con.totales(), StandardCharsets.UTF_8);
+        assertThat(json).contains("\"alertas_esperadas\"", "\"duplicidad_terapeutica\"", "\"incremento_consumo\"", "\"cohortes_esperadas\"",
+                "\"polimedicados\": 6", "\"control_especial\": \"no_evaluada\"");
+        assertThat(Files.readString(sin.totales(), StandardCharsets.UTF_8)).doesNotContain("\"riesgo\"");
+        assertThat(GeneradorSintetico.CRONICOS).isEqualTo(co.com.agsamericas.digsa.reglas.AnaliticaCohortes.CRONICOS_DEFECTO);
+    }
+
+    @Test
     @DisplayName("los totales por cualquier dimensión suman el total (gasto, unidades y dispensaciones)")
     void cuadreEntreDimensiones() throws IOException {
         GeneradorSintetico.Resultado r = GeneradorSintetico.generar(dir, "s", 4000, 9L);

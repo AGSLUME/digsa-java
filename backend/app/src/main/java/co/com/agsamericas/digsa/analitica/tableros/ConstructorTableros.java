@@ -399,15 +399,17 @@ final class ConstructorTableros {
         }
     }
 
+    /**
+     * Cohorte de alto costo del tablero 8 con la MISMA definición de la cohorte «alto_costo» (decisión revisión A4 2026-10-24: manda la
+     * cohorte, una sola cifra en los dos sitios): umbral = percentile_disc del gasto en los 12 meses que terminan en el mes de «hasta», de los
+     * pacientes con dispensaciones en ese mes (nacional, todos los cargues del corte); el percentil y los meses son los de la versión vigente
+     * de la cohorte (o {@code percentil-alto-costo} si aún no hay cohortes). Pertenencia en el alcance del usuario por su gasto de esos meses.
+     */
     private void cohorteAltoCosto(Grupo total) {
         LocalDate hasta = ambito.hasta();
-        LocalDate desde12 = hasta.minusMonths(12).plusDays(1);
-        Map<String, Object> p = new LinkedHashMap<>();
-        // Umbral nacional (todos los cargues visibles, sin filtros ni alcance: la definición de la cohorte es una sola); pertenencia en el
-        // alcance del usuario por su gasto de 12 meses; gasto de la cohorte en el periodo y con los filtros elegidos
-        Ambito ventana = new Ambito(ambito.corte(), new co.com.agsamericas.digsa.reglas.Alcance.Todo(), Map.of(), desde12, hasta,
-                ambito.granularidad());
-        String desdeVentana = SemanticaSql.desde(ventana, Set.of(), List.of(), SemanticaSql.TABLERO, p);
+        DefinicionAltoCosto def = definicionAltoCosto();
+        java.time.YearMonth mesU = java.time.YearMonth.from(hasta);
+        LocalDate desde12 = mesU.minusMonths(def.meses() - 1L).atDay(1);
         Map<String, Object> p2 = new LinkedHashMap<>();
         Ambito miembrosAmbito = new Ambito(ambito.corte(), ambito.alcance(), Map.of(), desde12, hasta, ambito.granularidad());
         String desdeMiembros = SemanticaSql.desde(miembrosAmbito, Set.of(), List.of(), SemanticaSql.TABLERO, p2);
@@ -416,31 +418,57 @@ final class ConstructorTableros {
         String cte = SemanticaSql.cte(Set.of(), ambito.filtros(), List.of());
         Map<String, Object> todos = new LinkedHashMap<>();
         // Todo por hash sobre el paciente entero (sin count(DISTINCT) ordenado)
-        String sql = (cte.isEmpty() ? "WITH " : cte + ", ")
-                + "ventana AS MATERIALIZED (SELECT x.paciente_id, sum(x.valor_centavos) AS g" + renombrar(p, "v_", desdeVentana, todos)
-                + " GROUP BY x.paciente_id), umbral AS (SELECT percentile_cont(CAST(:pct AS double precision)) WITHIN GROUP (ORDER BY g) AS u "
-                + "FROM ventana), miembros AS MATERIALIZED (SELECT x.paciente_id" + renombrar(p2, "m_", desdeMiembros, todos)
+        String umbralSql = def.absoluto() != null ? "umbral AS (SELECT CAST(:abs AS numeric) AS u)"
+                : "pm AS MATERIALIZED (SELECT x.paciente_id AS p, (extract(year FROM x.fecha)::int * 12 + extract(month FROM x.fecha)::int - 1) AS mi, "
+                        + "sum(x.valor_centavos) AS g FROM ana_hechos_tablero x WHERE x.cargue_id = ANY(CAST(:umCargues AS bigint[])) AND x.fecha BETWEEN :umDesde "
+                        + "AND :umHasta GROUP BY 1, 2), umbral AS (SELECT percentile_disc(CAST(:pct AS double precision)) WITHIN GROUP (ORDER BY s) AS u FROM "
+                        + "(SELECT pm.p, sum(pm.g) AS s FROM pm WHERE pm.p IN (SELECT q.p FROM pm q WHERE q.mi = :umMes) GROUP BY pm.p) z)";
+        String sql = (cte.isEmpty() ? "WITH " : cte + ", ") + umbralSql
+                + ", miembros AS MATERIALIZED (SELECT x.paciente_id" + renombrar(p2, "m_", desdeMiembros, todos)
                 + " GROUP BY x.paciente_id HAVING sum(x.valor_centavos) >= (SELECT u FROM umbral)) "
                 + "SELECT (SELECT round(CAST(u AS numeric) / 100, 2) FROM umbral) AS umbral, (SELECT count(*) FROM miembros) AS miembros, "
                 + "coalesce(sum(s.g), 0) AS gasto, count(*) AS activos FROM (SELECT x.paciente_id, sum(x.valor_centavos) AS g"
                 + renombrar(p3, "p_", desdePeriodo, todos) + " AND x.paciente_id IN (SELECT paciente_id FROM miembros) GROUP BY x.paciente_id) s";
-        todos.put("pct", propiedades.percentil() / 100.0);
+        if (def.absoluto() != null) {
+            todos.put("abs", def.absoluto().movePointRight(2));
+        } else {
+            todos.put("pct", def.percentil() / 100.0);
+            todos.put("umCargues", ambito.corte().cargues().toArray(Long[]::new));
+            todos.put("umDesde", desde12);
+            todos.put("umHasta", mesU.atEndOfMonth());
+            todos.put("umMes", mesU.getYear() * 12 + mesU.getMonthValue() - 1);
+        }
         todos.put("hv", ambito.corte().homVersion());
         Object[] r = jdbc.sql(sql).params(todos).query((rs, n) -> new Object[] {rs.getBigDecimal(1), rs.getLong(2), rs.getBigDecimal(3),
                 rs.getLong(4)}).single();
         BigDecimal umbral = (BigDecimal) r[0];
         long miembros = (Long) r[1];
         BigDecimal gastoCohorte = ((BigDecimal) r[2]).movePointLeft(2); // centavos a pesos
-        String criterio = "≥ p" + propiedades.percentil() + " del gasto por paciente entre el " + AnaliticaConsulta.fecha(desde12) + " y el "
-                + AnaliticaConsulta.fecha(hasta);
-        kpis.add(kpi("umbralAltoCosto", "Umbral de alto costo (p" + propiedades.percentil() + ", 12 meses)", Tipo.MONEDA, umbral, null, criterio,
-                null));
+        String regla = def.absoluto() != null ? "valor absoluto" : "p" + def.percentil();
+        String criterio = "≥ " + regla + " del gasto en " + def.meses() + " meses de los pacientes con dispensaciones en " + mesU + " (definición de la "
+                + "cohorte «Alto costo»), entre el " + AnaliticaConsulta.fecha(desde12) + " y el " + AnaliticaConsulta.fecha(hasta);
+        kpis.add(kpi("umbralAltoCosto", "Umbral de alto costo (" + regla + ", " + def.meses() + " meses)", Tipo.MONEDA, umbral, null, criterio, null));
         kpis.add(kpi("pacientesAltoCosto", "Pacientes de la cohorte de alto costo", Tipo.ENTERO, BigDecimal.valueOf(miembros), null,
                 "Conteo agregado · " + criterio, null));
         kpis.add(kpi("gastoAltoCosto", "Gasto de la cohorte en el periodo", Tipo.MONEDA, gastoCohorte, null, (Long) r[3]
                 + " pacientes de la cohorte con dispensaciones en el periodo", null));
         kpis.add(kpi("participacionAltoCosto", "Participación de la cohorte en el gasto", Tipo.PORCENTAJE,
                 AnaliticaConsulta.participacion(gastoCohorte, total.gasto()), null, null, null));
+    }
+
+    /** Definición vigente del alto costo: percentil (o valor absoluto en pesos) y meses de la ventana. */
+    record DefinicionAltoCosto(int percentil, BigDecimal absoluto, int meses) {
+    }
+
+    /** La de la versión vigente de la cohorte «alto_costo» (A4); sin cohortes sembradas, {@code percentil-alto-costo} y 12 meses. */
+    private DefinicionAltoCosto definicionAltoCosto() {
+        return jdbc.sql("""
+                SELECT v.criterios ->> 'modo', v.criterios ->> 'percentil', v.criterios ->> 'valor', v.criterios ->> 'meses' FROM ana_cohortes_versiones v
+                JOIN ana_cohortes c ON c.id = v.cohorte_id WHERE c.codigo = 'alto_costo' AND v.vigente AND v.criterios ->> 'tipo' = 'gastoMovil'""")
+                .query((rs, n) -> new DefinicionAltoCosto(rs.getString(2) == null ? propiedades.percentil() : Integer.parseInt(rs.getString(2)),
+                        "absoluto".equals(rs.getString(1)) && rs.getString(3) != null ? new BigDecimal(rs.getString(3)) : null,
+                        rs.getString(4) == null ? 12 : Integer.parseInt(rs.getString(4)))).optional()
+                .orElse(new DefinicionAltoCosto(propiedades.percentil(), null, 12));
     }
 
     /** Copia los parámetros con un prefijo (cada subconsulta tiene los suyos) y devuelve el texto con los nombres cambiados. */

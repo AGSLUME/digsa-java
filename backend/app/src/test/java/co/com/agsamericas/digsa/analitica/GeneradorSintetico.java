@@ -124,16 +124,24 @@ public final class GeneradorSintetico {
         int filas = 2_000_000;
         long semilla = SEMILLA;
         Path salida = Path.of(".local", "analitica");
-        for (int i = 0; i + 1 < args.length; i += 2) {
+        boolean patrones = false;
+        for (int i = 0; i < args.length; i++) {
+            if ("--patrones".equals(args[i])) {
+                patrones = true;
+                continue;
+            }
+            if (i + 1 >= args.length) {
+                throw new IllegalArgumentException("Falta el valor de " + args[i]);
+            }
             switch (args[i]) {
-                case "--filas" -> filas = Integer.parseInt(args[i + 1]);
-                case "--semilla" -> semilla = Long.parseLong(args[i + 1]);
-                case "--salida" -> salida = Path.of(args[i + 1]);
+                case "--filas" -> filas = Integer.parseInt(args[++i]);
+                case "--semilla" -> semilla = Long.parseLong(args[++i]);
+                case "--salida" -> salida = Path.of(args[++i]);
                 default -> throw new IllegalArgumentException("Parámetro desconocido: " + args[i]);
             }
         }
         long t = System.nanoTime();
-        Resultado r = generar(salida, "sintetico_" + filas, filas, semilla);
+        Resultado r = generar(salida, "sintetico_" + filas + (patrones ? "_patrones" : ""), filas, semilla, patrones);
         System.out.printf("Generado %s (%d recibidos, %d procesados, %d rechazados) en %d ms%n", r.csv(), r.recibidos(), r.procesados(), r.rechazados(),
                 (System.nanoTime() - t) / 1_000_000);
         System.out.println("Totales esperados: " + r.totales());
@@ -150,6 +158,16 @@ public final class GeneradorSintetico {
      * @param base nombre sin extensión: {@code <base>.csv} y {@code totales_esperados_<filas>.json}
      */
     public static Resultado generar(Path carpeta, String base, int filas, long semilla) throws IOException {
+        return generar(carpeta, base, filas, semilla, false);
+    }
+
+    /**
+     * Genera el archivo y los totales; con {@code patrones}, además siembra al final (con pacientes propios, todas válidas) las filas de
+     * los patrones clínicos que el motor de alertas DEBE detectar y escribe en el JSON, en «riesgo», las alertas esperadas (tipo, nivel,
+     * dimensión, valor, periodo y mínimo) y los conteos esperados por cohorte (analitica-cohortes-alertas, «Errores sembrados del
+     * generador detectados»). Sin patrones el archivo es byte a byte el de siempre (A1–A3).
+     */
+    public static Resultado generar(Path carpeta, String base, int filas, long semilla, boolean patrones) throws IOException {
         if (filas < 200) {
             throw new IllegalArgumentException("Se necesitan al menos 200 filas");
         }
@@ -205,6 +223,8 @@ public final class GeneradorSintetico {
         long esmSin = 0;
         long procesados = 0;
         List<String> documentos = new ArrayList<>();
+        Riesgo riesgo = patrones ? new Riesgo() : null;
+        long sembradas = 0;
         String ultimaValida = null;
         long formula = 1_000_000;
         int itemsRestantes = 0;
@@ -329,12 +349,21 @@ public final class GeneradorSintetico {
                 if (esmF.sigla().startsWith("ESM-")) {
                     esmSin++;
                 }
+                if (riesgo != null) {
+                    riesgo.fila(idPaciente, fechaF, centavos, cantidad, med.principio(), med.atc(), cie, pf.esm().fuerza(), esmF.sigla());
+                }
+            }
+            if (riesgo != null) {
+                // Patrones clínicos sembrados al final (pacientes propios; todas las filas son válidas y suman en los totales)
+                sembradas = sembrar(w, riesgo, total, dims, nPacientes, filas);
+                procesados += sembradas;
             }
         }
-        long rechazados = filas - procesados;
+        long recibidos = filas + sembradas;
+        long rechazados = recibidos - procesados;
         Map<String, Object> raiz = new TreeMap<>();
         Map<String, Object> filasJson = new TreeMap<>();
-        filasJson.put("recibidos", (long) filas);
+        filasJson.put("recibidos", recibidos);
         filasJson.put("procesados", procesados);
         filasJson.put("rechazados", rechazados);
         raiz.put("filas", filasJson);
@@ -348,12 +377,403 @@ public final class GeneradorSintetico {
             dimJson.put(dim, v);
         });
         raiz.put("dimensiones", dimJson);
+        if (riesgo != null) {
+            raiz.put("riesgo", riesgo.json());
+        }
         try (Writer w = Files.newBufferedWriter(json, StandardCharsets.UTF_8)) {
             escribirJson(w, raiz, 0);
             w.write('\n');
         }
-        return new Resultado(csv, json, filas, procesados, rechazados, porCausa, esmSin, BigDecimal.valueOf(total.centavos, 2), total.unidades,
+        return new Resultado(csv, json, recibidos, procesados, rechazados, porCausa, esmSin, BigDecimal.valueOf(total.centavos, 2), total.unidades,
                 total.pacientes.cardinality(), documentos);
+    }
+
+    // ---------- Patrones clínicos sembrados (A4, analitica-cohortes-alertas) ----------
+
+    /** Lista de estrecho margen de ejemplo que la prueba publica (la misma del archivo ficticio de A2). */
+    public static final List<String> ESTRECHO_EJEMPLO = List.of("ACIDO VALPROICO", "CARBAMAZEPINA", "LEVOTIROXINA");
+    /** Prefijo CIE-10 de la lista ficticia de enfermedades huérfanas que carga la prueba. */
+    public static final String HUERFANAS_EJEMPLO = "E75";
+    /** Par de interacción ficticio que carga la prueba. */
+    public static final List<String> INTERACCION_EJEMPLO = List.of("CLOPIDOGREL", "OMEPRAZOL");
+    /** Indicación ficticia que carga la prueba (prefijo ATC ⇒ prefijo CIE-10 admitido): colchicina solo para gota. */
+    public static final List<String> INDICACION_EJEMPLO = List.of("M04AC", "M10");
+    /** Medicamento vital no disponible ficticio que publica la prueba (desabastecimiento aproximado). */
+    public static final String VITAL_EJEMPLO = "PIRIDOSTIGMINA";
+    /** Versión de los patrones sembrados: la prueba de 2 M regenera el archivo en caché si no coincide. */
+    public static final String VERSION_PATRONES = "A4-revision-2026-10-24";
+    /** Copia de AnaliticaCohortes.CRONICOS_DEFECTO (el generador solo usa el JDK; la prueba verifica que sean iguales). */
+    public static final List<String> CRONICOS = List.of("I10", "I11", "I12", "I13", "I15", "E10", "E11", "E12", "E13", "E14", "E78", "J44", "J45", "N18",
+            "I25", "I48", "I50", "E03", "F20", "F31", "F32", "F33", "G40", "M05", "M06", "M15", "M16", "M17", "C", "B20", "B21", "B22", "B23", "B24", "K74",
+            "N40");
+
+    private static final Medicamento APIXABAN = new Medicamento("20019001-1", "APIXABAN 5 MG TABLETA", "APIXABAN", "B01AF02", new BigDecimal("2500.00"), 60, 0);
+    private static final Medicamento RIVAROXABAN = new Medicamento("20019002-1", "RIVAROXABAN 20 MG TABLETA", "RIVAROXABAN", "B01AF01",
+            new BigDecimal("3800.00"), 30, 0);
+    private static final Medicamento CARBAMAZEPINA_B = new Medicamento("20019003-1", "CARBAMAZEPINA 200 MG TABLETA TITULAR B", "CARBAMAZEPINA", "N03AF01",
+            new BigDecimal("270.00"), 60, 0);
+    private static final Medicamento TDF_FTC = new Medicamento("20019004-1", "EMTRICITABINA/TENOFOVIR 200/300 MG TABLETA", "EMTRICITABINA Y TENOFOVIR",
+            "J05AR03", new BigDecimal("4500.00"), 30, 0);
+    private static final Medicamento IMIGLUCERASA = new Medicamento("20019005-1", "IMIGLUCERASA 400 UI VIAL", "IMIGLUCERASA", "A16AB02",
+            new BigDecimal("2500000.00"), 2, 0);
+    private static final Medicamento ALOPURINOL = new Medicamento("20019006-1", "ALOPURINOL 300 MG TABLETA", "ALOPURINOL", "M04AA01",
+            new BigDecimal("1700.00"), 30, 0);
+    /** El mismo producto con el precio triplicado (incremento de gasto por precio, unidades estables). */
+    private static final Medicamento ALOPURINOL_ALZA = new Medicamento("20019006-1", "ALOPURINOL 300 MG TABLETA", "ALOPURINOL", "M04AA01",
+            new BigDecimal("5100.00"), 30, 0);
+    private static final Medicamento COLCHICINA = new Medicamento("20019007-1", "COLCHICINA 0,5 MG TABLETA", "COLCHICINA", "M04AC01", new BigDecimal("150.00"),
+            30, 0);
+    private static final Medicamento PIRIDOSTIGMINA = new Medicamento("20019008-1", "PIRIDOSTIGMINA 60 MG TABLETA", VITAL_EJEMPLO, "N07AA02",
+            new BigDecimal("900.00"), 60, 0);
+
+    private static Medicamento med(String principio) {
+        return MEDICAMENTOS.stream().filter(m -> m.principio().equals(principio)).findFirst().orElseThrow();
+    }
+
+    private static Esm esm(String sigla) {
+        return ESMS.stream().filter(e -> e.sigla().equals(sigla)).findFirst().orElseThrow();
+    }
+
+    /** Escribe las filas sembradas (válidas) y las suma en los totales como el bucle principal. */
+    private static final class Sembrador {
+        final Writer w;
+        final Riesgo r;
+        final Totales total;
+        final Map<String, Map<String, Totales>> dims;
+        final int nPacientes;
+        int pacientes;
+        long filas;
+        int formula;
+
+        Sembrador(Writer w, Riesgo r, Totales total, Map<String, Map<String, Totales>> dims, int nPacientes) {
+            this.w = w;
+            this.r = r;
+            this.total = total;
+            this.dims = dims;
+            this.nPacientes = nPacientes;
+        }
+
+        /** Un paciente sembrado nuevo (documento ficticio 9xxxxxxx). */
+        int nuevo() {
+            return pacientes++;
+        }
+
+        void fila(int sembrado, Esm e, LocalDate fecha, Medicamento m, String descripcion, String cie, int cantidad, String profesional) throws IOException {
+            fila(sembrado, e.fuerza(), e, fecha, m, descripcion, cie, cantidad, profesional);
+        }
+
+        /** Con la Fuerza del paciente explícita: un ESM de otra Fuerza (ESM compartido, como el HOMIL). */
+        void fila(int sembrado, String fuerza, Esm e, LocalDate fecha, Medicamento m, String descripcion, String cie, int cantidad, String profesional)
+                throws IOException {
+            int id = nPacientes + sembrado;
+            BigDecimal valor = m.precio().multiply(BigDecimal.valueOf(cantidad)).setScale(2, RoundingMode.HALF_UP);
+            String linea = String.join(";", "CC", Long.toString(90_000_000L + sembrado), "PACIENTE SEMBRADO " + sembrado, "01/01/1970", fuerza, e.sigla(),
+                    e.modalidad(), String.format("%02d/%02d/%04d", fecha.getDayOfMonth(), fecha.getMonthValue(), fecha.getYear()), descripcion, m.cum(),
+                    m.principio(), m.atc(), cie, Integer.toString(cantidad), coma(m.precio()), coma(valor), profesional, "Crónica", "S" + (++formula));
+            w.write(linea);
+            w.write("\r\n");
+            filas++;
+            long centavos = valor.movePointRight(2).longValueExact();
+            total.sumar(centavos, cantidad, id);
+            dims.get("fuerza").computeIfAbsent(fuerza, x -> new Totales(nPacientes)).sumar(centavos, cantidad, id);
+            dims.get("esm").computeIfAbsent(e.sigla(), x -> new Totales(nPacientes)).sumar(centavos, cantidad, id);
+            dims.get("modalidad").computeIfAbsent(e.modalidad(), x -> new Totales(nPacientes)).sumar(centavos, cantidad, id);
+            dims.get("atc1").computeIfAbsent(m.atc().substring(0, 1), x -> new Totales(nPacientes)).sumar(centavos, cantidad, id);
+            dims.get("mes").computeIfAbsent(fecha.toString().substring(0, 7), x -> new Totales(nPacientes)).sumar(centavos, cantidad, id);
+            dims.get("cum").computeIfAbsent(m.cum(), x -> new Totales(nPacientes)).sumar(centavos, cantidad, id);
+            dims.get("cie10").computeIfAbsent(cie, x -> new Totales(nPacientes)).sumar(centavos, cantidad, id);
+            r.fila(id, fecha, centavos, cantidad, m.principio(), m.atc(), cie, fuerza, e.sigla());
+        }
+
+        void fila(int sembrado, Esm e, LocalDate fecha, Medicamento m, String cie, int cantidad) throws IOException {
+            fila(sembrado, e, fecha, m, m.descripcion(), cie, cantidad, "RM" + (20_000 + sembrado % 50));
+        }
+    }
+
+    private static LocalDate f(int mes, int dia) {
+        return LocalDate.of(ANIO, mes, dia);
+    }
+
+    /**
+     * Siembra los patrones y anota las alertas esperadas. Devuelve las filas escritas. Los patrones que compiten con el volumen del insumo (alto
+     * costo por ESM, concentración en un profesional) crecen con él: se detectan igual a 20 000 y a 2 M filas.
+     */
+    private static long sembrar(Writer w, Riesgo r, Totales total, Map<String, Map<String, Totales>> dims, int nPacientes, int filas) throws IOException {
+        Sembrador s = new Sembrador(w, r, total, dims, nPacientes);
+        String periodo;
+        // 1. Duplicidad terapéutica: 14 pacientes con apixabán y rivaroxabán (mismo ATC4 B01AF) a 15 días, en mayo
+        List<String> ejc = List.of("BAS02", "BICOR", "BAS10", "BICAR", "GMRON", "BIVER");
+        for (int i = 0; i < 14; i++) {
+            int p = s.nuevo();
+            Esm e = esm(ejc.get(i % ejc.size()));
+            s.fila(p, e, f(5, 3), APIXABAN, "I48X", 60);
+            s.fila(p, e, f(5, 18), RIVAROXABAN, "I48X", 30);
+        }
+        r.esperar("duplicidad_terapeutica", "nacional", "", "atc4", "B01AF", "2025-05", "pacientes", 14, null);
+        // 2. Alto costo: pacientes nuevos con trastuzumab cuatro veces en septiembre en el DMBOG (8 a 20 000 filas; crece con el insumo para
+        // superar con holgura los ingresos habituales del ESM, que también crecen)
+        int altoCosto = 8 + filas / 40_000;
+        for (int i = 0; i < altoCosto; i++) {
+            int p = s.nuevo();
+            for (int d : new int[] {2, 9, 16, 23}) {
+                s.fila(p, esm("DMBOG"), f(9, d), med("TRASTUZUMAB"), "C509", 1);
+            }
+        }
+        r.esperar("alto_costo", "esm", "DMBOG", "esm", "DMBOG", "2025-09", "pacientes", altoCosto, null);
+        // 3. Polimedicados: 6 pacientes con 5 principios activos cada mes de mayo a octubre en el DMBAQ (entran en octubre, ya fuera del
+        // calentamiento de la cohorte: 6 meses más la ventana de referencia de 3)
+        for (int i = 0; i < 6; i++) {
+            int p = s.nuevo();
+            for (int mes = 5; mes <= 10; mes++) {
+                for (String pa : List.of("LOSARTAN", "METFORMINA", "ATORVASTATINA", "OMEPRAZOL", "HIDROCLOROTIAZIDA")) {
+                    s.fila(p, esm("DMBAQ"), f(mes, 10), med(pa), "I10X", med(pa).cantidad());
+                }
+            }
+        }
+        r.esperar("polimedicados", "esm", "DMBAQ", "esm", "DMBAQ", "2025-10", "pacientes", 6, null);
+        // 4. Cambio de marca en estrecho margen: 4 pacientes con carbamazepina de un CUM en junio y de otro en julio, en el BAS02
+        for (int i = 0; i < 4; i++) {
+            int p = s.nuevo();
+            s.fila(p, esm("BAS02"), f(6, 10), med("CARBAMAZEPINA"), "G409", 60);
+            s.fila(p, esm("BAS02"), f(7, 10), CARBAMAZEPINA_B, "G409", 60);
+        }
+        r.esperar("marca_estrecho_margen", "esm", "BAS02", "principio", "CARBAMAZEPINA", "2025-07", "pacientes", 4, null).put("fuerza", "EJC");
+        // 4b. ESM compartido por dos Fuerzas (como el HOMIL): 3 pacientes de la Armada con el mismo cambio de marca en el BAS02 (del Ejército);
+        // uno de ellos también dispensa en el DMBOG (un paciente en dos ESM: el nacional no es la suma de los ESM)
+        for (int i = 0; i < 3; i++) {
+            int p = s.nuevo();
+            s.fila(p, "ARC", esm("BAS02"), f(6, 12), med("CARBAMAZEPINA"), med("CARBAMAZEPINA").descripcion(), "G409", 60, "RM20100");
+            s.fila(p, "ARC", esm("BAS02"), f(7, 12), CARBAMAZEPINA_B, CARBAMAZEPINA_B.descripcion(), "G409", 60, "RM20100");
+            if (i == 0) {
+                s.fila(p, esm("DMBOG"), f(7, 25), CARBAMAZEPINA_B, "G409", 60);
+            }
+        }
+        r.esperar("marca_estrecho_margen", "esm", "BAS02", "principio", "CARBAMAZEPINA", "2025-07", "pacientes", 3, null).put("fuerza", "ARC");
+        // 5. Formulación inusual: 6 dispensaciones de losartán con 600 unidades (20 veces lo habitual) en noviembre
+        for (int i = 0; i < 6; i++) {
+            s.fila(s.nuevo(), esm("BICAR"), f(11, 5), med("LOSARTAN"), "I10X", 600);
+        }
+        r.esperar("formulacion_inusual", "nacional", "", "cum", med("LOSARTAN").cum(), "2025-11", "registros", 6, null);
+        // 6. Presentación inconsistente: el CUM del amlodipino de 5 mg llega como «10 MG» en 12 registros de marzo
+        Medicamento amlo = med("AMLODIPINO");
+        for (int i = 0; i < 6; i++) {
+            int p = s.nuevo();
+            s.fila(p, esm("BAS10"), f(3, 3), amlo, "AMLODIPINO 10 MG TABLETA", "I10X", 30, "RM21000");
+            s.fila(p, esm("BAS10"), f(3, 17), amlo, "AMLODIPINO 10 MG TABLETA", "I10X", 30, "RM21000");
+        }
+        r.esperar("presentacion_inconsistente", "nacional", "", "cum", amlo.cum(), "2025-03", "registros", 12, null);
+        // 7. Concentración de prescripciones: dispensaciones de adalimumab en el BAS10 en noviembre, el 75 % de un mismo profesional sobre
+        // TODAS las del ESM y el mes (las del insumo incluidas: a 2 M filas hay más; 24 sembradas a 20 000)
+        long existentes = r.filas("BAS10|ADALIMUMAB|10");
+        int sembradasAda = (int) Math.max(24, 3 * existentes);
+        long delProfesional = (long) Math.ceil(0.75 * (sembradasAda + existentes));
+        for (int n = 0; n < sembradasAda; n++) {
+            int p = n % 2 == 0 ? s.nuevo() : s.pacientes - 1;
+            String prof = n < delProfesional ? "RM99999" : "RM9" + (1000 + n);
+            s.fila(p, esm("BAS10"), f(11, n % 2 == 0 ? 4 : 18), med("ADALIMUMAB"), med("ADALIMUMAB").descripcion(), "M069", 2, prof);
+        }
+        r.esperar("concentracion_prescripciones", "esm", "BAS10", "principio", "ADALIMUMAB", "2025-11", "registros", sembradasAda, null).put("fuerza", "EJC");
+        // 8. Incremento abrupto del consumo: las unidades de N02 del Ejército en octubre pasan a 2,6 veces la media de julio a septiembre
+        long base = (r.unidades("EJC|N02", 6) + r.unidades("EJC|N02", 7) + r.unidades("EJC|N02", 8)) / 3;
+        long falta = Math.max(0, base * 26 / 10 - r.unidades("EJC|N02", 9));
+        int filasN02 = (int) Math.ceil(falta / 20.0);
+        for (int i = 0; i < filasN02; i += 4) {
+            int p = s.nuevo();
+            for (int k = 0; k < 4 && i + k < filasN02; k++) {
+                s.fila(p, esm(List.of("BAS02", "BICOR", "BAS10").get(i / 4 % 3)), f(10, 2 + 7 * k), med("ACETAMINOFEN"), "R51X", 20);
+            }
+        }
+        r.esperar("incremento_consumo", "fuerza", "EJC", "atc2", "N02", "2025-10", "observado", 100, null);
+        // 9 a 11. Renal, VIH y huérfanas (cohortes por diagnóstico y por ATC)
+        for (int i = 0; i < 5; i++) {
+            s.fila(s.nuevo(), esm("BICOR"), f(4, 8), med("LOSARTAN"), "N189", 30);
+        }
+        for (int i = 0; i < 4; i++) {
+            s.fila(s.nuevo(), esm("DMCOV"), f(6, 12), TDF_FTC, "B24X", 30);
+        }
+        for (int i = 0; i < 3; i++) {
+            s.fila(s.nuevo(), esm("CACOM01"), f(2, 14), IMIGLUCERASA, "E752", 2);
+        }
+        // 12. Interacción (solo con el par ficticio cargado): omeprazol y clopidogrel a 7 días en diciembre
+        for (int i = 0; i < 3; i++) {
+            int p = s.nuevo();
+            s.fila(p, esm("BIVER"), f(12, 2), med("OMEPRAZOL"), "I251", 30);
+            s.fila(p, esm("BIVER"), f(12, 9), med("CLOPIDOGREL"), "I251", 30);
+        }
+        periodo = "2025-12";
+        r.esperar("interaccion", "nacional", "", "par", "CLOPIDOGREL + OMEPRAZOL", periodo, "pacientes", 3, "interacciones");
+        // 13. Incremento de gasto por precio: 30 pacientes de la FAC con alopurinol (solo sembrado; 30 dispensaciones al mes, el volumen
+        // mínimo para juzgar un incremento), estable de enero a septiembre; en octubre el precio se triplica con las mismas unidades (+200 %)
+        for (int i = 0; i < 30; i++) {
+            int p = s.nuevo();
+            for (int mes = 1; mes <= 10; mes++) {
+                s.fila(p, esm("DMEFA"), f(mes, 5), mes == 10 ? ALOPURINOL_ALZA : ALOPURINOL, "M109", 30);
+            }
+        }
+        r.esperar("incremento_gasto", "fuerza", "FAC", "principio", "ALOPURINOL", "2025-10", "observado", 100, null);
+        // 14. Uso fuera de indicación (solo con la indicación ficticia cargada: colchicina para gota, M10): 3 pacientes con colchicina y un
+        // diagnóstico de gastritis en noviembre
+        for (int i = 0; i < 3; i++) {
+            s.fila(s.nuevo(), esm("BIVER"), f(11, 7), COLCHICINA, "K297", 30);
+        }
+        r.esperar("fuera_indicacion", "nacional", "", "atc5", COLCHICINA.atc(), "2025-11", "pacientes", 3, "indicaciones");
+        // 15. Desabastecimiento aproximado (solo con el vital ficticio publicado): 12 dispensaciones de piridostigmina al mes de junio a agosto
+        // en el GMRON y ninguna en septiembre (caída del 100 %)
+        List<Integer> pir = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            pir.add(s.nuevo());
+        }
+        for (int mes = 6; mes <= 8; mes++) {
+            for (int p : pir) {
+                s.fila(p, esm("GMRON"), f(mes, 15), PIRIDOSTIGMINA, "G700", 60);
+            }
+        }
+        r.esperar("desabastecimiento", "esm", "GMRON", "principio", VITAL_EJEMPLO, "2025-09", "observado", 100, "vitales").put("fuerza", "EJC");
+        return s.filas;
+    }
+
+    /** Lo que el generador sabe para calcular las cohortes esperadas sin la base (mismas reglas de A4) y la base de los incrementos. */
+    private static final class Riesgo {
+        final Map<Integer, long[]> gasto = new HashMap<>();
+        final Map<Integer, long[]> principios = new HashMap<>();
+        final Map<String, Integer> indice = new HashMap<>();
+        final Map<Integer, java.util.Set<String>> cronicos = new HashMap<>();
+        final BitSet renal = new BitSet();
+        final BitSet vih = new BitSet();
+        final BitSet biologicos = new BitSet();
+        final BitSet estrecho = new BitSet();
+        final BitSet huerfanas = new BitSet();
+        final Map<String, long[]> unidades = new HashMap<>();
+        final List<Map<String, Object>> esperadas = new ArrayList<>();
+        /** Filas por «ESM|principio|mes (0–11)» (la base de la concentración sembrada). */
+        final Map<String, Long> porEsmPrincipio = new HashMap<>();
+
+        long filas(String llave) {
+            return porEsmPrincipio.getOrDefault(llave, 0L);
+        }
+
+        void fila(int p, LocalDate fecha, long centavos, long cantidad, String principio, String atc, String cie, String fuerza, String esm) {
+            int m = fecha.getMonthValue() - 1;
+            porEsmPrincipio.merge(esm + "|" + principio + "|" + m, 1L, Long::sum);
+            gasto.computeIfAbsent(p, x -> new long[12])[m] += centavos;
+            int i = indice.computeIfAbsent(principio, x -> indice.size());
+            if (i >= 64) {
+                throw new IllegalStateException("Más de 64 principios activos");
+            }
+            principios.computeIfAbsent(p, x -> new long[12])[m] |= 1L << i;
+            if (prefijo(cie, List.of("N18", "N19", "Z49", "Z992"))) {
+                renal.set(p);
+            }
+            if (prefijo(cie, List.of("B20", "B21", "B22", "B23", "B24", "Z21")) || prefijo(atc, List.of("J05AE", "J05AF", "J05AG", "J05AR"))) {
+                vih.set(p);
+            }
+            if (prefijo(atc, List.of("L04AB", "L04AC", "L01F"))) {
+                biologicos.set(p);
+            }
+            if (ESTRECHO_EJEMPLO.contains(principio)) {
+                estrecho.set(p);
+            }
+            if (cie != null && cie.startsWith(HUERFANAS_EJEMPLO)) {
+                huerfanas.set(p);
+            }
+            if (cie != null && cie.length() >= 3 && prefijo(cie, CRONICOS)) {
+                cronicos.computeIfAbsent(p, x -> new java.util.HashSet<>()).add(cie.substring(0, 3));
+            }
+            unidades.computeIfAbsent(fuerza + "|" + atc.substring(0, 3), x -> new long[12])[m] += cantidad;
+        }
+
+        long unidades(String llave, int mes) {
+            long[] u = unidades.get(llave);
+            return u == null ? 0 : u[mes];
+        }
+
+        private static boolean prefijo(String c, List<String> l) {
+            return c != null && l.stream().anyMatch(c::startsWith);
+        }
+
+        Map<String, Object> esperar(String tipo, String nivel, String codigoNivel, String dimension, String valor, String periodo, String medida, long minimo,
+                                    String requiere) {
+            Map<String, Object> m = new TreeMap<>();
+            m.put("tipo", tipo);
+            m.put("nivel", nivel);
+            m.put("codigo_nivel", codigoNivel);
+            m.put("dimension", dimension);
+            m.put("valor", valor);
+            m.put("periodo", periodo);
+            m.put("medida", medida);
+            m.put("minimo", minimo);
+            m.put("requiere", requiere == null ? "" : requiere);
+            esperadas.add(m);
+            return m;
+        }
+
+        /** Conteos esperados por cohorte: pacientes distintos que son miembros en algún mes del año (mismas reglas que AnaliticaCohortes). */
+        Map<String, Object> json() {
+            Map<String, Object> c = new TreeMap<>();
+            c.put("renal", (long) renal.cardinality());
+            c.put("vih", (long) vih.cardinality());
+            c.put("biologicos", (long) biologicos.cardinality());
+            c.put("estrecho_margen", (long) estrecho.cardinality());
+            c.put("huerfanas", (long) huerfanas.cardinality());
+            c.put("pluripatologicos", cronicos.values().stream().filter(x -> x.size() >= 2).count());
+            long poliformulados = 0;
+            long polimedicados = 0;
+            for (long[] meses : principios.values()) {
+                boolean form = false;
+                boolean medi = false;
+                int racha = 0;
+                for (int m = 0; m < 12; m++) {
+                    boolean cinco = Long.bitCount(meses[m]) >= 5;
+                    form |= cinco;
+                    racha = cinco ? racha + 1 : 0;
+                    medi |= racha >= 6;
+                }
+                poliformulados += form ? 1 : 0;
+                polimedicados += medi ? 1 : 0;
+            }
+            c.put("poliformulados", poliformulados);
+            c.put("polimedicados", polimedicados);
+            c.put("alto_costo", altoCosto());
+            c.put("control_especial", "no_evaluada");
+            Map<String, Object> r = new TreeMap<>();
+            r.put("cohortes_esperadas", c);
+            r.put("alertas_esperadas", esperadas);
+            r.put("lista_estrecho_margen", ESTRECHO_EJEMPLO);
+            r.put("huerfanas_prefijos", List.of(HUERFANAS_EJEMPLO));
+            r.put("interacciones", List.of(INTERACCION_EJEMPLO));
+            r.put("indicaciones", List.of(INDICACION_EJEMPLO));
+            r.put("vitales", List.of(VITAL_EJEMPLO));
+            r.put("version_patrones", VERSION_PATRONES);
+            return r;
+        }
+
+        /** Alto costo: gasto en 12 meses móviles ≥ percentil 99 (percentile_disc) del de los pacientes con dispensaciones en el mes. */
+        long altoCosto() {
+            BitSet miembros = new BitSet();
+            for (int m = 0; m < 12; m++) {
+                List<long[]> activos = new ArrayList<>();
+                for (Map.Entry<Integer, long[]> e : gasto.entrySet()) {
+                    if (e.getValue()[m] > 0) {
+                        long s = 0;
+                        for (int k = 0; k <= m; k++) {
+                            s += e.getValue()[k];
+                        }
+                        activos.add(new long[] {e.getKey(), s});
+                    }
+                }
+                if (activos.isEmpty()) {
+                    continue;
+                }
+                long[] orden = activos.stream().mapToLong(x -> x[1]).sorted().toArray();
+                long umbral = orden[Math.max(0, (int) Math.ceil(0.99 * orden.length) - 1)];
+                for (long[] a : activos) {
+                    if (a[1] > 0 && a[1] >= umbral) {
+                        miembros.set((int) a[0]);
+                    }
+                }
+            }
+            return miembros.cardinality();
+        }
     }
 
     private static String variante(String fuerza, Random azar) {
@@ -431,6 +851,22 @@ public final class GeneradorSintetico {
             }
             w.write("  ".repeat(nivel));
             w.write("}");
+        } else if (v instanceof List<?> l) {
+            if (l.isEmpty()) {
+                w.write("[]");
+                return;
+            }
+            w.write("[\n");
+            for (int i = 0; i < l.size(); i++) {
+                w.write("  ".repeat(nivel + 1));
+                escribirJson(w, l.get(i), nivel + 1);
+                if (i + 1 < l.size()) {
+                    w.write(",");
+                }
+                w.write("\n");
+            }
+            w.write("  ".repeat(nivel));
+            w.write("]");
         } else if (v instanceof Number n) {
             w.write(n.toString());
         } else {

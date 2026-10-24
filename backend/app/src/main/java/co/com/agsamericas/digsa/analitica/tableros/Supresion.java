@@ -15,7 +15,7 @@ import java.util.Set;
  * siguen cuadrando con el insumo (14.5). Se aplica a pantalla, descargas, consulta estructurada y asistente (todos pasan por aquí) y se
  * declara en los metadatos.
  */
-final class Supresion {
+public final class Supresion {
 
     /** Columnas que dependen de los pacientes de la fila. */
     static final Set<String> COLUMNAS = Set.of("pacientes", "pacientesMes", "promedioPaciente");
@@ -24,7 +24,7 @@ final class Supresion {
 
     private final int k;
 
-    Supresion(int k) {
+    public Supresion(int k) {
         this.k = k;
     }
 
@@ -40,7 +40,7 @@ final class Supresion {
         return "<" + k;
     }
 
-    List<Kpi> kpis(List<Kpi> kpis) {
+    public List<Kpi> kpis(List<Kpi> kpis) {
         if (k <= 0) {
             return kpis;
         }
@@ -54,7 +54,7 @@ final class Supresion {
         return r;
     }
 
-    List<Tabla> tablas(List<Tabla> tablas) {
+    public List<Tabla> tablas(List<Tabla> tablas) {
         if (k <= 0) {
             return tablas;
         }

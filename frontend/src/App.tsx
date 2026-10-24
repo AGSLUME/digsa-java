@@ -37,6 +37,7 @@ import { CarguesOpl } from './paginas/CarguesOpl';
 import { Homologacion } from './paginas/Homologacion';
 import { Analitica } from './paginas/Analitica';
 import { TrazabilidadAnalitica } from './paginas/TrazabilidadAnalitica';
+import { AlertasAnaliticas } from './paginas/AlertasAnaliticas';
 
 function Inicio() {
   const s = useSesion();
@@ -150,6 +151,7 @@ export function App() {
           <Route path="/homologacion" element={<Protegida ruta="homologacion"><Homologacion /></Protegida>} />
           <Route path="/analitica" element={<Protegida ruta="analitica"><Analitica /></Protegida>} />
           <Route path="/analitica/trazabilidad" element={<Protegida ruta="analitica/trazabilidad"><TrazabilidadAnalitica /></Protegida>} />
+          <Route path="/analitica/alertas" element={<Protegida ruta="analitica/alertas"><AlertasAnaliticas /></Protegida>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

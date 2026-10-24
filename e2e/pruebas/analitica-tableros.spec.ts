@@ -109,7 +109,7 @@ test('M8-1, M8-5 y M8-8: recorre los 12 tableros con filtros, compara con la API
   const gasto = api1.datos.kpis.find((k) => k.clave === 'gasto')!.texto;
   await expect(page.getByTestId('kpi-gasto')).toContainText(gasto);
 
-  // Recorre los 12 chips conservando el filtro; los tres últimos dicen «Disponible en la siguiente fase»
+  // Recorre los 12 chips conservando el filtro
   const chips = ['general', 'gasto', 'atc', 'principio', 'medicamento', 'diagnostico', 'territorial', 'alto-costo', 'poliformulacion'];
   for (const c of chips) {
     await page.getByTestId(`chip-${c}`).click();
@@ -118,10 +118,13 @@ test('M8-1, M8-5 y M8-8: recorre los 12 tableros con filtros, compara con la API
     await expect(page.getByTestId('tablero')).toBeVisible();
     await expect(page.getByTestId('kpi-gasto').or(page.getByTestId('kpi-pacientes')).first()).toBeVisible();
   }
-  for (const c of ['cohortes', 'atipicos', 'predictivo']) {
-    await page.getByTestId(`chip-${c}`).click();
-    await expect(page.getByTestId('siguiente-fase')).toContainText('Disponible en la siguiente fase');
-  }
+  // Cohortes y atípicos (A4) abren sus paneles con la misma barra de filtros; el predictivo llega en A5
+  await page.getByTestId('chip-cohortes').click();
+  await expect(page.getByTestId('panel-cohortes')).toBeVisible();
+  await page.getByTestId('chip-atipicos').click();
+  await expect(page.getByTestId('panel-atipicos')).toBeVisible();
+  await page.getByTestId('chip-predictivo').click();
+  await expect(page.getByTestId('siguiente-fase')).toContainText('Disponible en la siguiente fase');
 
   // «Ver tabla» de las barras con aria-expanded
   await page.getByTestId('chip-territorial').click();

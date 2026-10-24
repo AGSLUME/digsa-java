@@ -39,6 +39,8 @@ digsa:
     borrado-cron: "-"
     tableros:
       precalentar: false                # sin hilo de fondo tras cada cargue: las pruebas miden y comparan la consulta misma
+    riesgo:
+      recalcular-al-aplicar: false      # solo las pruebas de cohortes y alertas lo encienden (contexto propio): ningún correo de alertas en las demás
 
 logging:
   level:

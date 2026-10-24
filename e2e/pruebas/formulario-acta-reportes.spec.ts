@@ -171,9 +171,18 @@ test('pruebas 12, 10 y 13: formulario, evidencias, firmas, acta, reabrir y repor
   // Prueba 13: reporte de detalle con la visita y descarga en Excel (el coordinador vuelve a ingresar: su sesión venció mientras tanto)
   await ingresar(page, ...ADMIN);
   await page.goto('/reportes');
+  // Filtra por el lugar de la visita: la base de las pruebas acumula visitas y la tabla pagina de a 100 filas
+  await page.getByRole('textbox', { name: 'Lugar', exact: true }).fill(lugar);
+  await page.getByRole('option', { name: lugar, exact: true }).click();
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Generar reporte' }).click();
   await expect(page.getByTestId('encabezado-reporte')).toContainText('Usuario:');
+  await expect(page.getByTestId('encabezado-reporte')).toContainText(`Establecimiento: ${lugar}`);
   await expect(page.getByTestId('tabla-reporte')).toContainText(numero);
+  // Prueba 13: inicio y fin reales, objeto, componentes y hallazgos del acta
+  for (const columna of ['Inicio real', 'Fin real', 'Objeto', 'Componentes', 'Descripción de los hallazgos']) {
+    await expect(page.getByTestId('tabla-reporte').getByRole('columnheader', { name: columna, exact: true })).toBeVisible();
+  }
   const descarga = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Descargar Excel' }).click();
   expect((await descarga).suggestedFilename()).toMatch(/^reporte_detalle_.*\.xlsx$/);

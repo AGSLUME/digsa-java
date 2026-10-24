@@ -28,6 +28,8 @@ public class Exportador {
 
     public static final String TIPO_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     public static final String TIPO_CSV = "text/csv; charset=UTF-8";
+    /** El PDF de 2.9 es el del motor de reportes (sin estado: una instancia basta). */
+    private static final ExportadorFlujo FLUJO = new ExportadorFlujo();
     private static final DateTimeFormatter FECHA_HORA = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /** Excel en streaming (memoria constante con muchas filas). */
@@ -136,55 +138,21 @@ public class Exportador {
         return sb.toString().stripTrailing();
     }
 
-    /** PDF horizontal con el encabezado del reporte y las columnas repetidas en cada página; sin tope de filas. */
+    /**
+     * PDF del reporte con la misma implementación de 2.9 del motor de reportes ({@link ExportadorFlujo}): horizontal, encabezado,
+     * columnas repetidas, «Página N de M» en cada hoja, letra Unicode incrustada y protegido contra cambios; sin tope de filas.
+     */
     public byte[] pdf(Reporte r) {
-        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-        com.lowagie.text.Document doc = new com.lowagie.text.Document(com.lowagie.text.PageSize.LETTER.rotate(), 30, 30, 36, 36);
-        com.lowagie.text.Font titulo = new com.lowagie.text.Font(com.lowagie.text.Font.HELVETICA, 13, com.lowagie.text.Font.BOLD, new java.awt.Color(11, 61, 92));
-        com.lowagie.text.Font normal = new com.lowagie.text.Font(com.lowagie.text.Font.HELVETICA, 8);
-        com.lowagie.text.Font negrita = new com.lowagie.text.Font(com.lowagie.text.Font.HELVETICA, 8, com.lowagie.text.Font.BOLD);
+        List<ReporteEncabezado.Linea> lineas = new java.util.ArrayList<>();
+        for (String[] linea : encabezado(r)) {
+            if (!"Reporte".equals(linea[0])) {
+                lineas.add(new ReporteEncabezado.Linea(linea[0], linea[1]));
+            }
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
         try {
-            com.lowagie.text.pdf.PdfWriter escritor = com.lowagie.text.pdf.PdfWriter.getInstance(doc, out);
-            // --- Presupuesto (rama presupuesto): número de página en cada hoja (Anexo 5, 2.9); coordinar con la sesión 1 ---
-            escritor.setPageEvent(new com.lowagie.text.pdf.PdfPageEventHelper() {
-                @Override
-                public void onEndPage(com.lowagie.text.pdf.PdfWriter w, com.lowagie.text.Document d) {
-                    com.lowagie.text.pdf.ColumnText.showTextAligned(w.getDirectContent(), com.lowagie.text.Element.ALIGN_RIGHT,
-                            new com.lowagie.text.Phrase("Página " + w.getPageNumber(), normal), d.right(), d.bottom() - 18, 0);
-                }
-            });
-            // --- fin presupuesto ---
-            doc.addTitle(r.titulo());
-            doc.open();
-            doc.add(new com.lowagie.text.Paragraph(r.titulo(), titulo));
-            for (String[] linea : encabezado(r)) {
-                if (!"Reporte".equals(linea[0])) {
-                    doc.add(new com.lowagie.text.Paragraph(linea[0] + ": " + linea[1], normal));
-                }
-            }
-            doc.add(new com.lowagie.text.Paragraph(" ", normal));
-            int n = Math.max(1, r.columnas().size());
-            com.lowagie.text.pdf.PdfPTable t = new com.lowagie.text.pdf.PdfPTable(n);
-            t.setWidthPercentage(100);
-            t.setHeaderRows(1);
-            for (String c : r.columnas()) {
-                com.lowagie.text.pdf.PdfPCell celda = new com.lowagie.text.pdf.PdfPCell(new com.lowagie.text.Phrase(c, negrita));
-                celda.setBackgroundColor(new java.awt.Color(235, 239, 243));
-                t.addCell(celda);
-            }
-            for (List<Object> datos : r.filas()) {
-                for (int i = 0; i < n; i++) {
-                    t.addCell(new com.lowagie.text.Phrase(i < datos.size() ? texto(datos.get(i)) : "", normal));
-                }
-            }
-            if (r.filas().isEmpty()) {
-                com.lowagie.text.pdf.PdfPCell vacia = new com.lowagie.text.pdf.PdfPCell(new com.lowagie.text.Phrase("Sin registros con estos filtros.", normal));
-                vacia.setColspan(n);
-                t.addCell(vacia);
-            }
-            doc.add(t);
-            doc.close();
-        } catch (com.lowagie.text.DocumentException e) {
+            FLUJO.pdf(new ReporteEncabezado(r.titulo(), lineas, ""), r.columnas(), ReporteFilas.de(r.filas()), out);
+        } catch (java.io.IOException e) {
             throw new IllegalStateException("No se pudo generar el PDF del reporte", e);
         }
         return out.toByteArray();

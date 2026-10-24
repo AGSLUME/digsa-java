@@ -551,6 +551,112 @@ Implementado según `docs/especificaciones/despliegue-carga`:
 | 27.7 | **Lo que necesita Docker no se ha probado:** imagen, prueba de humo, Trivy y la ida y vuelta del respaldo | Se prueba en la primera corrida del pipeline o cuando TI instale Docker |
 | 27.8 | **Dashboard:** ¿«Farmacia alterna» en una sola fila o una por farmacia? | Una sola fila. La habilitación en trámite cuenta en los vacíos (D5) |
 
+
+## Reportes · módulo transversal (sesión de reportes, 2026-10-22)
+
+Especificación en `docs/especificaciones/reportes/spec.md`, plan en `plan.md` y contrato para los demás módulos en `contrato-proveedor.md`. La sesión 1 aprobó el plan y las dudas R.1 a R.5 el 2026-10-22, por delegación del usuario.
+
+**R1 · Motor, contrato, catálogo y filtros:** contrato `ProveedorReporte` y registro por módulo; catálogo por perfil con buscador; filtros de una, varias o todas las opciones, validados contra las opciones del alcance; periodos con presets y agrupación de horas a años; los 4 reportes de visitas en el motor, con el contenido mínimo de la prueba 13.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| R.1 | **Prueba 13 · forma de las filas** | **Aprobado:** el detalle lleva una fila por visita, con los componentes y los hallazgos del acta más reciente en una celda separados por « · ». El consolidado por lugar lleva una fila por lugar y componente; ahí «Hallazgos» es el número de No cumple de ese componente |
+| R.2 | **2.10 entre alcances distintos** | **Aprobado:** misma huella entre usuarios con el mismo alcance. Si un perfil no ve una columna (por ejemplo, el auditor), su reporte es otra variante |
+| R.3 | **Envío síncrono o por la bandeja** | **Aprobado:** síncrono, con el resultado en pantalla, porque el comité verifica la llegada en el momento. En R4 pasa a varios destinatarios, con el adjunto del almacén |
+| R.4 | **Tope del adjunto** | **Aprobado:** 10 MB, configurable (R4) |
+| R.5 | **BouncyCastle para el PDF cifrado** | **Aprobado:** `bcprov-jdk18on` 1.78.1 (R2) |
+| R.6 | **Un valor de filtro fuera del alcance** | Hoy (R1) la fuerza o la unidad fuera del alcance ya no devuelven vacío en silencio: dan 422. El mensaje es el mismo si no existe o si está fuera del alcance, para no revelar lo que el perfil no ve |
+| R.7 | **`FiltroBitacora` toma solo el primer valor de un parámetro repetido** (plataforma, fuera de esta sesión) | El motor escribe en la misma fila de la petición (anotación `reporte_generado`, `reporte_descargado` o `reporte_enviado`) todos los valores de cada filtro. No se tocó `FiltroBitacora` |
+| R.8 | **Filas en pantalla** | Hasta 5.000 (`digsa.reportes.filas-pantalla`), con aviso; el archivo trae todas. La pantalla pagina de a 100 |
+| R.9 | **Año de contrato** | El preset sale del parámetro `inicio_contrato` (Catálogos › Parámetros) que ya usa la propuesta de agenda; sin él no se ofrece |
+| R.10 | **Semana ISO** | Etiqueta `2026-W29`, para no confundirla con el semestre (`2026-S2`) |
+| R.11 | **Proceso sin filtro de estado** | El consolidado por proceso cuenta solo las visitas cerradas: el filtro de estado ya no aplica y devuelve 422 «no aplica» |
+| R.12 | **Rango por horas** | El rango se elige en días. La agrupación por horas queda para los reportes con fecha y hora (logs, R4) |
+| R.13 | **«Por proceso» frente al tablero** | El consolidado por proceso cuenta las respuestas del checklist de las visitas cerradas, como antes (19.9). El tablero y el consolidado por lugar leen el resumen del acta, que en los seguimientos guarda solo los hallazgos verificados. En un seguimiento las cifras pueden diferir. Mientras tanto se deja así y se documenta en el reporte. Propuesta: que la sesión 1 decida si «Por proceso» pasa al resumen |
+| R.14 | **Título del menú «Reportes de visitas»** (`Pantallas.REPORTES`, compartido) | No se cambió para no chocar con la sesión de identidad, que edita `Pantallas`. La pantalla ya dice «Reportes». Propuesta: que quien integre `Pantallas` lo cambie a «Reportes» |
+| R.15 | **Textos libres del acta en el detalle (Ley 1581)** | El objeto y los hallazgos los redacta el auditor y pueden nombrar personas, y los ven DIGSA, Sanidad y ESM (el detalle es OPERATIVO). Mientras tanto los ven, como el acta que ya reciben. Si no deben verlos, basta con marcar esas columnas con `soloPara` |
+| R.16 | **Módulos** | El contrato (`reportes`) quedó aparte del motor (`motorreportes`), para que identidad, auditoría, catálogos, agenda y presupuesto puedan aportar reportes sin ciclos (revisión de Java de R1) |
+| R.17 | **Consolidado por lugar: obligaciones y visitas sin componentes** | Además de una fila por componente, lleva la fila «OBL Obligaciones del contrato» (visitas cerradas) y «Sin componente», para que Cumple y No cumple de un lugar cuadren con el detalle. «Hallazgos» es el No cumple de esa fila |
+| R.18 | **Detalle con visitas no cerradas** | Los resultados y los hallazgos solo salen de visitas cerradas, con el último acta enviada (o enviada en parte). Una visita reabierta sale sin resultados hasta que se vuelva a cerrar, como en los consolidados y el tablero (revisión de base de datos de R1) |
+| R.19 | **Tope del archivo hasta R2** | Los 4 reportes de visitas admiten hasta 200.000 filas por archivo, como los logs; más es 422. En R2 la exportación va en flujo y el tope se revisa |
+
+**R2 · Formatos en flujo, encabezado 2.9 e integridad 2.10:** el archivo se arma así: cursor del proveedor, temporal en disco, archivo en el almacén. Lleva el encabezado completo (periodo, generado, usuario, establecimiento, filtros, fuente, registros, código de verificación, huella de los datos y página). El PDF va cifrado con AES-256 y sin permiso de modificar. Cada generación queda en `reportes_generados` (V50), y se puede verificar por archivo o por código, con regeneración.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| R.20 | **Huella impresa completa o recortada** | La spec proponía imprimir los primeros 16 caracteres. Se imprimen los 64: así se coteja sin entrar al sistema |
+| R.21 | **Alcance real del «PDF no editable»** | Los permisos del PDF los respeta el lector (Acrobat, navegadores), no una herramienta que los ignore. La garantía de 2.10 es la huella: un archivo modificado ya no coincide con ningún registro. La contraseña de propietario es aleatoria por archivo y no se guarda en ningún lado |
+| R.22 | **Excel y CSV sin protección de edición** | RESPUESTAS l.555 solo la exige en PDF. Llevan código y huella |
+| R.23 | **Quién verifica** | Cualquier usuario con sesión verifica por archivo o por código, y ve el usuario de otro enmascarado. Regenerar exige poder generar ese reporte, con el mismo alcance y las mismas columnas |
+| R.24 | **El reporte en pantalla también queda registrado** | Con código y huella si caben todas las filas. Con más de 5.000 filas en pantalla no hay huella, y el aviso pide descargar el archivo |
+| R.25 | **V51 no se usó** | V50 trae ya las columnas de R3 (estado, ruta, vence y tiempos). Quedan libres V51 a V59 |
+| R.26 | **Tope de filas del PDF** | **Corregido en R3 (sesión 1):** la DIGSA exige reportes completos (TAS P12). El PDF ya no tiene tope; tampoco los 200.000 de los reportes de visitas. Lo grande va en segundo plano y la prueba de volumen de R5 mide los 10 minutos. Excel pasa a «Datos 2» al llegar al millón de filas |
+| R.27 | **Celdas de Excel de más de 32.767 caracteres** | Salen recortadas con la marca «…[recortado por el límite de Excel; el CSV y el TXT traen el texto completo]». Una lista larga del encabezado va completa en la hoja «Filtros» |
+| R.28 | **Tope de verificaciones** | 30 por usuario y minuto (`digsa.reportes.verificaciones-por-minuto`); más es 429 y queda en la bitácora. El conteo vive en la memoria de cada instancia: con varias réplicas, el tope es por réplica |
+| R.29 | **Largo del código** | `RPT-aaaammdd-` y 8 caracteres (32⁸ ≈ 10¹² por día): con el tope por minuto, no se puede adivinar enumerando |
+| R.30 | **Caracteres fuera de cp1252 en el PDF** | **Corregido en R3 (sesión 1):** el PDF incrusta Liberation Sans (SIL OFL, dependencia `openpdf-fonts-extra` de la misma versión de OpenPDF): ≤, ≥, →, ° y eñes se ven |
+| R.31 | **Lo que ve de la verificación quien no generó el reporte** | Título, fecha, periodo, formato, filas, huellas y el usuario con iniciales. No ve los valores de los filtros, que pueden ser búsquedas con datos personales o de otro alcance (Ley 1581) |
+| R.32 | **TXT con textos largos** | La alineación llega hasta 60 caracteres por columna: un objeto o un hallazgo largo sale completo y solo descuadra su fila, sin inflar el archivo |
+| R.33 | **Retención de `reportes_generados`** | No se purga (es la evidencia para verificar) y guarda el nombre de quien generó. Decidir la retención con la DIGSA junto con la de la bitácora (decisión 7.5) |
+| R.34 | **Pruebas intermitentes ajenas a reportes** (cierre de R1 y R2, 2026-10-23) | `SeguimientoApiTest.accionVencidaEsPlanIncumplido` falló una vez en la batería completa y pasa sola (9/9). `riesgo-tablero.spec.ts:149` falla en Firefox al esperar el aviso «Pesos guardados»; en la corrida de R1 había pasado. Ninguna toca código de reportes: se avisó a la sesión 1 |
+
+**R3 · Descargas del día, diferido, limpieza y tiempos (Anexo 5, 2.7):**
+- **Cola de descargas:** cada descarga entra a una cola de la instancia, con 4 a la vez y 2 en curso por usuario (429). Si termina en 15 s se entrega en la misma petición; si no, responde 202 con su código y sigue en segundo plano.
+- **«Descargas del día»:** pestaña que se consulta cada 5 s mientras algo se genera y avisa cuando queda listo. Cada archivo se vuelve a bajar sin regenerarlo, y solo lo baja quien lo pidió.
+- **Limpieza:** cada minuto, con candado entre réplicas, borra los archivos al terminar el día y repone las generaciones interrumpidas.
+- **Tiempos (ajuste de la sesión 1):** los plazos de 2.7 (3 minutos para ver, 10 para exportar) **no cortan**: el usuario recibe su reporte completo. Al pasar el 80 % o el plazo se dispara la alerta «reporte lento» (V51) al Administrador, porque 2.7 obliga a informar a la DIGSA y corregir en 8 días. Solo corta un tope técnico de 60 minutos (`digsa.reportes.tope-tecnico-ms`, `statement_timeout`) para consultas colgadas, con 503 y un mensaje claro.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| R.35 | **Espera antes de seguir en segundo plano** | 15 s (`digsa.reportes.espera-sincrona-ms`). Más tiempo deja el navegador esperando. Menos manda a «Descargas del día» reportes que salen al instante |
+| R.36 | **La cola vive en la memoria de la instancia** | Al apagarse, la instancia espera 20 s y marca «fallida» lo que tenía en cola o en curso, para que el cupo del usuario no quede ocupado. Si se cae sin apagarse, la limpieza lo repone: lo que lleva generándose más del tope técnico y 5 minutos, y lo que lleva en cola más de lo que tarda la cola entera (cola de 20, 4 a la vez: unas 6 horas con el tope de 60 minutos). Con varias réplicas, cada una atiende sus solicitudes |
+| R.37 | **Aviso de diferido listo** | Solo en la aplicación (pestaña y aviso). No por correo: los anexos no lo piden (regla de canales) |
+| R.38 | **Reutilizar el archivo del día** | No se reutiliza solo: el usuario ve en «Descargas del día» lo que ya pidió y lo baja de ahí. Detectar «sin cambios en los datos» exigiría una marca por fuente |
+| R.39 | **El envío por correo va por la cola** | **Corregido en la revisión de R3:** usa la misma cola y el mismo cupo por usuario que las descargas, y la petición espera el resultado, porque se muestra en pantalla (duda R.3). La generación se corta en cuanto el archivo pasa de 10 MB (422, sin terminar el archivo) y queda en la bitácora como «NO enviado» |
+| R.40 | **Tope técnico en pantalla** | 10 minutos (`digsa.reportes.tope-tecnico-ver-ms`), no 60: una petición no queda colgada una hora. Lo grande se descarga en segundo plano. Los plazos de 2.7 siguen solo avisando |
+| R.41 | **El tope técnico cubre toda la generación** | Lectura, cinta y escritura del archivo. Si no, la limpieza podía dar por interrumpida una generación viva (un PDF muy grande que se escribe después de una lectura larga). Lo que termina pasado el tope se trata como cortado |
+| R.42 | **Archivo vencido que no se pudo borrar** | La limpieza comprueba que el archivo ya no está antes de anotar «archivo borrado». Si no se pudo borrar (p. ej. abierto en Windows), queda en el log como error y se reintenta cada minuto. Falta decidir si, después de varios intentos, debe disparar una alerta al Administrador (R5) |
+| R.43 | **Temporales de Excel** | La cinta usa su carpeta propia (`digsa-reportes`, que se vacía al arrancar). Los temporales de POI (SXSSF) siguen en la carpeta común de POI porque esa estrategia es global y la comparte el módulo de exportación. Si el proceso cae mientras escribe, pueden quedar ahí: se documenta para operación (limpiar `poifiles` al arrancar el contenedor) |
+| R.44 | **Lectura larga en REPEATABLE READ** | Una generación de hasta 60 minutos mantiene una foto de los datos y una conexión del pool. Con 4 a la vez son 4 conexiones y 4 fotos (frena el autovacuum mientras dura). Revisar `maximumPoolSize` y medir con la prueba de volumen de R5 |
+
+**R4 · Correo, tableros, logs y presupuesto en el motor:**
+- **Correo:** hasta 15 destinatarios por envío, en lista o en un texto separado por comas, punto y coma o espacios. Cada uno es válido y de un dominio permitido. Uno que no lo es rechaza el envío completo. Si el servidor de correo rechaza a algunos, la respuesta y la bitácora dicen a quién no llegó, y el aviso sale en amarillo.
+- **Nuevos proveedores (aditivos):** dashboard de visitas y de riesgo (tablero), logs de auditoría (auditoria) y los cuatro de presupuesto (autorizado por la sesión 1). Sus pantallas y endpoints siguen igual.
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| R.45 | **Filtros de un solo valor en tableros y presupuesto** | Sus servicios filtran por una fuerza, un ESM, una vigencia o un tipo a la vez, y sin cambiar su lógica no admiten varios. En el motor esos filtros son de lista, pero elegir más de uno responde 422 («elija solo uno»). Las fuerzas y modalidades de presupuesto sí admiten varias |
+| R.46 | **Presupuesto en memoria** | `ServicioReportesPresupuesto.generar` arma hasta 100.000 filas en memoria y el proveedor las recorre. Pasarle el límite o un consumidor cambia la lógica de presupuesto: queda para la sesión de presupuesto, y lo mide la prueba de volumen de R5 |
+| R.47 | **La pantalla de logs sigue con un destinatario** | `ControladorLogs.enviar` no se toca (módulo de auditoría: solo se agregan proveedores). Los logs a varios correos salen desde «Reportes → Logs de auditoría» |
+| R.48 | **Búsqueda por texto en logs** | Es `ILIKE '%texto%'`, sin índice, en periodos de hasta 92 días. Cabe hoy en los 3 minutos. Si en la prueba de noviembre pasa de unos 60 s, V53 lleva un índice GIN trigram sobre `descripcion` (encarece cada inserción de la bitácora: no se pone sin medir) |
+| R.49 | **Pesos y umbrales del riesgo** | En la descarga de la pantalla van en el encabezado. En el motor, el encabezado es el de 2.9 y no admite líneas propias del proveedor, así que van como filas «Pesos y umbrales» al final |
+| R.50 | **Prueba del tope del adjunto** | El corte a 10 MB se prueba en R5 junto con la prueba de volumen: generar más de 10 MB en una prueba de API es lento |
+
+**R5 · Rendimiento, volumen y cierre (2026-10-23):**
+
+Prueba de volumen (`VolumenReportesApiTest`, corre solo con `-Ddigsa.volumen=true`): 1.500.000 visitas sintéticas en un trimestre
+(RESPUESTAS l.2213: consultas de hasta tres meses), en el equipo de desarrollo con PostgreSQL embebido. Tiempos de 2.7 (3 minutos para
+ver, 10 para exportar):
+
+| Operación | Tiempo | Detalle |
+|---|---|---|
+| Ver «Consolidado por lugar» | 66 s | 185 filas agregadas |
+| Ver «Detalle de visitas» | 2,5 s | primeras 5.000 filas en pantalla |
+| Exportar el detalle en CSV | 3 min 8 s | 1.500.000 filas, 252 MB |
+| Exportar el detalle en TXT | 3 min 50 s | 488 MB |
+| Exportar el detalle en Excel | 4 min 58 s | 139 MB, en dos hojas («Datos 2») |
+| Exportar el detalle en PDF | 6 min 45 s | 402 MB, cifrado y con letra incrustada |
+| Correo del detalle en CSV | 422 a los 3 min 40 s | corta al pasar de 10 MB |
+
+| # | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| R.51 | **Índices de R5** | Con los tiempos de la prueba de volumen no hace falta ninguno: las consultas usan `ix_visitas_fecha`, `ix_visitas_punto` y los de la bitácora. No se crea V53. El único candidato, que depende de lo que se mida en noviembre, es un GIN trigram para el texto de los logs (R.48) |
+| R.52 | **El correo corta después de leer** | El tope de 10 MB se aplica al escribir el archivo, y el archivo se escribe cuando termina la lectura (el encabezado lleva la huella de todas las filas). Por eso un reporte enorme tarda la lectura completa (unos 3,5 minutos con 1,5 M filas) en responder 422. Estimar el tamaño antes exigiría contar las filas dos veces |
+| R.53 | **Tiempos para el Administrador** | Pestaña «Tiempos» en Reportes, solo para el Administrador: p50, p95 y máximo por reporte, en pantalla y por formato, y cuántas generaciones pasaron el 80 % del plazo, en 1, 7, 30 o 90 días |
+| R.54 | **La cinta va comprimida** | El temporal de filas usa Deflater en nivel rápido. A cambio de algo de CPU, un reporte de 2 M filas no ocupa varios GB de disco temporal |
+| R.55 | **Anchos de columna del PDF** | Se reparten según la palabra más larga del título y el texto más largo de las primeras 500 filas, entre 4 y 40 caracteres |
+| R.56 | **Lo cortado en los tiempos** | Una exportación fallida o cortada por el tope técnico guarda el tiempo que alcanzó a correr y cuenta en p95, máximo y «Fallidas o cortadas». Un reporte en pantalla que llega al tope (10 min) no deja fila, porque se registra al terminar: no aparece en la pestaña, pero sí dispara la alerta «reporte lento». Registrarlo exigiría insertar la fila antes de leer |
+
 ## Presupuesto (rama `presupuesto`, 2026-10-22)
 
 Especificación: `docs/especificaciones/presupuesto/spec.md` (Anexo 5 §4.6, Anexo 2 L739 y L741, casos M7 de la prueba en sitio).

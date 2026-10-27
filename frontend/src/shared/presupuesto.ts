@@ -166,7 +166,7 @@ export const AYUDA_TIPO: Record<TipoNovedad, string> = {
  * decimal y 2 decimales para enviar («1250000.50»), o null si no es un monto válido. Conserva el signo.
  */
 export function leerMonto(texto: string): string | null {
-  let t = (texto ?? '').replace(/[$\s' ]/g, '');
+  let t = (texto ?? '').replace(/[$\s']/g, '');
   let negativo = false;
   if (t.startsWith('-') || t.startsWith('+')) {
     negativo = t.startsWith('-');

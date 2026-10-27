@@ -1,7 +1,7 @@
-import { ActionIcon, AppShell, Box, Burger, Group, NavLink, ScrollArea, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core';
+import { ActionIcon, AppShell, Box, Burger, Center, Group, Loader, NavLink, ScrollArea, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import { IconBell, IconKey, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, type Icon } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { AvisoInactividad } from './AvisoInactividad';
 import { CambiarMiClave } from './CambiarMiClave';
@@ -302,8 +302,18 @@ export function Plantilla({ alSalir }: { alSalir: () => void }) {
         </AppShell.Section>
       </AppShell.Navbar>
       <AppShell.Main className="lume-contenido">
-        <LimiteErrores>
-          <Outlet />
+        {/* key: un error en una pantalla no bloquea las demás: al navegar el límite empieza de cero */}
+        <LimiteErrores key={pathname}>
+          {/* Cada pantalla se descarga al abrirla (división por rutas, U5): el menú y la cabecera siguen a la vista */}
+          <Suspense
+            fallback={
+              <Center py="xl">
+                <Loader role="status" aria-label="Cargando la pantalla" />
+              </Center>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </LimiteErrores>
       </AppShell.Main>
       <AvisoInactividad minutos={s.minutosInactividad} alSalir={alSalir} />

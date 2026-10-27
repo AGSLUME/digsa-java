@@ -90,6 +90,8 @@ export function PanelFirma({ alCambiar, error }: { alCambiar: (png: string | nul
       <Text size="sm" fw={500} mb={4}>
         Firma
       </Text>
+      {/* aria-invalid sobre role="img": el foco al primer error (validacion.tsx) lo busca; el mensaje va con aria-describedby */}
+      {/* eslint-disable-next-line jsx-a11y/role-supports-aria-props */}
       <canvas
         ref={lienzo}
         role="img"

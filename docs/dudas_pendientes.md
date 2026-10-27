@@ -950,3 +950,13 @@ Encargo del usuario: adoptar el design system LUME (`referencias_interfaz/LUME_d
 | UI-46 | Botones internos de Mantine sin nombre accesible (ver contraseña, borrar la selección, quitar el archivo) | Nombres por omisión en el tema. El de la contraseña es «Mostrar u ocultar lo escrito»: con la palabra «Contraseña», `getByLabel('Contraseña')` de las e2e encontraba dos elementos |
 | UI-47 | Recorrido de capturas: solo creaba los perfiles sin alcance | Crea todos (Auditor con documento, Sanidad con fuerza, ESM con establecimiento y OPL regional con regional) y dice qué elemento desborda y qué botón no tiene nombre. Menús: Administrador 19, Coordinador 13, Auditor 3, DIGSA 9, Sanidad 8, ESM 7, OPL nacional 2, OPL regional 2, Analista 7 |
 | UI-48 | **Reportes (INT-9, INT-17; ítem 13):** desbordaba 15 px a 360 px (pestañas), sin h1, cifras con un decimal o sin decimales y «hoy» del equipo | Después de traer develop (R1–R5): `EncabezadoPagina` con h1 y fuente, pestañas que parten en celular, `celda()`, `segundos()` y `tamano()` con `cifra()` (dos decimales también en enteros: «1200,00»), «hoy» y el año de «Desde» con `hoyBogota()`, tablas con `TablaAdaptable`. El recorrido de capturas queda limpio en todas las pantallas salvo Mapas (sesión de mapas: sin h1 y salto h3→h5) |
+
+### U5 · Cierre: ESLint, división por rutas, 360 px y guía (2026-10-27)
+
+| N.º | Duda o pendiente | Qué se hizo |
+|---|---|---|
+| UI-49 | **ESLint (UI-17):** el frontend no tenía linter | ESLint 9 con `typescript-eslint`, `react-hooks` y `jsx-a11y` (versiones exactas publicadas hace más de dos semanas; jsx-a11y aún no admite ESLint 10). `npm run lint` y paso en `ci/frontend.sh`. Dos excepciones documentadas en el código: `aria-invalid` en el lienzo de la firma (lo usa el foco al primer error) y las dependencias de `useIrAFila`. Queda un aviso en `Mapas.tsx` (sesión de mapas) |
+| UI-50 | **División por rutas:** el paquete principal pesaba unos 930 kB | Todas las pantallas con `React.lazy` salvo Inicio e Ingreso; la espera se muestra dentro de la Plantilla (el menú y la cabecera siguen a la vista). Paquete principal: 548 kB; cada pantalla en su propio archivo |
+| UI-51 | **360 px en todas las pantallas y motores** | `responsivo-360.spec.ts`: el administrador recorre todo su menú a 360 px y ninguna pantalla desborda a lo ancho, en cada motor (y en Chrome y Edge con `DIGSA_E2E_CANALES`) |
+| UI-52 | **Opera (UI-1)** | Sigue sin instalarse en el equipo de desarrollo; documentado en `docs/guia_interfaz.md` (mismo motor que Chrome y Edge, canal si se instala) |
+| UI-53 | **Guía para las otras sesiones** | `docs/guia_interfaz.md`: tokens LUME, componentes compartidos, formato, validación, responsive, accesibilidad, pruebas y navegadores |

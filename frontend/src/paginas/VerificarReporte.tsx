@@ -71,7 +71,7 @@ export function VerificarReporte() {
       </Text>
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Card withBorder>
-          <Title order={5} mb="xs">
+          <Title order={2} size="h5" mb="xs">
             Por archivo
           </Title>
           <form
@@ -108,7 +108,7 @@ export function VerificarReporte() {
           )}
         </Card>
         <Card withBorder>
-          <Title order={5} mb="xs">
+          <Title order={2} size="h5" mb="xs">
             Por código de verificación
           </Title>
           <form

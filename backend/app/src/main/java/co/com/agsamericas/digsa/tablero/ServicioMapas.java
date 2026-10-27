@@ -129,6 +129,18 @@ public class ServicioMapas {
         return r;
     }
 
+    /**
+     * Capitales departamentales para el mapa político: el municipio DANE terminado en 001 de cada departamento, con su latitud y
+     * longitud. Cundinamarca es la excepción: su 001 es Agua de Dios y su capital es Bogotá (11001), que ya está.
+     */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> capitales() {
+        return jdbc.sql("""
+                SELECT codigo, nombre, departamento, latitud, longitud FROM par_municipios
+                WHERE codigo LIKE '__001' AND codigo <> '25001' AND latitud IS NOT NULL AND longitud IS NOT NULL ORDER BY codigo""")
+                .query().listOfRows();
+    }
+
     private static Map<String, Long> conteos(List<String> estados) {
         Map<String, Long> m = new LinkedHashMap<>();
         estados.forEach(e -> m.put(e, 0L));

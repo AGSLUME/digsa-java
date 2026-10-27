@@ -5,7 +5,6 @@ import {
   INTERVALO_SONDEO_MS,
   intervaloSondeo,
   NOMBRE_ESTADO,
-  numero,
   rutaDescarga,
   rutaSoportesOpl,
   soportesOplDeVisita,
@@ -46,14 +45,15 @@ describe('sondeo', () => {
 });
 
 describe('tamaño legible', () => {
-  it('bytes, KB, MB y GB con coma decimal', () => {
+  it('bytes, KB, MB y GB con 2 decimales y coma decimal', () => {
     expect(tamanoLegible(0)).toBe('0 B');
     expect(tamanoLegible(512)).toBe('512 B');
-    expect(tamanoLegible(1024)).toBe('1 KB');
-    expect(tamanoLegible(1536)).toBe('1,5 KB');
-    expect(tamanoLegible(5 * 1024 * 1024)).toBe('5 MB');
-    expect(tamanoLegible(2.34 * 1024 ** 3)).toBe('2,3 GB');
-    expect(tamanoLegible(1023.9 * 1024)).toBe('1023,9 KB');
+    expect(tamanoLegible(1024)).toBe('1,00 KB');
+    expect(tamanoLegible(1536)).toBe('1,50 KB');
+    expect(tamanoLegible(5 * 1024 * 1024)).toBe('5,00 MB');
+    expect(tamanoLegible(2.5 * 1024 ** 3)).toBe('2,50 GB');
+    expect(tamanoLegible(1023.9 * 1024)).toBe('1023,90 KB');
+    expect(tamanoLegible(1500 * 1024 ** 4)).toBe('1500,00 TB');
   });
 
   it('sin dato o inválido, una raya', () => {
@@ -65,12 +65,6 @@ describe('tamaño legible', () => {
 });
 
 describe('otros', () => {
-  it('número con separador de miles', () => {
-    expect(numero(1234567)).toBe('1.234.567');
-    expect(numero(999)).toBe('999');
-    expect(numero(null)).toBe('—');
-  });
-
   it('rutas de descarga', () => {
     expect(rutaDescarga(7)).toBe('/api/exportacion/7/descarga');
     expect(rutaSoportesOpl(12)).toBe('/api/hallazgos/12/soportes-opl.zip');

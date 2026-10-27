@@ -206,8 +206,9 @@ test('Seguimiento: programación automática, hallazgo anterior, prórroga con j
     await expect(filaP).toHaveCount(1);
     await expect(filaP).toContainText(item);
     await expect(filaP).toContainText(JUSTIFICACION);
-    await expect(filaP).toContainText(dentroDe(30));
-    await expect(filaP).toContainText(dentroDe(45));
+    // Fechas en pantalla como dd/mm/aaaa (decisión UI-3)
+    await expect(filaP).toContainText(dentroDe(30).split('-').reverse().join('/'));
+    await expect(filaP).toContainText(dentroDe(45).split('-').reverse().join('/'));
     p.once('dialog', (d) => d.accept());
     await filaP.getByRole('button', { name: /^Aprobar la prórroga/ }).click();
     await expect(p.getByText(mensaje)).toBeVisible();
@@ -216,7 +217,7 @@ test('Seguimiento: programación automática, hallazgo anterior, prórroga con j
   const co = await decidir(coord.usuario, /falta la de la DIGSA/);
   const filaCoord = co.p.getByTestId('tabla-prorrogas').getByRole('row').filter({ hasText: numeroSeguimiento });
   await expect(filaCoord.getByTestId('decision-coord')).toContainText('Aprobó');
-  await expect(filaCoord.getByTestId('decision-coord')).toContainText(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
+  await expect(filaCoord.getByTestId('decision-coord')).toContainText(/\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}/);
   await expect(filaCoord.getByRole('button', { name: /^Aprobar/ })).toHaveCount(0);
   await expect(filaCoord).toContainText('Solicitada');
   await salir(co.p);
@@ -242,7 +243,7 @@ test('Seguimiento: programación automática, hallazgo anterior, prórroga con j
   // La fecha del siguiente seguimiento es la fecha fin solicitada o el siguiente día hábil
   await expect(visita.getByTestId('siguiente')).not.toContainText('ninguna programada');
   await expect(visita.getByTestId('tabla-hallazgos')).toContainText(item);
-  await expect(visita.getByTestId('tabla-hallazgos')).toContainText(dentroDe(45));
+  await expect(visita.getByTestId('tabla-hallazgos')).toContainText(dentroDe(45).split('-').reverse().join('/'));
   // La visita de origen ya tiene un seguimiento cerrado: no se lista
   await expect(prestador.getByTestId('visita-hallazgos-' + numero)).toHaveCount(0);
   // La DIGSA consulta: no abre el checklist ni es líder

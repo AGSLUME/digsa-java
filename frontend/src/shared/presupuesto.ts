@@ -2,6 +2,8 @@
  * Presupuesto del contrato de medicamentos (docs/especificaciones/presupuesto): tipos de la API y reglas del formulario. El servidor
  * valida todo de nuevo; aquí solo se evita enviar lo que de seguro se rechaza.
  */
+import { cifra, conteo, fechaHora } from './formato';
+
 export interface Vigencia {
   id: number;
   anio: number;
@@ -230,46 +232,75 @@ export function sumaMontos(montos: string[]): string {
 
 /** El motivo por el que la novedad no se puede enviar, o null si está lista. */
 export function problemaNovedad(f: FormNovedad, exigenFuerza: ReadonlySet<string> = new Set()): string | null {
-  if (!f.vigenciaId) return 'Seleccione la vigencia.';
+  return Object.values(erroresNovedad(f, exigenFuerza))[0] ?? null;
+}
+
+/** Campo de una línea de la novedad para marcarlo: «filas.0.valor». */
+export function campoFila(i: number, campo: keyof FilaNovedad): string {
+  return `filas.${i}.${campo}`;
+}
+
+/**
+ * Las reglas de problemaNovedad campo por campo, para poner cada mensaje junto a su campo: vigenciaId, soporte, observacion, porcentaje,
+ * filas.N.puntoId|modalidad|fuerza|valor y «filas» (lo que no es de un solo campo: sin líneas, rebalanceo de dos, suma de la
+ * recomposición). Van en el orden en que se revisan: el primero es el de problemaNovedad. Las comparaciones entre líneas (repetida,
+ * origen igual al destino, suma) solo se hacen con las líneas completas, como antes.
+ */
+export function erroresNovedad(f: FormNovedad, exigenFuerza: ReadonlySet<string> = new Set()): Record<string, string> {
+  const e: Record<string, string> = {};
+  if (!f.vigenciaId) e.vigenciaId = 'Seleccione la vigencia.';
   const soporte = f.soporte.trim();
-  if (!soporte) return 'El soporte de la DIGSA es obligatorio.';
-  if (soporte.length < 5 || soporte.length > 300) return 'El soporte de la DIGSA debe tener entre 5 y 300 caracteres.';
-  if (f.observacion.trim().length > 1000) return 'La observación tiene máximo 1000 caracteres.';
+  if (!soporte) e.soporte = 'El soporte de la DIGSA es obligatorio.';
+  else if (soporte.length < 5 || soporte.length > 300) e.soporte = 'El soporte de la DIGSA debe tener entre 5 y 300 caracteres.';
+  if (f.observacion.trim().length > 1000) e.observacion = 'La observación tiene máximo 1000 caracteres.';
   if (f.tipo === 'reajuste' && f.porPorcentaje) {
     const p = leerMonto(f.porcentaje);
-    if (p === null || centavos(p) === 0n) return 'Escriba el porcentaje del reajuste (distinto de 0, con máximo 2 decimales).';
-    if (centavos(p) < -10000n || centavos(p) > 100000n) return 'El porcentaje del reajuste debe estar entre -100 y 1000.';
-    return null;
+    if (p === null || centavos(p) === 0n) e.porcentaje = 'Escriba el porcentaje del reajuste (distinto de 0, con máximo 2 decimales).';
+    else if (centavos(p) < -10000n || centavos(p) > 100000n) e.porcentaje = 'El porcentaje del reajuste debe estar entre -100 y 1000.';
+    return e;
   }
-  if (f.filas.length === 0) return 'Agregue al menos una línea.';
+  if (f.filas.length === 0) {
+    e.filas = 'Agregue al menos una línea.';
+    return e;
+  }
   const claves = new Set<string>();
   const montos: string[] = [];
+  const conSigno = f.tipo === 'reajuste' || f.tipo === 'recomposicion';
+  let completas = true;
   for (const [i, fila] of f.filas.entries()) {
     const n = i + 1;
-    if (!fila.puntoId) return `Línea ${n}: seleccione el ESM.`;
-    if (!fila.modalidad) return `Línea ${n}: seleccione la modalidad.`;
-    if (exigenFuerza.has(fila.puntoId) && !fila.fuerza) return `Línea ${n}: seleccione la fuerza de adscripción.`;
+    const antes = Object.keys(e).length;
+    if (!fila.puntoId) e[campoFila(i, 'puntoId')] = `Línea ${n}: seleccione el ESM.`;
+    if (!fila.modalidad) e[campoFila(i, 'modalidad')] = `Línea ${n}: seleccione la modalidad.`;
+    if (exigenFuerza.has(fila.puntoId) && !fila.fuerza) e[campoFila(i, 'fuerza')] = `Línea ${n}: seleccione la fuerza de adscripción.`;
     const m = leerMonto(fila.valor);
-    if (m === null) return `Línea ${n}: el valor no es un monto en pesos con máximo 2 decimales.`;
-    const c = centavos(m);
-    const conSigno = f.tipo === 'reajuste' || f.tipo === 'recomposicion';
-    if (conSigno ? c === 0n : c <= 0n) return `Línea ${n}: el valor debe ser ${conSigno ? 'distinto de 0' : 'mayor que 0'}.`;
+    if (m === null) e[campoFila(i, 'valor')] = `Línea ${n}: el valor no es un monto en pesos con máximo 2 decimales.`;
+    else if (conSigno ? centavos(m) === 0n : centavos(m) <= 0n)
+      e[campoFila(i, 'valor')] = `Línea ${n}: el valor debe ser ${conSigno ? 'distinto de 0' : 'mayor que 0'}.`;
+    if (Object.keys(e).length > antes || m === null) {
+      completas = false;
+      continue;
+    }
     const clave = `${fila.puntoId}|${fila.modalidad}|${fila.fuerza}`;
-    if (claves.has(clave))
-      return f.tipo === 'rebalanceo' ? 'El origen y el destino deben ser líneas distintas.' : `Línea ${n}: la línea está repetida.`;
+    if (claves.has(clave)) {
+      e[campoFila(i, 'puntoId')] = f.tipo === 'rebalanceo' ? 'El origen y el destino deben ser líneas distintas.' : `Línea ${n}: la línea está repetida.`;
+      completas = false;
+      continue;
+    }
     claves.add(clave);
     montos.push(m);
   }
+  if (!completas) return e;
   if (f.tipo === 'rebalanceo') {
-    if (f.filas.length !== 2) return 'El rebalanceo va de una línea de origen a una de destino.';
-    if (montos[0] !== montos[1]) return 'El valor del origen y el del destino deben ser iguales.';
+    if (f.filas.length !== 2) e.filas = 'El rebalanceo va de una línea de origen a una de destino.';
+    else if (montos[0] !== montos[1]) e[campoFila(1, 'valor')] = 'El valor del origen y el del destino deben ser iguales.';
   }
   if (f.tipo === 'recomposicion') {
-    if (f.filas.length < 2) return 'La recomposición redistribuye al menos dos líneas.';
     const suma = sumaMontos(montos);
-    if (suma !== '0,00') return `La recomposición debe sumar 0,00 (suma ${suma}).`;
+    if (f.filas.length < 2) e.filas = 'La recomposición redistribuye al menos dos líneas.';
+    else if (suma !== '0,00') e.filas = `La recomposición debe sumar 0,00 (suma ${suma}).`;
   }
-  return null;
+  return e;
 }
 
 /** Cuerpo de «datos» para POST /api/presupuesto/novedades (los montos van como texto con punto decimal: el servidor los lee como BigDecimal). */
@@ -295,6 +326,14 @@ export function etiquetaPunto(p: { sigla: string | null; nombre: string }): stri
 /** El ESM es HOMIL (fuerza «NA»): la línea exige la fuerza de adscripción. */
 export function exigeFuerza(p: PuntoEsm | undefined): boolean {
   return p?.fuerza === 'NA';
+}
+
+/** Nombre accesible de los botones de una paginación de Mantine (getControlProps), que por omisión no lo tienen. */
+export { controlPagina } from './paginacion';
+
+/** Nombre accesible del botón que limpia un campo con opción de borrar (clearButtonProps). */
+export function botonQuitar(campo: string): { 'aria-label': string } {
+  return { 'aria-label': `Quitar ${campo}` };
 }
 
 export function colorSemaforo(s: string): string {
@@ -376,20 +415,28 @@ export interface FormEjecucion {
 
 /** El motivo por el que el registro manual de ejecución no se puede enviar, o null. */
 export function problemaEjecucion(f: FormEjecucion, exigenFuerza: ReadonlySet<string> = new Set()): string | null {
-  if (!f.vigenciaId) return 'Seleccione la vigencia.';
-  if (!f.puntoId) return 'Seleccione el ESM.';
-  if (!f.modalidad) return 'Seleccione la modalidad.';
-  if (exigenFuerza.has(f.puntoId) && !f.fuerza) return 'Seleccione la fuerza de adscripción.';
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(f.periodo)) return 'Seleccione el mes (AAAA-MM).';
+  return Object.values(erroresEjecucion(f, exigenFuerza))[0] ?? null;
+}
+
+/** Las reglas de problemaEjecucion campo por campo (los campos de FormEjecucion), en el mismo orden: el primero es el de problemaEjecucion. */
+export function erroresEjecucion(f: FormEjecucion, exigenFuerza: ReadonlySet<string> = new Set()): Partial<Record<keyof FormEjecucion, string>> {
+  const e: Partial<Record<keyof FormEjecucion, string>> = {};
+  if (!f.vigenciaId) e.vigenciaId = 'Seleccione la vigencia.';
+  if (!f.puntoId) e.puntoId = 'Seleccione el ESM.';
+  if (!f.modalidad) e.modalidad = 'Seleccione la modalidad.';
+  if (exigenFuerza.has(f.puntoId) && !f.fuerza) e.fuerza = 'Seleccione la fuerza de adscripción.';
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(f.periodo)) e.periodo = 'Seleccione el mes (AAAA-MM).';
   const fac = leerMonto(f.facturado);
-  if (fac === null || fac.startsWith('-')) return 'El facturado debe ser un valor en pesos mayor o igual a 0, con máximo 2 decimales.';
+  const facBien = fac !== null && !fac.startsWith('-');
+  if (!facBien) e.facturado = 'El facturado debe ser un valor en pesos mayor o igual a 0, con máximo 2 decimales.';
   if (f.reconocido.trim()) {
     const rec = leerMonto(f.reconocido);
-    if (rec === null || rec.startsWith('-')) return 'El reconocido debe ser un valor en pesos mayor o igual a 0, con máximo 2 decimales.';
-    if (centavos(rec) > centavos(fac)) return `El reconocido (${mostrarMonto(rec)}) no puede superar el facturado (${mostrarMonto(fac)}).`;
+    if (rec === null || rec.startsWith('-')) e.reconocido = 'El reconocido debe ser un valor en pesos mayor o igual a 0, con máximo 2 decimales.';
+    else if (fac !== null && facBien && centavos(rec) > centavos(fac))
+      e.reconocido = `El reconocido (${mostrarMonto(rec)}) no puede superar el facturado (${mostrarMonto(fac)}).`;
   }
-  if (f.referencia.trim().length > 120) return 'La referencia tiene máximo 120 caracteres.';
-  return null;
+  if (f.referencia.trim().length > 120) e.referencia = 'La referencia tiene máximo 120 caracteres.';
+  return e;
 }
 
 export function cuerpoEjecucion(f: FormEjecucion) {
@@ -550,6 +597,21 @@ export interface ReportePresupuesto {
   columnas: string[];
   total: number;
   filas: (string | number | null)[][];
+}
+
+/** Fechas ISO dentro de un texto del servidor («Periodo: 2027-01-01 a 2027-12-31») en dd/mm/aaaa (UI-3); los meses «AAAA-MM» quedan. */
+export function fechasEnTexto(texto: string): string {
+  return texto.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, '$3/$2/$1');
+}
+
+/**
+ * Celda del reporte en pantalla: una fecha o fecha y hora ISO en dd/mm/aaaa [HH:mm]; un número entero como conteo y uno con decimales
+ * con 2 decimales; lo demás (los montos que el servidor ya formatea, los meses «AAAA-MM») igual.
+ */
+export function celdaReporte(c: string | number | null): string {
+  if (c === null) return '';
+  if (typeof c === 'number') return Number.isInteger(c) ? conteo(c) : cifra(c);
+  return /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?$/.test(c) ? fechaHora(c) : c;
 }
 
 /** Parámetros del reporte: solo los filtros que aplican al tipo y tienen valor, en un orden fijo. */

@@ -20,9 +20,10 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { api, descargar, ErrorApi, subirArchivos } from './api';
 import { tamanoLegible } from './checklist';
+import { fecha, fechaHora } from './formato';
 import {
   COLOR_ESTADO,
   conAvisoFallido,
@@ -30,8 +31,9 @@ import {
   DIAS_OBJECIONES,
   DIAS_PLAN,
   editaQuienComo,
-  errorFirmaPlan,
-  errorRespuesta,
+  erroresFirmaPlan,
+  erroresQuienComo,
+  erroresRespuesta,
   faltanQuienComo,
   MAX_SOPORTES,
   NOMBRE_ESTADO,
@@ -53,6 +55,10 @@ import {
 } from './opl';
 import { PanelFirma } from './PanelFirma';
 import { EncabezadoPagina } from './EncabezadoPagina';
+import { useValidacion, type Validacion } from './validacion';
+
+/** Aviso de un error de petición dentro de una sección (cada sección tiene su resumen de errores). */
+type AvisarCon = (v: Validacion) => (e: unknown, texto: string) => void;
 
 interface Mensaje {
   mensaje: string;
@@ -124,13 +130,28 @@ function Contenido({
     qc.invalidateQueries({ queryKey: clave });
     qc.invalidateQueries({ queryKey: ['opl', 'lista'] });
   };
-  // Verificación vencida (403) o sesión del QR vencida (401): el padre reabre y pide el código sin desmontar lo escrito
-  const avisarError = (e: unknown, texto: string) => {
+  // Verificación vencida (403) o sesión del QR vencida (401): el padre reabre y pide el código sin desmontar lo escrito. Ese aviso
+  // sigue en naranja (no es un error de lo diligenciado: el diálogo pide el código); los demás quedan fijos en el resumen de la sección.
+  const avisarCon: AvisarCon = (v) => (e, texto) => {
     const otraVez = pideReverificar(e) || pideReabrir(e);
     if (otraVez) alReverificar?.();
     if (pideRefrescar(e)) refrescar();
-    notifications.show({ color: otraVez ? 'orange' : 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : texto });
+    if (otraVez) notifications.show({ color: 'orange', autoClose: 10000, message: e instanceof ErrorApi ? e.message : texto });
+    else v.errorServidor(e, texto);
   };
+  const vActa = useValidacion({ testid: 'error-acta-opl' });
+  const vResp = useValidacion({
+    etiquetas: {
+      nombre: 'Nombre de quien responde',
+      cargo: 'Cargo de quien responde',
+      ...Object.fromEntries(d.hallazgos.flatMap((h) => [['decision-' + h.codigo, 'Respuesta de ' + h.codigo], ['justificacion-' + h.codigo, 'Justificación de ' + h.codigo]])),
+    },
+    testid: 'error-respuesta-opl',
+  });
+  const vPlan = useValidacion({
+    etiquetas: Object.fromEntries(d.hallazgos.flatMap((h) => [['quien-' + h.codigo, 'Quién de ' + h.codigo], ['como-' + h.codigo, 'Cómo de ' + h.codigo]])),
+    testid: 'error-plan-opl',
+  });
 
   const responder = useMutation({
     mutationFn: (c: { clave: string; decision: 'acepta' | 'objeta'; justificacion: string | null; nombre: string; cargo: string }) =>
@@ -142,16 +163,22 @@ function Contenido({
         message: r.mensaje,
       });
       setRespuestas((x) => Object.fromEntries(Object.entries(x).filter(([k]) => k !== c.clave)));
+      vResp.reiniciar();
       refrescar();
     },
-    onError: (e) => avisarError(e, 'No se pudo guardar la respuesta.'),
+    onError: (e) => avisarCon(vResp)(e, 'No se pudo guardar la respuesta.'),
   });
 
   const cambiadosPlan = quienComoCambiados(d.hallazgos, quienComo);
+  // Tras guardar con vacíos (el guardado parcial es válido), cada campo vacío lo dice en tono neutro: sin sonido, foco ni resumen
+  const [mostrarVacios, setMostrarVacios] = useState(false);
+  const vacios = mostrarVacios ? erroresQuienComo(d, quienComo) : {};
   const guardarPlan = useMutation({
     mutationFn: (filas: typeof cambiadosPlan) => api<Mensaje & { faltan: string[] }>(`${base}/plan`, { metodo: 'PUT', cuerpo: { filas } }),
     onSuccess: (r, filas) => {
       notifications.show({ color: r.faltan.length === 0 ? 'green' : 'orange', autoClose: 8000, message: r.mensaje });
+      vPlan.reiniciar();
+      setMostrarVacios(r.faltan.length > 0);
       // Solo se descarta lo que sigue igual a lo enviado: lo escrito mientras se guardaba se conserva
       const enviadas = new Map(filas.map((f) => [f.clave, f]));
       setQuienComo((x) =>
@@ -164,7 +191,7 @@ function Contenido({
       );
       refrescar();
     },
-    onError: (e) => avisarError(e, 'No se pudo guardar el plan.'),
+    onError: (e) => avisarCon(vPlan)(e, 'No se pudo guardar el plan.'),
   });
 
   const firmado = planFirmado(d.plan);
@@ -197,78 +224,97 @@ function Contenido({
           variant="light"
           data-testid="descargar-acta-opl"
           disabled={!d.actaArchivoId}
-          onClick={() => descargar(`${base}/acta`).catch((e: unknown) => avisarError(e, 'No se pudo descargar el acta.'))}
+          onClick={() => {
+            vActa.reiniciar();
+            descargar(`${base}/acta`).catch((e: unknown) => avisarCon(vActa)(e, 'No se pudo descargar el acta.'));
+          }}
         >
           Descargar el acta
         </Button>
         <Text size="sm" c="dimmed">
-          Acta enviada el {d.enviado}.
+          {d.actaArchivoId ? `Acta enviada el ${fechaHora(d.enviado)}.` : `Acta enviada el ${fechaHora(d.enviado)}. El archivo del acta aún no está disponible para descargar.`}
         </Text>
       </Group>
+      {vActa.resumen}
 
-      {respondibles && (
-        <Card withBorder data-testid="quien-responde">
-          <Title order={5} mb="xs">
-            Quién responde
-          </Title>
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
-            <TextInput
-              label="Nombre de quien responde"
-              required
-              minLength={3}
-              maxLength={150}
-              value={nombre}
-              onChange={(e) => setNombre(e.currentTarget.value)}
-            />
-            <TextInput
-              label="Cargo de quien responde"
-              required
-              minLength={2}
-              maxLength={150}
-              value={cargo}
-              onChange={(e) => setCargo(e.currentTarget.value)}
-            />
-          </SimpleGrid>
-          <Text size="xs" c="dimmed" mt={4}>
-            Queda con cada respuesta. Puede cambiar su respuesta hasta que el auditor líder decida la objeción.
-          </Text>
-        </Card>
-      )}
-
-      <Stack gap="sm">
-        <Title order={4}>Hallazgos</Title>
-        {d.hallazgos.length === 0 && (
-          <Text size="sm" c="dimmed">
-            El acta no tiene hallazgos.
-          </Text>
+      <Stack ref={vResp.ref}>
+        {vResp.resumen}
+        {respondibles && (
+          <Card withBorder data-testid="quien-responde">
+            <Title order={5} mb="xs">
+              Quién responde
+            </Title>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
+              <TextInput
+                label="Nombre de quien responde"
+                required
+                minLength={3}
+                maxLength={150}
+                value={nombre}
+                error={vResp.error('nombre')}
+                onChange={(e) => {
+                  setNombre(e.currentTarget.value);
+                  vResp.limpiar('nombre');
+                }}
+              />
+              <TextInput
+                label="Cargo de quien responde"
+                required
+                minLength={2}
+                maxLength={150}
+                value={cargo}
+                error={vResp.error('cargo')}
+                onChange={(e) => {
+                  setCargo(e.currentTarget.value);
+                  vResp.limpiar('cargo');
+                }}
+              />
+            </SimpleGrid>
+            <Text size="xs" c="dimmed" mt={4}>
+              Queda con cada respuesta. Puede cambiar su respuesta hasta que el auditor líder decida la objeción.
+            </Text>
+          </Card>
         )}
-        {d.hallazgos.map((h) => (
-          <Hallazgo
-            key={h.clave}
-            base={base}
-            d={d}
-            h={h}
-            edicion={respuestas[h.clave]}
-            alEditar={(e) => setRespuestas((x) => ({ ...x, [h.clave]: e }))}
-            pendiente={responder.isPending}
-            alResponder={(e) => {
-              const error = errorRespuesta(e.decision, e.justificacion, nombre, cargo);
-              if (error) {
-                notifications.show({ color: 'orange', autoClose: 10000, message: error });
-                return;
-              }
-              responder.mutate({
-                clave: h.clave,
-                decision: e.decision!,
-                justificacion: e.decision === 'objeta' ? e.justificacion.trim() : null,
-                nombre: nombre.trim(),
-                cargo: cargo.trim(),
-              });
-            }}
-            alSubir={refrescar}
-            avisarError={avisarError}
-          />
-        ))}
+  
+        <Stack gap="sm">
+          <Title order={4}>Hallazgos</Title>
+          {d.hallazgos.length === 0 && (
+            <Text size="sm" c="dimmed">
+              El acta no tiene hallazgos.
+            </Text>
+          )}
+          {d.hallazgos.map((h) => (
+            <Hallazgo
+              key={h.clave}
+              base={base}
+              d={d}
+              h={h}
+              edicion={respuestas[h.clave]}
+              alEditar={(e) => setRespuestas((x) => ({ ...x, [h.clave]: e }))}
+              pendiente={responder.isPending}
+              v={vResp}
+              alResponder={(e) => {
+                const x = erroresRespuesta(e.decision, e.justificacion, nombre, cargo);
+                const ok = vResp.validar({
+                  nombre: x.nombre,
+                  cargo: x.cargo,
+                  ['decision-' + h.codigo]: x.decision,
+                  ['justificacion-' + h.codigo]: x.justificacion,
+                });
+                if (!ok) return;
+                responder.mutate({
+                  clave: h.clave,
+                  decision: e.decision!,
+                  justificacion: e.decision === 'objeta' ? e.justificacion.trim() : null,
+                  nombre: nombre.trim(),
+                  cargo: cargo.trim(),
+                });
+              }}
+              alSubir={refrescar}
+              avisarCon={avisarCon}
+            />
+          ))}
+        </Stack>
       </Stack>
 
       <Card withBorder data-testid="plan-opl">
@@ -283,7 +329,7 @@ function Contenido({
             Aún no hay hallazgos que vayan al plan.
           </Text>
         ) : (
-          <Stack gap="sm">
+          <Stack gap="sm" ref={vPlan.ref}>
             {alPlan.map((h) => {
               const v = valorQuienComo(h, quienComo);
               const editable = editaQuienComo(d, h);
@@ -302,9 +348,12 @@ function Contenido({
                       maxLength={200}
                       readOnly={!editable}
                       value={v.quien}
+                      description={vPlan.error('quien-' + h.codigo) === undefined ? vacios['quien-' + h.codigo] : undefined}
+                      error={vPlan.error('quien-' + h.codigo)}
                       onChange={(e) => {
                         const valor = e.currentTarget.value;
                         setQuienComo((x) => ({ ...x, [h.clave]: { ...v, quien: valor } }));
+                        vPlan.limpiar('quien-' + h.codigo);
                       }}
                     />
                     <Textarea
@@ -315,27 +364,41 @@ function Contenido({
                       maxLength={4000}
                       readOnly={!editable}
                       value={v.como}
+                      description={vPlan.error('como-' + h.codigo) === undefined ? vacios['como-' + h.codigo] : undefined}
+                      error={vPlan.error('como-' + h.codigo)}
                       onChange={(e) => {
                         const valor = e.currentTarget.value;
                         setQuienComo((x) => ({ ...x, [h.clave]: { ...v, como: valor } }));
+                        vPlan.limpiar('como-' + h.codigo);
                       }}
                     />
                   </SimpleGrid>
                 </Paper>
               );
             })}
-            {faltan.length > 0 && (
-              <Text size="sm" c="orange">
+            {/* Lo que falta es informativo: se puede guardar por partes; al guardar, los campos vacíos quedan marcados */}
+            {faltan.length > 0 && !vPlan.hayErrores && (
+              <Text size="sm" c="dimmed">
                 Falta quién y cómo de: {faltan.join(', ')}.
               </Text>
             )}
+            {vPlan.resumen}
             {alPlan.some((h) => editaQuienComo(d, h)) && (
-              <Group justify="flex-end">
+              <Group justify="flex-end" gap="xs">
+                {cambiadosPlan.length === 0 && (
+                  <Text size="sm" c="dimmed">
+                    Sin cambios por guardar.
+                  </Text>
+                )}
                 <Button
                   data-testid="guardar-quien-como"
                   disabled={cambiadosPlan.length === 0}
                   loading={guardarPlan.isPending}
-                  onClick={() => guardarPlan.mutate(cambiadosPlan)}
+                  onClick={() => {
+                    // Guardado parcial: el servidor lo admite y responde qué falta (se muestra como información, no como error)
+                    vPlan.reiniciar();
+                    guardarPlan.mutate(cambiadosPlan);
+                  }}
                 >
                   Guardar quién y cómo
                 </Button>
@@ -351,7 +414,7 @@ function Contenido({
         firmado={firmado}
         sinGuardar={cambiadosPlan.length > 0 || Object.keys(respuestas).length > 0}
         alFirmar={refrescar}
-        avisarError={avisarError}
+        avisarCon={avisarCon}
       />
     </Stack>
   );
@@ -395,9 +458,10 @@ function Hallazgo({
   edicion,
   alEditar,
   pendiente,
+  v,
   alResponder,
   alSubir,
-  avisarError,
+  avisarCon,
 }: {
   base: string;
   d: DetalleOpl;
@@ -405,11 +469,14 @@ function Hallazgo({
   edicion: EdicionRespuesta | undefined;
   alEditar: (e: EdicionRespuesta) => void;
   pendiente: boolean;
+  v: Validacion;
   alResponder: (e: EdicionRespuesta) => void;
   alSubir: () => void;
-  avisarError: (e: unknown, texto: string) => void;
+  avisarCon: AvisarCon;
 }) {
   const valor = edicion ?? { decision: h.decision, justificacion: h.justificacion ?? '' };
+  // Sin cambios sobre una respuesta ya guardada no hay qué enviar; sin respuesta, el botón queda habilitado y al pulsarlo dice qué falta
+  const sinCambios = !edicion && !!valor.decision;
   const responde = puedeResponder(d, h);
   const p = h.planAuditor;
   return (
@@ -442,8 +509,8 @@ function Hallazgo({
           <Dato titulo="Qué">{p.que ?? '—'}</Dato>
           <Dato titulo="Por qué">{p.porque ?? '—'}</Dato>
           <Dato titulo="Dónde">{p.donde ?? '—'}</Dato>
-          <Dato titulo="Inicio">{p.inicio ?? '—'}</Dato>
-          <Dato titulo="Fin">{p.fin ?? '—'}</Dato>
+          <Dato titulo="Inicio">{fecha(p.inicio)}</Dato>
+          <Dato titulo="Fin">{fecha(p.fin)}</Dato>
           <Dato titulo="Indicador">{p.indicador ?? '—'}</Dato>
           <Dato titulo="Estado">{p.estado}</Dato>
         </SimpleGrid>
@@ -455,7 +522,11 @@ function Hallazgo({
             label="Respuesta"
             data-testid={'respuesta-' + h.codigo}
             value={valor.decision ?? ''}
-            onChange={(x) => alEditar({ ...valor, decision: (x || null) as EdicionRespuesta['decision'] })}
+            error={v.error('decision-' + h.codigo)}
+            onChange={(x) => {
+              alEditar({ ...valor, decision: (x || null) as EdicionRespuesta['decision'] });
+              v.limpiar('decision-' + h.codigo);
+            }}
           >
             <Group gap="md" mt={4}>
               <Radio value="acepta" label="Acepto el hallazgo" />
@@ -472,14 +543,23 @@ function Hallazgo({
               minRows={3}
               maxLength={4000}
               value={valor.justificacion}
-              onChange={(e) => alEditar({ ...valor, justificacion: e.currentTarget.value })}
+              error={v.error('justificacion-' + h.codigo)}
+              onChange={(e) => {
+                alEditar({ ...valor, justificacion: e.currentTarget.value });
+                v.limpiar('justificacion-' + h.codigo);
+              }}
             />
           )}
-          <Group justify="flex-end">
+          <Group justify="flex-end" gap="xs">
+            {sinCambios && (
+              <Text size="sm" c="dimmed">
+                Sin cambios por guardar.
+              </Text>
+            )}
             <Button
               size="sm"
               data-testid={'guardar-respuesta-' + h.codigo}
-              disabled={!edicion || !valor.decision}
+              disabled={sinCambios}
               loading={pendiente}
               onClick={() => alResponder(valor)}
             >
@@ -512,7 +592,7 @@ function Hallazgo({
           Decisión del auditor líder: {h.resolucion === 'levanta' ? 'levantó el hallazgo' : 'ratificó el hallazgo'}. {h.resolucionMotivo}
         </Alert>
       )}
-      {(h.decision === 'objeta' || h.soportes.length > 0) && <Soportes base={base} d={d} h={h} alSubir={alSubir} avisarError={avisarError} />}
+      {(h.decision === 'objeta' || h.soportes.length > 0) && <Soportes base={base} d={d} h={h} alSubir={alSubir} avisarCon={avisarCon} />}
     </Paper>
   );
 }
@@ -523,29 +603,34 @@ function Soportes({
   d,
   h,
   alSubir,
-  avisarError,
+  avisarCon,
 }: {
   base: string;
   d: DetalleOpl;
   h: HallazgoOpl;
   alSubir: () => void;
-  avisarError: (e: unknown, texto: string) => void;
+  avisarCon: AvisarCon;
 }) {
   const entrada = useRef<HTMLInputElement>(null);
+  const idError = useId();
   const [elegidos, setElegidos] = useState<File[]>([]);
   const quedan = MAX_SOPORTES - h.soportes.length;
+  const v = useValidacion({ etiquetas: { archivos: 'Soportes de la objeción de ' + h.codigo }, testid: 'error-soportes-' + h.codigo });
+  const avisarError = avisarCon(v);
   const subir = useMutation({
     mutationFn: (files: File[]) => subirArchivos<Mensaje>(`${base}/soportes`, { clave: h.clave }, files),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
       setElegidos([]);
       if (entrada.current) entrada.current.value = '';
+      v.reiniciar();
       alSubir();
     },
     onError: (e) => avisarError(e, 'No se pudieron subir los soportes.'),
   });
+  const errorArchivos = v.error('archivos');
   return (
-    <Stack gap={4} mt="xs" data-testid={'soportes-' + h.codigo}>
+    <Stack gap={4} mt="xs" data-testid={'soportes-' + h.codigo} ref={v.ref}>
       <Text size="sm" fw={500}>
         Soportes de la objeción
       </Text>
@@ -583,25 +668,44 @@ function Soportes({
               type="file"
               multiple
               aria-label={'Soportes de la objeción de ' + h.codigo}
+              aria-invalid={errorArchivos ? true : undefined}
+              aria-describedby={typeof errorArchivos === 'string' ? idError : undefined}
               style={{ maxWidth: '100%', fontSize: 'var(--mantine-font-size-xs)' }}
-              onChange={(e) => setElegidos(Array.from(e.currentTarget.files ?? []))}
+              onChange={(e) => {
+                setElegidos(Array.from(e.currentTarget.files ?? []));
+                v.limpiar('archivos');
+              }}
             />
             <Button
               size="xs"
               variant="light"
               data-testid={'subir-soportes-' + h.codigo}
-              disabled={elegidos.length === 0 || elegidos.length > quedan}
               loading={subir.isPending}
-              onClick={() => subir.mutate(elegidos)}
+              onClick={() => {
+                const error =
+                  elegidos.length === 0
+                    ? 'Elija uno o más archivos.'
+                    : elegidos.length > quedan
+                      ? `Eligió ${elegidos.length} archivos y quedan ${quedan} soportes por subir en este hallazgo.`
+                      : null;
+                if (!v.validar({ archivos: error })) return;
+                subir.mutate(elegidos);
+              }}
             >
               Subir
             </Button>
           </Group>
-          <Text size="xs" c={elegidos.length > quedan ? 'red' : 'dimmed'}>
+          {typeof errorArchivos === 'string' && (
+            <Text id={idError} size="xs" c="red">
+              {errorArchivos}
+            </Text>
+          )}
+          <Text size="xs" c="dimmed">
             Máximo {MAX_SOPORTES} soportes por hallazgo (quedan {quedan}); 25 MB cada uno.
           </Text>
         </>
       )}
+      {v.resumen}
     </Stack>
   );
 }
@@ -612,19 +716,23 @@ function FirmaPlan({
   firmado,
   sinGuardar,
   alFirmar,
-  avisarError,
+  avisarCon,
 }: {
   base: string;
   d: DetalleOpl;
   firmado: boolean;
   sinGuardar: boolean;
   alFirmar: () => void;
-  avisarError: (e: unknown, texto: string) => void;
+  avisarCon: AvisarCon;
 }) {
   const [nombre, setNombre] = useState('');
   const [cargo, setCargo] = useState('');
   const [documento, setDocumento] = useState('');
   const [imagen, setImagen] = useState<string | null>(null);
+  const v = useValidacion({
+    etiquetas: { nombre: 'Nombre de quien firma', cargo: 'Cargo de quien firma', documento: 'Número de documento', imagen: 'Firma' },
+    testid: 'error-firma-plan',
+  });
   const firmar = useMutation({
     mutationFn: () =>
       api<Mensaje>(`${base}/firma`, { metodo: 'POST', cuerpo: { nombre: nombre.trim(), cargo: cargo.trim(), documento: documento.trim(), imagen } }),
@@ -634,12 +742,14 @@ function FirmaPlan({
         autoClose: conAvisoFallido(r.mensaje) ? false : 6000,
         message: r.mensaje,
       });
+      v.reiniciar();
       alFirmar();
     },
-    onError: (e) => avisarError(e, 'No se pudo firmar el plan.'),
+    onError: (e) => avisarCon(v)(e, 'No se pudo firmar el plan.'),
   });
   const sinRespuesta = d.hallazgos.filter((h) => h.estado === 'sin_respuesta').map((h) => h.codigo);
   const porDecidir = objecionesPorDecidir(d.hallazgos);
+  const idEspera = useId();
 
   return (
     <Card withBorder data-testid="firma-plan-opl">
@@ -652,7 +762,7 @@ function FirmaPlan({
             {d.plan.nombre} · {d.plan.cargo}
           </Text>
           <Badge color="green" variant="light">
-            Plan firmado {d.plan.firmado ? String(d.plan.firmado).replace('T', ' ').substring(0, 16) : ''}
+            Plan firmado {d.plan.firmado ? fechaHora(d.plan.firmado) : ''}
           </Badge>
         </Stack>
       ) : d.plan.estado === 'cerrado' ? (
@@ -665,15 +775,15 @@ function FirmaPlan({
         </Text>
       ) : (
         <form
+          ref={v.ref}
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
-            const error = sinGuardar
-              ? 'Guarde las respuestas y el quién y cómo antes de firmar el plan.'
-              : errorFirmaPlan(nombre, cargo, documento, imagen);
-            if (error) {
-              notifications.show({ color: 'orange', autoClose: 10000, message: error });
+            if (sinGuardar) {
+              v.alerta('Guarde las respuestas y el quién y cómo antes de firmar el plan.');
               return;
             }
+            if (!v.validar(erroresFirmaPlan(nombre, cargo, documento, imagen))) return;
             firmar.mutate();
           }}
         >
@@ -696,7 +806,11 @@ function FirmaPlan({
                 minLength={3}
                 maxLength={150}
                 value={nombre}
-                onChange={(e) => setNombre(e.currentTarget.value)}
+                error={v.error('nombre')}
+                onChange={(e) => {
+                  setNombre(e.currentTarget.value);
+                  v.limpiar('nombre');
+                }}
               />
               <TextInput
                 label="Cargo de quien firma"
@@ -704,23 +818,44 @@ function FirmaPlan({
                 minLength={2}
                 maxLength={150}
                 value={cargo}
-                onChange={(e) => setCargo(e.currentTarget.value)}
+                error={v.error('cargo')}
+                onChange={(e) => {
+                  setCargo(e.currentTarget.value);
+                  v.limpiar('cargo');
+                }}
               />
               <TextInput
                 label="Número de documento"
                 required
                 maxLength={30}
                 value={documento}
-                onChange={(e) => setDocumento(e.currentTarget.value)}
+                error={v.error('documento')}
+                onChange={(e) => {
+                  setDocumento(e.currentTarget.value);
+                  v.limpiar('documento');
+                }}
               />
             </SimpleGrid>
-            <PanelFirma alCambiar={setImagen} />
-            <Group justify="flex-end">
+            <PanelFirma
+              error={typeof v.error('imagen') === 'string' ? (v.error('imagen') as string) : undefined}
+              alCambiar={(x) => {
+                setImagen(x);
+                if (x) v.limpiar('imagen');
+              }}
+            />
+            {v.resumen}
+            <Group justify="flex-end" gap="xs">
+              {(sinRespuesta.length > 0 || porDecidir.length > 0) && (
+                <Text size="sm" c="dimmed" id={idEspera}>
+                  Se habilita cuando se cumpla lo indicado arriba.
+                </Text>
+              )}
               <Button
                 type="submit"
                 color="green"
                 data-testid="firmar-plan-opl"
-                disabled={!imagen || sinRespuesta.length > 0 || porDecidir.length > 0}
+                disabled={sinRespuesta.length > 0 || porDecidir.length > 0}
+                aria-describedby={sinRespuesta.length > 0 || porDecidir.length > 0 ? idEspera : undefined}
                 loading={firmar.isPending}
               >
                 Firmar el plan

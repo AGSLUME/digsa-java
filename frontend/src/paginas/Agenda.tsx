@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { FilaVisita, OpcionesAgenda } from '../shared/agenda';
 import { api } from '../shared/api';
-import { CalendarioMes, moverMes, NavegadorMes, rangoMes } from '../shared/CalendarioMes';
+import { CalendarioMes, mesDeIso, moverMes, NavegadorMes, rangoMes } from '../shared/CalendarioMes';
+import { hoyBogota } from '../shared/formato';
 import { FormularioVisita } from '../shared/FormularioVisita';
 import { TablaVisitas } from '../shared/TablaVisitas';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
@@ -12,8 +13,7 @@ import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 /** Agenda del coordinador: visitas del mes en lista o calendario, con alertas de plazos y el formulario para programar. */
 export function Agenda() {
   const navegar = useNavigate();
-  const hoy = new Date();
-  const [mes, setMes] = useState({ anio: hoy.getFullYear(), mes: hoy.getMonth() });
+  const [mes, setMes] = useState(() => mesDeIso(hoyBogota()));
   const [vista, setVista] = useState<'lista' | 'calendario'>('lista');
   const [estado, setEstado] = useState<string | null>(null);
   const [tipo, setTipo] = useState<string | null>(null);

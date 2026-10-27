@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, ingresar, salir, unico } from './apoyo';
+import { ADMIN, filaDeUsuario, ingresar, salir, unico } from './apoyo';
 
 test.afterEach(async ({ page }) => salir(page));
 
@@ -110,7 +110,7 @@ test('contraseña inicial y cierre por el administrador: el usuario la cambia al
   await expect(p2.getByRole('button', { name: 'Salir', exact: true })).toBeVisible();
 
   await page.reload();
-  const fila = page.getByTestId('usuario-' + usuario);
+  const fila = await filaDeUsuario(page, usuario);
   await expect(fila.getByText('Sesión abierta')).toBeVisible();
   page.once('dialog', (d) => d.accept());
   await fila.getByRole('button', { name: /Cerrar la sesión de/ }).click();

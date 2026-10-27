@@ -1,5 +1,6 @@
 import { Anchor, Badge, Group, ScrollArea, Stack, Table, Text, Tooltip } from '@mantine/core';
 import { colorEstado, colorNivel, horaCorta, type FilaVisita } from './agenda';
+import { conteo, fecha } from './formato';
 
 const TEXTO_NIVEL: Record<string, string> = { ok: 'En plazo', info: 'Información', advertencia: 'Advertencia', peligro: 'Atención' };
 
@@ -48,7 +49,7 @@ export function TablaVisitas({
                 </Anchor>
               </Table.Td>
               <Table.Td style={{ whiteSpace: 'nowrap' }}>
-                {v.fecha} {horaCorta(v.hora)}
+                {fecha(v.fecha)} {horaCorta(v.hora)}
               </Table.Td>
               <Table.Td>{v.tipoNombre}</Table.Td>
               <Table.Td>
@@ -62,7 +63,7 @@ export function TablaVisitas({
                 {v.lider}
                 {v.integrantes > 1 && (
                   <Text size="xs" c="dimmed">
-                    {v.integrantes} integrantes
+                    {conteo(v.integrantes)} integrantes
                   </Text>
                 )}
               </Table.Td>
@@ -87,7 +88,7 @@ export function TablaVisitas({
                       }
                     >
                       <Badge color={colorNivel(v.nivel)} variant="light">
-                        {v.alertas && v.alertas.length > 0 ? `${v.alertas.length} ${v.alertas.length === 1 ? 'alerta' : 'alertas'}` : (TEXTO_NIVEL[v.nivel ?? ''] ?? 'Sin alertas')}
+                        {v.alertas && v.alertas.length > 0 ? `${conteo(v.alertas.length)} ${v.alertas.length === 1 ? 'alerta' : 'alertas'}` : (TEXTO_NIVEL[v.nivel ?? ''] ?? 'Sin alertas')}
                       </Badge>
                     </Tooltip>
                     {v.equipoSinNotificar && (

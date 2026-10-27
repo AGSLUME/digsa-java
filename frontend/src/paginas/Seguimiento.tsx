@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { colorEstado, horaCorta } from '../shared/agenda';
 import { api } from '../shared/api';
+import { conteo, fecha, hora } from '../shared/formato';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 interface VisitaSeguimiento {
@@ -38,7 +39,7 @@ export function Seguimiento() {
       <EncabezadoPagina
         titulo="Seguimiento en tiempo real"
         fuente="Anexo 5 · 4.5"
-        descripcion={datos.data && <>Actualizado a las {datos.data.actualizado}</>}
+        descripcion={datos.data && <>Actualizado a las {hora(datos.data.actualizado)}</>}
         acciones={
           <Anchor component={Link} to="/agenda">
             Volver a la agenda
@@ -75,21 +76,21 @@ export function Seguimiento() {
                     </Anchor>
                   </Table.Td>
                   <Table.Td style={{ whiteSpace: 'nowrap' }}>
-                    {v.fecha} {horaCorta(v.hora)}
+                    {fecha(v.fecha)} {horaCorta(v.hora)}
                   </Table.Td>
                   <Table.Td>{v.punto}</Table.Td>
                   <Table.Td>
                     {v.lider}
                     {v.integrantes > 1 && (
                       <Text size="xs" c="dimmed">
-                        {v.integrantes} integrantes
+                        {conteo(v.integrantes)} integrantes
                       </Text>
                     )}
                   </Table.Td>
                   <Table.Td>
                     <Badge color={colorEstado(v.estado)}>{v.estadoNombre}</Badge>
                   </Table.Td>
-                  <Table.Td>{v.iniciada ?? '—'}</Table.Td>
+                  <Table.Td>{hora(v.iniciada)}</Table.Td>
                   <Table.Td>{v.ultimo ?? '—'}</Table.Td>
                 </Table.Tr>
               ))}

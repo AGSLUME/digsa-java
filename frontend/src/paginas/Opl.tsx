@@ -2,6 +2,7 @@ import { Alert, Anchor, Badge, Button, Center, Loader, ScrollArea, Stack, Table,
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../shared/api';
+import { conteo, fechaHora } from '../shared/formato';
 import { COLOR_FASE, NOMBRE_FASE, NOMBRE_PLAN, type VisitaOpl } from '../shared/opl';
 import { RespuestaOpl } from '../shared/RespuestaOpl';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
@@ -52,10 +53,10 @@ export function Opl() {
                 <Table.Tr key={v.visitaId} data-testid={'fila-opl-' + v.visitaId}>
                   <Table.Td style={{ whiteSpace: 'nowrap' }}>{v.numero}</Table.Td>
                   <Table.Td>{v.punto}</Table.Td>
-                  <Table.Td style={{ whiteSpace: 'nowrap' }}>{v.enviado}</Table.Td>
-                  <Table.Td>{v.hallazgos}</Table.Td>
-                  <Table.Td>{v.sinRespuesta}</Table.Td>
-                  <Table.Td>{v.faltanPlan}</Table.Td>
+                  <Table.Td style={{ whiteSpace: 'nowrap' }}>{fechaHora(v.enviado)}</Table.Td>
+                  <Table.Td>{conteo(v.hallazgos)}</Table.Td>
+                  <Table.Td>{conteo(v.sinRespuesta)}</Table.Td>
+                  <Table.Td>{conteo(v.faltanPlan)}</Table.Td>
                   <Table.Td>
                     <Badge variant="light" color={v.planEstado === 'firmado' ? 'green' : 'gray'}>
                       {NOMBRE_PLAN[v.planEstado]}
@@ -65,9 +66,9 @@ export function Opl() {
                     <Badge color={COLOR_FASE[v.fase]}>{NOMBRE_FASE[v.fase]}</Badge>
                   </Table.Td>
                   <Table.Td style={{ whiteSpace: 'nowrap' }}>
-                    <Text size="xs">Objetar: {v.venceObjeciones}</Text>
+                    <Text size="xs">Objetar: {fechaHora(v.venceObjeciones)}</Text>
                     <Text size="xs" fw={700}>
-                      Plan: {v.vencePlan}
+                      Plan: {fechaHora(v.vencePlan)}
                     </Text>
                   </Table.Td>
                   <Table.Td>

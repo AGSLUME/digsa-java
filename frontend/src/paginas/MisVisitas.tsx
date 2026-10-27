@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { colorEstado, horaCorta } from '../shared/agenda';
 import { api } from '../shared/api';
+import { fecha } from '../shared/formato';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 interface MiVisita {
@@ -47,7 +48,7 @@ export function MisVisitas() {
                 </Group>
               </Group>
               <Text size="sm" mt={4}>
-                {v.fecha} {horaCorta(v.hora)} · {v.tipo}
+                {fecha(v.fecha)} {horaCorta(v.hora)} · {v.tipo}
               </Text>
               <Text size="sm">
                 {v.punto} ({v.unidad})

@@ -3,9 +3,11 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { separarCorreos } from '../shared/agenda';
-import { api, ErrorApi } from '../shared/api';
+import { api } from '../shared/api';
 import type { CodigoNombre, DatosCatalogos } from './Catalogos';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { useValidacion, type Validacion } from '../shared/validacion';
+import { errorCodigoObligacion, errorCorreos, errorLargo, errorNitOpl } from '../shared/validaciones';
 
 interface Punto {
   id: number;
@@ -76,7 +78,6 @@ const PRESTADORES = [
 ];
 
 const UNIDADES = ['ESM', 'FA', 'NC'];
-const errorDe = (e: unknown, defecto: string) => (e instanceof ErrorApi ? e.message : defecto);
 
 /** Municipios de un departamento (se cargan al elegirlo). */
 function useMunicipios(departamento: string | null) {
@@ -195,7 +196,12 @@ function Puntos({ catalogos }: { catalogos: DatosCatalogos | undefined }) {
   const [texto, setTexto] = useState('');
   const [aplicado, setAplicado] = useState('');
   const [form, setForm] = useState<FormPunto | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const v = useValidacion({
+    etiquetas: { nombre: 'Nombre', unidad: 'Unidad', fuerza: 'Fuerza', modalidad: 'Modalidad', correos: 'Correos' },
+    testid: 'error-punto',
+  });
+  // Errores al activar o inactivar desde la tabla: persistentes encima de la tabla
+  const lista = useValidacion({ testid: 'error-puntos' });
 
   const filtros = (t: string) => {
     const p = new URLSearchParams();
@@ -234,33 +240,55 @@ function Puntos({ catalogos }: { catalogos: DatosCatalogos | undefined }) {
       }),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
-      setForm(null);
+      cerrar();
       qc.invalidateQueries({ queryKey: ['maestros'] });
       qc.invalidateQueries({ queryKey: ['agenda', 'opciones'] });
     },
-    onError: (e) => setError(errorDe(e, 'No se pudo guardar el punto.')),
+    onError: (e) => v.errorServidor(e, 'No se pudo guardar el punto.'),
   });
 
   const estado = useMutation({
     mutationFn: (p: Punto) => api<Mensaje>(`/api/maestros/puntos/${p.id}/estado`, { metodo: 'PUT', cuerpo: { activo: !p.activo } }),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
+      lista.reiniciar();
       qc.invalidateQueries({ queryKey: ['maestros'] });
       qc.invalidateQueries({ queryKey: ['agenda', 'opciones'] });
     },
-    onError: (e) => notifications.show({ color: 'red', message: errorDe(e, 'No se pudo cambiar el estado.') }),
+    onError: (e) => lista.errorServidor(e, 'No se pudo cambiar el estado.'),
   });
 
   const fuerzas = (catalogos?.fuerzas ?? []).map((f) => ({ value: f.codigo, label: `${f.codigo} · ${f.nombre}` }));
+  function abrir(f: FormPunto) {
+    v.reiniciar();
+    setForm(f);
+  }
+  function cerrar() {
+    v.reiniciar();
+    setForm(null);
+  }
+  /** Cambia el formulario y quita el error del campo corregido. */
+  const cambiar = (campo: keyof FormPunto, cambio: Partial<FormPunto>) => {
+    if (form) setForm({ ...form, ...cambio });
+    v.limpiar(campo);
+  };
   const enviar = (e: FormEvent) => {
     e.preventDefault();
     if (!form) return;
-    setError(null);
-    guardar.mutate(form);
+    // Las mismas reglas del servidor (ServicioMaestros.validar)
+    const ok = v.validar({
+      nombre: errorLargo(form.nombre, 3, 200, 'Escriba el nombre.', 'El nombre debe tener de 3 a 200 caracteres.'),
+      unidad: form.unidad ? null : 'Elija la unidad.',
+      fuerza: form.fuerza || form.unidad === 'NC' ? null : 'Elija la fuerza.',
+      modalidad:
+        form.unidad === 'ESM' && !form.modalidad ? 'Elija la modalidad del ESM (Dispensación, Suministro, Consignación o Satélite).' : null,
+      correos: errorCorreos(form.correos),
+    });
+    if (ok) guardar.mutate(form);
   };
 
   return (
-    <Stack>
+    <Stack ref={lista.ref}>
       <SimpleGrid cols={{ base: 1, xs: 2, md: 5 }}>
         <Select label="Unidad" clearable data={UNIDADES} value={unidad} onChange={setUnidad} />
         <Select label="Fuerza" clearable data={fuerzas} value={fuerza} onChange={setFuerza} />
@@ -285,16 +313,10 @@ function Puntos({ catalogos }: { catalogos: DatosCatalogos | undefined }) {
           <Button variant="light" onClick={() => setAplicado(texto)}>
             Buscar
           </Button>
-          <Button
-            onClick={() => {
-              setError(null);
-              setForm({ ...PUNTO_VACIO });
-            }}
-          >
-            Nuevo punto
-          </Button>
+          <Button onClick={() => abrir({ ...PUNTO_VACIO })}>Nuevo punto</Button>
         </Group>
       </SimpleGrid>
+      {lista.resumen}
       {puntos.error && <Alert color="red">{puntos.error.message}</Alert>}
       {puntos.isLoading ? (
         <Center py="xl">
@@ -335,10 +357,7 @@ function Puntos({ catalogos }: { catalogos: DatosCatalogos | undefined }) {
                         size="xs"
                         variant="light"
                         aria-label={'Editar el punto ' + p.nombre}
-                        onClick={() => {
-                          setError(null);
-                          setForm(aFormulario(p));
-                        }}
+                        onClick={() => abrir(aFormulario(p))}
                       >
                         Editar
                       </Button>
@@ -362,27 +381,47 @@ function Puntos({ catalogos }: { catalogos: DatosCatalogos | undefined }) {
       )}
       {puntos.data && puntos.data.length === 0 && <Text c="dimmed">No hay puntos con estos filtros.</Text>}
 
-      <Modal opened={form !== null} onClose={() => setForm(null)} title={form?.id ? 'Editar punto' : 'Nuevo punto'} size="lg">
+      <Modal opened={form !== null} onClose={cerrar} title={form?.id ? 'Editar punto' : 'Nuevo punto'} size="lg">
         {form && (
-          <form onSubmit={enviar}>
+          <form ref={v.ref} onSubmit={enviar} noValidate>
             <Stack>
-              {error && (
-                <Alert color="red" data-testid="error-punto">
-                  {error}
-                </Alert>
-              )}
+              {v.resumen}
               <SimpleGrid cols={{ base: 1, xs: 2 }}>
                 <TextInput label="Sigla" value={form.sigla} onChange={(e) => setForm({ ...form, sigla: e.currentTarget.value.toUpperCase() })} />
-                <TextInput label="Nombre" required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.currentTarget.value })} />
-                <Select label="Unidad" required data={UNIDADES} value={form.unidad} onChange={(v) => setForm({ ...form, unidad: v })} />
-                <Select label="Fuerza" required data={fuerzas} value={form.fuerza} onChange={(v) => setForm({ ...form, fuerza: v })} />
+                <TextInput
+                  label="Nombre"
+                  required
+                  value={form.nombre}
+                  error={v.error('nombre')}
+                  onChange={(e) => cambiar('nombre', { nombre: e.currentTarget.value })}
+                />
+                <Select
+                  label="Unidad"
+                  required
+                  data={UNIDADES}
+                  value={form.unidad}
+                  error={v.error('unidad')}
+                  onChange={(x) => {
+                    cambiar('unidad', { unidad: x });
+                    v.limpiar('modalidad');
+                  }}
+                />
+                <Select
+                  label="Fuerza"
+                  required={form.unidad !== 'NC'}
+                  data={fuerzas}
+                  value={form.fuerza}
+                  error={v.error('fuerza')}
+                  onChange={(x) => cambiar('fuerza', { fuerza: x })}
+                />
                 {form.unidad === 'ESM' && (
                   <Select
                     label="Modalidad"
                     clearable
                     data={catalogos?.modalidades ?? []}
                     value={form.modalidad}
-                    onChange={(v) => setForm({ ...form, modalidad: v })}
+                    error={v.error('modalidad')}
+                    onChange={(x) => cambiar('modalidad', { modalidad: x })}
                   />
                 )}
                 {form.unidad === 'FA' && <TextInput label="NIT" value={form.nit} onChange={(e) => setForm({ ...form, nit: e.currentTarget.value })} />}
@@ -392,7 +431,7 @@ function Puntos({ catalogos }: { catalogos: DatosCatalogos | undefined }) {
                   clearable
                   data={(catalogos?.departamentos ?? []).map((d) => ({ value: d.codigo, label: d.nombre }))}
                   value={form.departamento}
-                  onChange={(v) => setForm({ ...form, departamento: v, municipio: null })}
+                  onChange={(x) => setForm({ ...form, departamento: x, municipio: null })}
                 />
                 <Select
                   label="Municipio"
@@ -402,7 +441,7 @@ function Puntos({ catalogos }: { catalogos: DatosCatalogos | undefined }) {
                   placeholder={municipios.isLoading ? 'Cargando...' : undefined}
                   data={(municipios.data ?? []).map((m) => ({ value: m.codigo, label: m.nombre }))}
                   value={form.municipio}
-                  onChange={(v) => setForm({ ...form, municipio: v })}
+                  onChange={(x) => setForm({ ...form, municipio: x })}
                 />
               </SimpleGrid>
               {municipios.error && <Alert color="red">{municipios.error.message}</Alert>}
@@ -412,7 +451,13 @@ function Puntos({ catalogos }: { catalogos: DatosCatalogos | undefined }) {
                 <TextInput label="Horario" value={form.horario} onChange={(e) => setForm({ ...form, horario: e.currentTarget.value })} />
               </SimpleGrid>
               <TextInput label="Contacto" value={form.contacto} onChange={(e) => setForm({ ...form, contacto: e.currentTarget.value })} />
-              <TextInput label="Correos" description="Separados por coma." value={form.correos} onChange={(e) => setForm({ ...form, correos: e.currentTarget.value })} />
+              <TextInput
+                label="Correos"
+                description="Separados por coma."
+                value={form.correos}
+                error={v.error('correos')}
+                onChange={(e) => cambiar('correos', { correos: e.currentTarget.value })}
+              />
               <Select
                 label="Regional"
                 clearable
@@ -420,7 +465,7 @@ function Puntos({ catalogos }: { catalogos: DatosCatalogos | undefined }) {
                   .filter((r) => r.activo || String(r.id) === form.regionalId)
                   .map((r) => ({ value: String(r.id), label: r.nombre }))}
                 value={form.regionalId}
-                onChange={(v) => setForm({ ...form, regionalId: v })}
+                onChange={(x) => setForm({ ...form, regionalId: x })}
               />
               {form.regionalOpl && (
                 <Text size="sm" c="dimmed">
@@ -433,7 +478,7 @@ function Puntos({ catalogos }: { catalogos: DatosCatalogos | undefined }) {
                 onChange={(e) => setForm({ ...form, exigeQf: e.currentTarget.checked })}
               />
               <Group justify="flex-end">
-                <Button variant="default" onClick={() => setForm(null)}>
+                <Button variant="default" onClick={cerrar}>
                   Cancelar
                 </Button>
                 <Button type="submit" loading={guardar.isPending}>
@@ -450,12 +495,18 @@ function Puntos({ catalogos }: { catalogos: DatosCatalogos | undefined }) {
 
 function Auditores({ departamentos }: { departamentos: CodigoNombre[] }) {
   const datos = useQuery({ queryKey: ['maestros', 'auditores'], queryFn: () => api<DatosAuditores>('/api/maestros/auditores') });
+  // Un aviso para toda la tabla; el campo de cada fila es «rol-<id>»
+  const v = useValidacion({
+    etiquetas: Object.fromEntries((datos.data?.auditores ?? []).map((a) => ['rol-' + a.id, 'Rol de ' + a.nombre])),
+    testid: 'error-auditores',
+  });
   return (
-    <Stack>
+    <Stack ref={v.ref}>
       <Text size="sm" c="dimmed">
         Los auditores se crean en Usuarios con el perfil Auditor.
       </Text>
       {datos.error && <Alert color="red">{datos.error.message}</Alert>}
+      {v.resumen}
       {datos.isLoading && (
         <Center py="xl">
           <Loader />
@@ -475,7 +526,7 @@ function Auditores({ departamentos }: { departamentos: CodigoNombre[] }) {
             </Table.Thead>
             <Table.Tbody>
               {datos.data.auditores.map((a) => (
-                <FilaAuditor key={a.id} auditor={a} roles={datos.data.roles} departamentos={departamentos} />
+                <FilaAuditor key={a.id} auditor={a} roles={datos.data.roles} departamentos={departamentos} v={v} />
               ))}
             </Table.Tbody>
           </Table>
@@ -486,7 +537,17 @@ function Auditores({ departamentos }: { departamentos: CodigoNombre[] }) {
   );
 }
 
-function FilaAuditor({ auditor: a, roles, departamentos }: { auditor: Auditor; roles: Record<string, string>; departamentos: CodigoNombre[] }) {
+function FilaAuditor({
+  auditor: a,
+  roles,
+  departamentos,
+  v,
+}: {
+  auditor: Auditor;
+  roles: Record<string, string>;
+  departamentos: CodigoNombre[];
+  v: Validacion;
+}) {
   const qc = useQueryClient();
   const [rol, setRol] = useState<string | null>(a.rol);
   const [departamento, setDepartamento] = useState<string | null>(a.municipioBase ? a.municipioBase.substring(0, 2) : null);
@@ -496,11 +557,13 @@ function FilaAuditor({ auditor: a, roles, departamentos }: { auditor: Auditor; r
     mutationFn: () => api<Mensaje>(`/api/maestros/auditores/${a.id}`, { metodo: 'PUT', cuerpo: { rol, municipioBase: municipio } }),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
+      v.reiniciar();
       qc.invalidateQueries({ queryKey: ['maestros', 'auditores'] });
       qc.invalidateQueries({ queryKey: ['agenda', 'opciones'] });
     },
-    onError: (e) => notifications.show({ color: 'red', message: errorDe(e, 'No se pudo guardar el auditor.') }),
+    onError: (e) => v.errorServidor(e, 'No se pudo guardar el auditor.'),
   });
+  const campo = 'rol-' + a.id;
   const cambio = rol !== a.rol || municipio !== a.municipioBase;
   return (
     <Table.Tr data-testid={'fila-auditor-' + a.id}>
@@ -517,7 +580,11 @@ function FilaAuditor({ auditor: a, roles, departamentos }: { auditor: Auditor; r
           aria-label={'Rol de ' + a.nombre}
           data={Object.entries(roles).map(([value, label]) => ({ value, label }))}
           value={rol}
-          onChange={setRol}
+          error={v.error(campo)}
+          onChange={(x) => {
+            setRol(x);
+            v.limpiar(campo);
+          }}
         />
       </Table.Td>
       <Table.Td>
@@ -528,8 +595,8 @@ function FilaAuditor({ auditor: a, roles, departamentos }: { auditor: Auditor; r
           aria-label={'Departamento base de ' + a.nombre}
           data={departamentos.map((d) => ({ value: d.codigo, label: d.nombre }))}
           value={departamento}
-          onChange={(v) => {
-            setDepartamento(v);
+          onChange={(x) => {
+            setDepartamento(x);
             setMunicipio(null);
           }}
         />
@@ -547,7 +614,14 @@ function FilaAuditor({ auditor: a, roles, departamentos }: { auditor: Auditor; r
         />
       </Table.Td>
       <Table.Td>
-        <Button size="xs" variant="light" aria-label={'Guardar a ' + a.nombre} disabled={!cambio || guardar.isPending} loading={guardar.isPending} onClick={() => guardar.mutate()}>
+        <Button
+          size="xs"
+          variant="light"
+          aria-label={'Guardar a ' + a.nombre}
+          disabled={!cambio || guardar.isPending}
+          loading={guardar.isPending}
+          onClick={() => v.validar({ [campo]: rol ? null : 'Elija el rol.' }) && guardar.mutate()}
+        >
           Guardar
         </Button>
       </Table.Td>
@@ -573,36 +647,64 @@ function FormOpl({ opl }: { opl: Opl }) {
   const [nombre, setNombre] = useState(opl.nombre);
   const [nit, setNit] = useState(opl.nit ?? '');
   const [correos, setCorreos] = useState(opl.correos.join(', '));
-  const [error, setError] = useState<string | null>(null);
+  const v = useValidacion({ etiquetas: { nombre: 'Razón social', nit: 'NIT', correos: 'Correos' }, testid: 'error-opl' });
   const guardar = useMutation({
     mutationFn: () => api<Mensaje>('/api/maestros/opl', { metodo: 'PUT', cuerpo: { nombre, nit: nit || null, correos: separarCorreos(correos) } }),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
+      v.reiniciar();
       qc.invalidateQueries({ queryKey: ['maestros', 'opl'] });
     },
-    onError: (e) => setError(errorDe(e, 'No se pudo guardar.')),
+    onError: (e) => v.errorServidor(e, 'No se pudo guardar.'),
   });
   return (
     <form
+      ref={v.ref}
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        setError(null);
-        guardar.mutate();
+        // Las mismas reglas del servidor (ServicioMaestros.guardarOpl)
+        const ok = v.validar({
+          nombre: errorLargo(nombre, 3, 200, 'Escriba la razón social.', 'La razón social del operador debe tener de 3 a 200 caracteres.'),
+          nit: errorNitOpl(nit),
+          correos:
+            errorCorreos(correos) ??
+            (separarCorreos(correos).length === 0 ? 'Registre al menos un correo del operador: recibe la notificación previa (Anexo 3 p.9).' : null),
+        });
+        if (ok) guardar.mutate();
       }}
     >
       <Stack maw={640}>
-        {error && (
-          <Alert color="red" data-testid="error-opl">
-            {error}
-          </Alert>
-        )}
-        <TextInput label="Razón social" required value={nombre} onChange={(e) => setNombre(e.currentTarget.value)} />
-        <TextInput label="NIT" value={nit} onChange={(e) => setNit(e.currentTarget.value)} />
+        {v.resumen}
+        <TextInput
+          label="Razón social"
+          required
+          value={nombre}
+          error={v.error('nombre')}
+          onChange={(e) => {
+            setNombre(e.currentTarget.value);
+            v.limpiar('nombre');
+          }}
+        />
+        <TextInput
+          label="NIT"
+          description="De 6 a 12 dígitos y, si acaso, el dígito de verificación (900123456-7)."
+          value={nit}
+          error={v.error('nit')}
+          onChange={(e) => {
+            setNit(e.currentTarget.value);
+            v.limpiar('nit');
+          }}
+        />
         <TextInput
           label="Correos"
           description="Separados por coma. Sus correos reciben la notificación previa (Anexo 3 p.9)."
           value={correos}
-          onChange={(e) => setCorreos(e.currentTarget.value)}
+          error={v.error('correos')}
+          onChange={(e) => {
+            setCorreos(e.currentTarget.value);
+            v.limpiar('correos');
+          }}
         />
         <Group justify="flex-end">
           <Button type="submit" loading={guardar.isPending}>
@@ -633,7 +735,7 @@ function Obligaciones() {
   const qc = useQueryClient();
   const lista = useQuery({ queryKey: ['maestros', 'obligaciones'], queryFn: () => api<Obligacion[]>('/api/maestros/obligaciones') });
   const [form, setForm] = useState<FormObligacion | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const v = useValidacion({ etiquetas: { prestador: 'Prestador', codigo: 'Código', texto: 'Texto de la obligación' }, testid: 'error-obligacion' });
   const guardar = useMutation({
     mutationFn: (f: FormObligacion) =>
       api<Mensaje>(f.id ? `/api/maestros/obligaciones/${f.id}` : '/api/maestros/obligaciones', {
@@ -642,15 +744,23 @@ function Obligaciones() {
       }),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
-      setForm(null);
+      cerrar();
       qc.invalidateQueries({ queryKey: ['maestros', 'obligaciones'] });
       qc.invalidateQueries({ queryKey: ['formulario'] });
     },
-    onError: (e) => setError(errorDe(e, 'No se pudo guardar la obligación.')),
+    onError: (e) => v.errorServidor(e, 'No se pudo guardar la obligación.'),
   });
-  const abrir = (f: FormObligacion) => {
-    setError(null);
+  function abrir(f: FormObligacion) {
+    v.reiniciar();
     setForm(f);
+  }
+  function cerrar() {
+    v.reiniciar();
+    setForm(null);
+  }
+  const cambiar = (campo: keyof FormObligacion, cambio: Partial<FormObligacion>) => {
+    if (form) setForm({ ...form, ...cambio });
+    v.limpiar(campo);
   };
 
   return (
@@ -711,21 +821,30 @@ function Obligaciones() {
       )}
       {lista.data && lista.data.length === 0 && <Text c="dimmed">No hay obligaciones registradas.</Text>}
 
-      <Modal opened={form !== null} onClose={() => setForm(null)} title={form?.id ? 'Editar obligación' : 'Nueva obligación'} size="lg">
+      <Modal opened={form !== null} onClose={cerrar} title={form?.id ? 'Editar obligación' : 'Nueva obligación'} size="lg">
         {form && (
           <form
+            ref={v.ref}
+            noValidate
             onSubmit={(e) => {
               e.preventDefault();
-              setError(null);
-              guardar.mutate(form);
+              // Las mismas reglas del servidor (ServicioMaestros.guardarObligacion)
+              const ok = v.validar({
+                prestador: form.prestador ? null : 'Elija el prestador.',
+                codigo: errorCodigoObligacion(form.codigo),
+                texto: errorLargo(
+                  form.texto,
+                  10,
+                  2000,
+                  'Escriba el texto de la obligación.',
+                  'El texto de la obligación debe tener de 10 a 2000 caracteres.',
+                ),
+              });
+              if (ok) guardar.mutate(form);
             }}
           >
             <Stack>
-              {error && (
-                <Alert color="red" data-testid="error-obligacion">
-                  {error}
-                </Alert>
-              )}
+              {v.resumen}
               <SimpleGrid cols={{ base: 1, xs: 2 }}>
                 <Select
                   label="Prestador"
@@ -733,7 +852,8 @@ function Obligaciones() {
                   allowDeselect={false}
                   data={PRESTADORES}
                   value={form.prestador}
-                  onChange={(v) => setForm({ ...form, prestador: v })}
+                  error={v.error('prestador')}
+                  onChange={(x) => cambiar('prestador', { prestador: x })}
                 />
                 <TextInput
                   label="Código"
@@ -741,7 +861,8 @@ function Obligaciones() {
                   description="Empieza por OB- (p. ej. OB-OPL-01)."
                   maxLength={23}
                   value={form.codigo}
-                  onChange={(e) => setForm({ ...form, codigo: e.currentTarget.value.toUpperCase() })}
+                  error={v.error('codigo')}
+                  onChange={(e) => cambiar('codigo', { codigo: e.currentTarget.value.toUpperCase() })}
                 />
               </SimpleGrid>
               <Textarea
@@ -752,7 +873,8 @@ function Obligaciones() {
                 minLength={10}
                 maxLength={2000}
                 value={form.texto}
-                onChange={(e) => setForm({ ...form, texto: e.currentTarget.value })}
+                error={v.error('texto')}
+                onChange={(e) => cambiar('texto', { texto: e.currentTarget.value })}
               />
               <TextInput
                 label="Fuente"
@@ -763,7 +885,7 @@ function Obligaciones() {
               />
               <Checkbox label="Activa" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.currentTarget.checked })} />
               <Group justify="flex-end">
-                <Button variant="default" onClick={() => setForm(null)}>
+                <Button variant="default" onClick={cerrar}>
                   Cancelar
                 </Button>
                 <Button type="submit" loading={guardar.isPending}>

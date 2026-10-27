@@ -1,3 +1,5 @@
+import { cifra, conteo } from './formato';
+
 /**
  * Exportación completa de los datos (docs/especificaciones/exportacion-alertas): se pide con POST /api/exportacion, se genera en
  * segundo plano y la pantalla consulta su estado hasta que queda lista; la descarga es un enlace directo (el navegador la escribe
@@ -63,7 +65,7 @@ export function estadoVisible(e: Pick<Exportacion, 'estado' | 'vence'>, ahora: n
   return e.estado;
 }
 
-/** Tamaño legible en unidades de 1024 con coma decimal y un decimal como máximo: «0 B», «512 B», «1,5 KB», «1 MB», «2,3 GB». */
+/** Tamaño legible en unidades de 1024 con 2 decimales y coma decimal (Anexo 5 num. 2.4): «0 B», «512 B», «1,50 KB», «1,00 MB», «2,50 GB». */
 export function tamanoLegible(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes) || bytes < 0) return '—';
   const unidades = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -73,14 +75,8 @@ export function tamanoLegible(bytes: number | null | undefined): string {
     valor /= 1024;
     i++;
   }
-  const texto = i === 0 ? String(Math.round(valor)) : valor.toFixed(1).replace(/\.0$/, '').replace('.', ',');
+  const texto = i === 0 ? conteo(valor) : cifra(valor);
   return `${texto} ${unidades[i]}`;
-}
-
-/** Número con separador de miles «.» (es-CO), sin depender de la configuración regional del equipo. */
-export function numero(n: number | null | undefined): string {
-  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
-  return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
 export function rutaDescarga(id: number): string {

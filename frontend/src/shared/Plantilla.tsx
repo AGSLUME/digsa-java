@@ -3,6 +3,7 @@ import { useDisclosure } from '@mantine/hooks';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { AvisoInactividad } from './AvisoInactividad';
 import { CambiarMiClave } from './CambiarMiClave';
+import { InterruptorSonido } from './InterruptorSonido';
 import { LimiteErrores } from './LimiteErrores';
 import { useSesion } from './sesion';
 
@@ -25,6 +26,7 @@ export function Plantilla({ alSalir }: { alSalir: () => void }) {
             </Title>
           </Group>
           <Group gap="sm" wrap="nowrap">
+            <InterruptorSonido />
             <Text size="sm" visibleFrom="sm" data-testid="nombre-usuario">
               {s.nombre}
             </Text>

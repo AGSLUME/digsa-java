@@ -3,10 +3,14 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { api, ErrorApi, subirArchivos } from '../shared/api';
+import { api, subirArchivos } from '../shared/api';
 import type { OpcionesAgenda, ResultadoVisita } from '../shared/agenda';
 import { FormularioVisita, type SolicitudParaAgendar } from '../shared/FormularioVisita';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { fecha as fechaPantalla, hoyBogota, sumarDias } from '../shared/formato';
+import { puedeEntrar, useSesion } from '../shared/sesion';
+import { useValidacion } from '../shared/validacion';
+import { DIAS_ATRAS_SOLICITUD, erroresSolicitud } from '../shared/validaciones';
 
 interface Solicitud {
   id: number;
@@ -39,17 +43,6 @@ interface DatosSolicitudes {
 const COLOR: Record<Solicitud['estado'], string> = { pendiente: 'yellow', programada: 'blue', anulada: 'gray' };
 const NOMBRE: Record<Solicitud['estado'], string> = { pendiente: 'Pendiente', programada: 'Programada', anulada: 'Anulada' };
 
-function haceDias(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function hoy(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 /**
  * Solicitudes de visita a necesidad (Anexo 3 p.14: 5 días hábiles desde el escrito). La DIGSA y la Sanidad las registran y ven solo las
  * suyas (decisión 9.4); el coordinador las ve todas, las agenda como visita a necesidad o las anula.
@@ -63,6 +56,9 @@ export function Solicitudes() {
     queryFn: () => api<DatosSolicitudes>(`/api/solicitudes${estado ? `?estado=${estado}` : ''}`),
   });
   const coordinador = datos.data?.coordinador ?? false;
+  // Decisión UI-12 (Anexo 5 3.7): agendar y anular las autoriza el servidor con la pantalla «agenda»; sin ella no se ofrecen
+  const sesion = useSesion();
+  const gestiona = coordinador && puedeEntrar(sesion, 'agenda');
   const opciones = useQuery({
     queryKey: ['agenda', 'opciones'],
     queryFn: () => api<OpcionesAgenda>('/api/agenda/opciones'),
@@ -130,10 +126,10 @@ export function Solicitudes() {
                 <Table.Td>{s.id}</Table.Td>
                 <Table.Td>{s.punto}</Table.Td>
                 <Table.Td>{s.entidad}</Table.Td>
-                <Table.Td>{s.fechaSolicitud}</Table.Td>
+                <Table.Td>{fechaPantalla(s.fechaSolicitud)}</Table.Td>
                 <Table.Td>
                   <Group gap={4} wrap="nowrap">
-                    {s.limite}
+                    {fechaPantalla(s.limite)}
                     {s.vencida && (
                       <Badge color="red" size="sm">
                         Vencida
@@ -173,7 +169,7 @@ export function Solicitudes() {
                         Escrito
                       </Anchor>
                     )}
-                    {coordinador && s.estado === 'pendiente' && (
+                    {gestiona && s.estado === 'pendiente' && (
                       <>
                         <Button size="xs" onClick={() => setAgendar({ id: s.id, puntoId: s.puntoId, fechaSolicitud: s.fechaSolicitud })}>
                           Agendar
@@ -233,32 +229,33 @@ export function Solicitudes() {
 
 function NuevaSolicitud({ datos, alTerminar }: { datos: DatosSolicitudes; alTerminar: () => void }) {
   const [punto, setPunto] = useState<string | null>(null);
-  const [fecha, setFecha] = useState(hoy());
+  const [fecha, setFecha] = useState(hoyBogota());
   const [motivo, setMotivo] = useState('');
   const [escrito, setEscrito] = useState<File | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const v = useValidacion({
+    etiquetas: { punto: 'Punto', fecha: 'Fecha del escrito', motivo: 'Motivo de la solicitud' },
+    campos: { punto_id: 'punto', fecha_solicitud: 'fecha' },
+    testid: 'error-solicitud',
+  });
   const registrar = useMutation({
     mutationFn: () =>
       subirArchivos<{ mensaje: string }>('/api/solicitudes', { punto_id: punto ?? '', fecha_solicitud: fecha, motivo }, escrito ? [escrito] : [], 'escrito'),
     onSuccess: (r) => {
       notifications.show({ color: 'green', autoClose: 10000, message: r.mensaje });
+      v.reiniciar();
       alTerminar();
     },
-    onError: (e) => setError(e instanceof ErrorApi ? e.message : 'No se pudo registrar la solicitud.'),
+    onError: (e) => v.errorServidor(e, 'No se pudo registrar la solicitud.'),
   });
   const enviar = (e: FormEvent) => {
     e.preventDefault();
-    setError(null);
-    registrar.mutate();
+    if (v.validar(erroresSolicitud(punto, fecha, motivo, hoyBogota()))) registrar.mutate();
   };
+  const hoy = hoyBogota();
   return (
-    <form onSubmit={enviar}>
+    <form ref={v.ref} onSubmit={enviar} noValidate>
       <Stack>
-        {error && (
-          <Alert color="red" data-testid="error-solicitud">
-            {error}
-          </Alert>
-        )}
+        {v.resumen}
         <TextInput label="Entidad" value={datos.entidad ?? ''} readOnly />
         <Select
           label="Punto"
@@ -266,10 +263,39 @@ function NuevaSolicitud({ datos, alTerminar }: { datos: DatosSolicitudes; alTerm
           searchable
           data={datos.puntos.map((p) => ({ value: String(p.id), label: `${p.sigla ? p.sigla + ' · ' : ''}${p.nombre} (${p.unidad}, ${p.fuerza})` }))}
           value={punto}
-          onChange={setPunto}
+          error={v.error('punto')}
+          onChange={(x) => {
+            setPunto(x);
+            v.limpiar('punto');
+          }}
         />
-        <TextInput label="Fecha del escrito" type="date" required min={haceDias(60)} max={hoy()} description="Máximo 60 días atrás." value={fecha} onChange={(e) => setFecha(e.currentTarget.value)} />
-        <Textarea label="Motivo de la solicitud" required autosize minRows={3} maxLength={4000} value={motivo} onChange={(e) => setMotivo(e.currentTarget.value)} />
+        <TextInput
+          label="Fecha del escrito"
+          type="date"
+          required
+          min={sumarDias(hoy, -DIAS_ATRAS_SOLICITUD)}
+          max={hoy}
+          description={`Máximo ${DIAS_ATRAS_SOLICITUD} días atrás.`}
+          value={fecha}
+          error={v.error('fecha')}
+          onChange={(e) => {
+            setFecha(e.currentTarget.value);
+            v.limpiar('fecha');
+          }}
+        />
+        <Textarea
+          label="Motivo de la solicitud"
+          required
+          autosize
+          minRows={3}
+          maxLength={4000}
+          value={motivo}
+          error={v.error('motivo')}
+          onChange={(e) => {
+            setMotivo(e.currentTarget.value);
+            v.limpiar('motivo');
+          }}
+        />
         <FileInput label="Escrito (PDF, opcional)" accept="application/pdf" clearable value={escrito} onChange={setEscrito} />
         <Card withBorder p="xs">
           <Text size="xs" c="dimmed">
@@ -289,32 +315,48 @@ function NuevaSolicitud({ datos, alTerminar }: { datos: DatosSolicitudes; alTerm
 
 function Anular({ solicitud, alTerminar }: { solicitud: Solicitud; alTerminar: () => void }) {
   const [motivo, setMotivo] = useState('');
+  const v = useValidacion({ etiquetas: { motivo: 'Motivo de la anulación' }, testid: 'error-anular' });
   const anular = useMutation({
     mutationFn: () => api<{ mensaje: string }>(`/api/solicitudes/${solicitud.id}/anular`, { cuerpo: { motivo } }),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
+      v.reiniciar();
       alTerminar();
     },
-    onError: (e) => notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo anular.' }),
+    onError: (e) => v.errorServidor(e, 'No se pudo anular.'),
   });
   return (
     <form
+      ref={v.ref}
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        if (motivo.trim()) anular.mutate();
+        // La regla del servidor (ServicioSolicitudes.anular): motivo obligatorio, máximo 800 caracteres
+        if (v.validar({ motivo: motivo.trim() ? null : 'Registre el motivo de la anulación (máximo 800 caracteres).' })) anular.mutate();
       }}
     >
-    <Stack>
-      <Text size="sm">
-        {solicitud.punto} · {solicitud.entidad} · escrito del {solicitud.fechaSolicitud}
-      </Text>
-      <Textarea label="Motivo de la anulación" required maxLength={800} value={motivo} onChange={(e) => setMotivo(e.currentTarget.value)} />
-      <Group justify="flex-end">
-        <Button type="submit" color="red" disabled={!motivo.trim()} loading={anular.isPending}>
-          Anular solicitud
-        </Button>
-      </Group>
-    </Stack>
+      <Stack>
+        {v.resumen}
+        <Text size="sm">
+          {solicitud.punto} · {solicitud.entidad} · escrito del {fechaPantalla(solicitud.fechaSolicitud)}
+        </Text>
+        <Textarea
+          label="Motivo de la anulación"
+          required
+          maxLength={800}
+          value={motivo}
+          error={v.error('motivo')}
+          onChange={(e) => {
+            setMotivo(e.currentTarget.value);
+            v.limpiar('motivo');
+          }}
+        />
+        <Group justify="flex-end">
+          <Button type="submit" color="red" loading={anular.isPending}>
+            Anular solicitud
+          </Button>
+        </Group>
+      </Stack>
     </form>
   );
 }

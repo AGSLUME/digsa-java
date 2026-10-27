@@ -1,8 +1,11 @@
-import { Alert, Anchor, Button, Card, Center, PasswordInput, PinInput, Stack, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Anchor, Button, Card, Center, Group, PasswordInput, PinInput, Stack, Text, TextInput, Title } from '@mantine/core';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api, CLAVE_MOTIVO, ErrorApi } from '../shared/api';
+import { erroresClaveNueva } from '../shared/validaciones';
+import { InterruptorSonido } from '../shared/InterruptorSonido';
 import { Turnstile } from '../shared/Turnstile';
+import { useValidacion } from '../shared/validacion';
 
 interface Paso {
   paso: 'codigo' | 'definir_clave' | 'cambiar_clave';
@@ -20,10 +23,22 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
   const [confirmacion, setConfirmacion] = useState('');
   const [captcha, setCaptcha] = useState<string | null>(null);
   const [paso, setPaso] = useState<Paso | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const reiniciarCaptcha = useRef<(() => void) | null>(null);
+  const v = useValidacion({
+    etiquetas: {
+      usuario: 'Usuario',
+      clave: 'Contraseña',
+      nueva: 'Contraseña nueva',
+      confirmacion: 'Confirme la contraseña nueva',
+      codigo: 'Código de verificación',
+    },
+    // En el cambio de la contraseña inicial el cuerpo lleva «clave» para la contraseña nueva
+    campos: paso?.paso === 'cambiar_clave' ? { clave: 'nueva' } : {},
+    testid: 'error-ingreso',
+  });
+  const errorCodigo = v.error('codigo');
 
   useEffect(() => {
     try {
@@ -39,14 +54,14 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
 
   const ingresar = async (e: FormEvent) => {
     e.preventDefault();
-    setError(null);
+    if (!v.validar({ usuario: usuario.trim() ? null : 'Escriba el usuario.', clave: clave ? null : 'Escriba la contraseña.' })) return;
     setEnviando(true);
     try {
       const p = await api<Paso>('/api/auth/ingreso', { cuerpo: { usuario, clave, captcha } });
       setPaso(p);
       setClave('');
     } catch (x) {
-      setError(x instanceof ErrorApi ? x.message : 'No se pudo ingresar.');
+      v.errorServidor(x, 'No se pudo ingresar.');
       reiniciarCaptcha.current?.();
     } finally {
       setEnviando(false);
@@ -55,13 +70,13 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
 
   const verificar = async (e?: FormEvent) => {
     e?.preventDefault();
-    setError(null);
+    if (!v.validar({ codigo: /^\d{6}$/.test(codigo) ? null : 'Escriba los 6 dígitos del código.' })) return;
     setEnviando(true);
     try {
       await api('/api/auth/codigo', { cuerpo: { codigo } });
       alIngresar();
     } catch (x) {
-      setError(x instanceof ErrorApi ? x.message : 'No se pudo verificar el código.');
+      v.errorServidor(x, 'No se pudo verificar el código.');
       if (x instanceof ErrorApi && x.estado === 401) {
         setPaso(null);
         setCaptcha(null); // el captcha ya se usó: hay que resolverlo de nuevo
@@ -75,7 +90,8 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
   /** Contraseña inicial asignada por el administrador: se cambia aquí, sin salir al correo; después sigue el código. */
   const cambiarClave = async (e: FormEvent) => {
     e.preventDefault();
-    setError(null);
+    const errores = erroresClaveNueva(nueva, confirmacion);
+    if (!v.validar({ nueva: errores.clave, confirmacion: errores.confirmacion })) return;
     setEnviando(true);
     try {
       const p = await api<Paso>('/api/auth/cambiar-clave', { cuerpo: { clave: nueva, confirmacion } });
@@ -83,7 +99,7 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
       setNueva('');
       setConfirmacion('');
     } catch (x) {
-      setError(x instanceof ErrorApi ? x.message : 'No se pudo cambiar la contraseña.');
+      v.errorServidor(x, 'No se pudo cambiar la contraseña.');
       if (x instanceof ErrorApi && x.estado === 401) {
         setPaso(null);
         setCaptcha(null);
@@ -95,13 +111,13 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
   };
 
   const reenviar = async () => {
-    setError(null);
+    v.reiniciar();
     try {
       const p = await api<Paso>('/api/auth/codigo/reenviar', { metodo: 'POST' });
       setPaso(p);
       setCodigo('');
     } catch (x) {
-      setError(x instanceof ErrorApi ? x.message : 'No se pudo reenviar el código.');
+      v.errorServidor(x, 'No se pudo reenviar el código.');
     }
   };
 
@@ -109,9 +125,13 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
     <Center mih="100vh" p="md">
       <Card withBorder shadow="sm" padding="lg" w="100%" maw={420}>
         <Stack>
-          <Title order={1} size="h2" c="digsa.8">
-            Suite DIGSA
-          </Title>
+          {/* Pantalla pública (sin la barra de la aplicación): el interruptor del sonido de las alertas va arriba a la derecha */}
+          <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
+            <Title order={1} size="h2" c="digsa.8" style={{ minWidth: 0 }}>
+              Suite DIGSA
+            </Title>
+            <InterruptorSonido />
+          </Group>
           <Text c="dimmed" size="sm">
             Visitas de seguimiento farmacéutico · Interventoría AGS Colombia
           </Text>
@@ -120,14 +140,10 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
               {aviso}
             </Alert>
           )}
-          {error && (
-            <Alert color="red" data-testid="error-ingreso">
-              {error}
-            </Alert>
-          )}
+          {v.resumen}
           {paso?.paso === 'definir_clave' && <Alert color="blue">{paso.mensaje}</Alert>}
           {paso?.paso === 'cambiar_clave' ? (
-            <form onSubmit={cambiarClave}>
+            <form ref={v.ref} onSubmit={cambiarClave} noValidate>
               <Stack>
                 <Alert color="blue">{paso.mensaje}</Alert>
                 <Text size="sm" c="dimmed">
@@ -137,7 +153,11 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
                   label="Contraseña nueva"
                   autoComplete="new-password"
                   value={nueva}
-                  onChange={(e) => setNueva(e.currentTarget.value)}
+                  onChange={(e) => {
+                    setNueva(e.currentTarget.value);
+                    v.limpiar('nueva');
+                  }}
+                  error={v.error('nueva')}
                   required
                   maxLength={64}
                 />
@@ -145,7 +165,11 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
                   label="Confirme la contraseña nueva"
                   autoComplete="new-password"
                   value={confirmacion}
-                  onChange={(e) => setConfirmacion(e.currentTarget.value)}
+                  onChange={(e) => {
+                    setConfirmacion(e.currentTarget.value);
+                    v.limpiar('confirmacion');
+                  }}
+                  error={v.error('confirmacion')}
                   required
                   maxLength={64}
                 />
@@ -155,8 +179,9 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
               </Stack>
             </form>
           ) : paso?.paso === 'codigo' ? (
-            <form onSubmit={verificar}>
+            <form ref={v.ref} onSubmit={verificar} noValidate>
               <Stack>
+                {/* En local el mensaje trae el código: sigue a la vista aunque el código escrito no sea correcto */}
                 <Text size="sm">
                   {paso.mensaje} Lo enviamos a <strong>{paso.correo}</strong>. Vence en 15 minutos.
                 </Text>
@@ -165,12 +190,26 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
                   type="number"
                   oneTimeCode
                   value={codigo}
-                  onChange={setCodigo}
+                  onChange={(c) => {
+                    setCodigo(c);
+                    v.limpiar('codigo');
+                  }}
                   onComplete={() => undefined}
                   aria-label="Código de verificación"
                   data-testid="codigo"
+                  error={errorCodigo !== undefined}
+                  getInputProps={(i) => ({
+                    'aria-label': `Dígito ${i + 1} de 6 del código`,
+                    ...(typeof errorCodigo === 'string' ? { 'aria-describedby': 'codigo-error' } : {}),
+                  })}
                 />
-                <Button type="submit" loading={enviando} disabled={codigo.length !== 6}>
+                {/* PinInput solo marca las casillas: el mensaje va debajo, unido a ellas con aria-describedby */}
+                {typeof errorCodigo === 'string' && (
+                  <Text id="codigo-error" size="sm" c="red" mt={-8}>
+                    {errorCodigo}
+                  </Text>
+                )}
+                <Button type="submit" loading={enviando}>
                   Verificar e ingresar
                 </Button>
                 <Anchor component="button" type="button" size="sm" onClick={reenviar}>
@@ -179,13 +218,17 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
               </Stack>
             </form>
           ) : (
-            <form onSubmit={ingresar}>
+            <form ref={v.ref} onSubmit={ingresar} noValidate>
               <Stack>
                 <TextInput
                   label="Usuario"
                   autoComplete="username"
                   value={usuario}
-                  onChange={(e) => setUsuario(e.currentTarget.value)}
+                  onChange={(e) => {
+                    setUsuario(e.currentTarget.value);
+                    v.limpiar('usuario');
+                  }}
+                  error={v.error('usuario')}
                   required
                   maxLength={50}
                 />
@@ -193,7 +236,11 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
                   label="Contraseña"
                   autoComplete="current-password"
                   value={clave}
-                  onChange={(e) => setClave(e.currentTarget.value)}
+                  onChange={(e) => {
+                    setClave(e.currentTarget.value);
+                    v.limpiar('clave');
+                  }}
+                  error={v.error('clave')}
                   required
                   maxLength={200}
                 />
@@ -201,10 +248,9 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
                 <Button type="submit" loading={enviando}>
                   Ingresar
                 </Button>
-                {/* Por ahora solo correo; el envío por SMS queda pendiente del proveedor y sus credenciales (decisión del 2026-10-22) */}
+                {/* El código de verificación va solo por correo: el anexo no pide SMS para el ingreso (regla del usuario, 2026-10-23) */}
                 <Text size="xs" c="dimmed" data-testid="aviso-codigo">
-                  Para ingresar le enviaremos un código de verificación a su correo electrónico registrado. Más adelante también podrá recibirlo por
-                  SMS.
+                  Para ingresar le enviaremos un código de verificación a su correo electrónico registrado.
                 </Text>
                 <Anchor component={Link} to="/olvide-clave" size="sm">
                   ¿Olvidó su contraseña?

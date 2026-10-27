@@ -2,9 +2,10 @@ import { ActionIcon, Badge, Box, Group, Paper, Stack, Text, UnstyledButton } fro
 import { useMediaQuery } from '@mantine/hooks';
 import { useState } from 'react';
 import { colorEstado, horaCorta, type FilaVisita } from './agenda';
-import { DIAS_SEMANA, fechaIso, semanasDelMes, tituloMes } from './mes';
+import { conteo, fecha, hoyBogota } from './formato';
+import { DIAS_SEMANA, semanasDelMes, tituloMes } from './mes';
 
-export { moverMes, rangoMes, semanasDelMes, tituloMes } from './mes';
+export { mesDeIso, moverMes, rangoMes, semanasDelMes, tituloMes } from './mes';
 
 /** Título del mes con flechas ‹ › para cambiarlo. */
 export function NavegadorMes({ anio, mes, alMover }: { anio: number; mes: number; alMover: (n: number) => void }) {
@@ -38,7 +39,7 @@ export function CalendarioMes({ anio, mes, visitas, alAbrir }: { anio: number; m
     lista.push(v);
     porDia.set(v.fecha, lista);
   }
-  const hoy = fechaIso(new Date());
+  const hoy = hoyBogota();
   const delDia = elegido ? (porDia.get(elegido) ?? []) : [];
 
   return (
@@ -76,10 +77,10 @@ export function CalendarioMes({ anio, mes, visitas, alAbrir }: { anio: number; m
                         size="sm"
                         circle
                         style={{ cursor: 'pointer' }}
-                        aria-label={`${lista.length} visitas el ${d.iso}`}
+                        aria-label={`${conteo(lista.length)} visitas el ${fecha(d.iso)}`}
                         onClick={() => setElegido(d.iso === elegido ? null : d.iso)}
                       >
-                        {lista.length}
+                        {conteo(lista.length)}
                       </Badge>
                     )
                   : (
@@ -110,7 +111,7 @@ export function CalendarioMes({ anio, mes, visitas, alAbrir }: { anio: number; m
       {angosta && elegido && (
         <Stack gap={4}>
           <Text size="sm" fw={600}>
-            Visitas del {elegido}
+            Visitas del {fecha(elegido)}
           </Text>
           {delDia.map((v) => (
             <UnstyledButton key={v.id} onClick={() => alAbrir(v.id)} aria-label={`Abrir la visita ${v.numero}`}>

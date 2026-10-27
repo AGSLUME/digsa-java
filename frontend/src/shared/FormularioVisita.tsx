@@ -3,9 +3,10 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { horaCorta, type ComponenteOpcion, type DetalleVisita, type OpcionesAgenda, type ResultadoVisita } from './agenda';
-import { api, ErrorApi } from './api';
+import { api } from './api';
 import { CampoHora24 } from './CampoHora24';
 import { horaValida, MENSAJE_HORA } from './hora';
+import { useValidacion } from './validacion';
 
 export const MAX_OTROS = 5;
 const ROL_QF = 'quimico_farmaceutico';
@@ -112,7 +113,18 @@ function Cuerpo({
       notificar: false,
     };
   });
-  const [error, setError] = useState<string | null>(null);
+  const val = useValidacion({
+    etiquetas: {
+      tipo: 'Tipo de visita',
+      puntoId: 'Punto',
+      fecha: 'Fecha',
+      hora: 'Hora',
+      fechaSolicitud: 'Fecha de la solicitud',
+      liderId: 'Auditor líder',
+      alcance: 'Alcance específico',
+    },
+    testid: 'error-visita',
+  });
 
   const tipo = opciones.tipos.find((t) => t.codigo === f.tipo);
   const punto = opciones.puntos.find((p) => String(p.id) === f.puntoId);
@@ -136,7 +148,7 @@ function Cuerpo({
       alGuardar(r);
     },
     onError: (e) => {
-      setError(e instanceof ErrorApi ? e.message : 'No se pudo guardar la visita.');
+      val.errorServidor(e, 'No se pudo guardar la visita.');
       if (solicitud) qc.invalidateQueries({ queryKey: ['solicitudes'] }); // otro coordinador pudo agendarla o anularla
     },
   });
@@ -151,24 +163,27 @@ function Cuerpo({
       comps = codigo === 'plan' ? Array.from(new Set([...comps, ...plan])) : comps.filter((c) => !plan.includes(c));
     }
     setF({ ...f, tipo: codigo, puntoId: quedaPunto, componentes: comps });
+    val.limpiar('tipo');
   };
 
   const elegirPunto = (id: string | null) => {
     const p = opciones.puntos.find((x) => String(x.id) === id);
     setF({ ...f, puntoId: id, componentes: preseleccion(opciones.componentes, p?.unidad, f.tipo) });
+    val.limpiar('puntoId');
   };
 
   const enviar = (e: FormEvent) => {
     e.preventDefault();
-    setError(null);
-    if (!f.tipo || !f.puntoId || !f.liderId) {
-      setError('Elija el tipo de visita, el punto y el auditor líder.');
-      return;
-    }
-    if (f.hora && !horaValida(f.hora)) {
-      setError(MENSAJE_HORA);
-      return;
-    }
+    // Cada mensaje junto a su campo (el de la hora lo pinta CampoHora24 al salir del campo; el resumen nombra el campo)
+    const ok = val.validar({
+      tipo: f.tipo ? null : 'Elija el tipo de visita.',
+      puntoId: f.puntoId ? null : 'Elija el punto.',
+      fecha: f.fecha ? null : 'Escriba la fecha completa (día, mes y año).',
+      hora: f.hora && !horaValida(f.hora) ? MENSAJE_HORA : null,
+      liderId: f.liderId ? null : 'Elija el auditor líder.',
+      alcance: f.alcance.trim() ? null : 'Escriba el alcance específico.',
+    });
+    if (!ok || !f.tipo || !f.puntoId || !f.liderId) return;
     const validas = new Set(partes.map((p) => p.parte));
     const reparto = Object.fromEntries(
       Object.entries(f.reparto)
@@ -194,19 +209,16 @@ function Cuerpo({
   const datosAuditores = opciones.auditores.map((a) => ({ value: String(a.id), label: `${a.nombre} · ${nombreRol(a.rol)}` }));
 
   return (
-    <form onSubmit={enviar} data-testid="form-visita">
+    <form ref={val.ref} onSubmit={enviar} noValidate data-testid="form-visita">
       <Stack>
-        {error && (
-          <Alert color="red" data-testid="error-visita">
-            {error}
-          </Alert>
-        )}
+        {val.resumen}
         <Select
           label="Tipo de visita"
           disabled={!!solicitud}
           required
           data={opciones.tipos.map((t) => ({ value: t.codigo, label: t.nombre }))}
           value={f.tipo}
+          error={val.error('tipo')}
           onChange={elegirTipo}
         />
         <Select
@@ -217,11 +229,30 @@ function Cuerpo({
           nothingFoundMessage="Sin puntos"
           data={puntos.map((p) => ({ value: String(p.id), label: `${p.sigla ? p.sigla + ' · ' : ''}${p.nombre} (${p.unidad}, ${p.fuerza})` }))}
           value={f.puntoId}
+          error={val.error('puntoId')}
           onChange={elegirPunto}
         />
         <SimpleGrid cols={{ base: 1, xs: 2 }}>
-          <TextInput label="Fecha" type="date" required value={f.fecha} onChange={(e) => setF({ ...f, fecha: e.currentTarget.value })} />
-          <CampoHora24 label="Hora" value={f.hora} onChange={(hora) => setF({ ...f, hora })} />
+          <TextInput
+            label="Fecha"
+            type="date"
+            required
+            value={f.fecha}
+            error={val.error('fecha')}
+            onChange={(e) => {
+              setF({ ...f, fecha: e.currentTarget.value });
+              val.limpiar('fecha');
+            }}
+          />
+          <CampoHora24
+            label="Hora"
+            value={f.hora}
+            error={val.error('hora')}
+            onChange={(hora) => {
+              setF({ ...f, hora });
+              val.limpiar('hora');
+            }}
+          />
         </SimpleGrid>
         {f.tipo === 'necesidad' && (
           <TextInput
@@ -229,7 +260,11 @@ function Cuerpo({
             disabled={!!solicitud}
             type="date"
             value={f.fechaSolicitud}
-            onChange={(e) => setF({ ...f, fechaSolicitud: e.currentTarget.value })}
+            error={val.error('fechaSolicitud')}
+            onChange={(e) => {
+              setF({ ...f, fechaSolicitud: e.currentTarget.value });
+              val.limpiar('fechaSolicitud');
+            }}
           />
         )}
         <Select
@@ -238,7 +273,11 @@ function Cuerpo({
           searchable
           data={datosAuditores}
           value={f.liderId}
-          onChange={(v) => setF({ ...f, liderId: v, otros: f.otros.filter((o) => o !== v) })}
+          error={val.error('liderId')}
+          onChange={(v) => {
+            setF({ ...f, liderId: v, otros: f.otros.filter((o) => o !== v) });
+            val.limpiar('liderId');
+          }}
         />
         <MultiSelect
           label="Otros auditores"
@@ -261,7 +300,11 @@ function Cuerpo({
           minRows={3}
           maxLength={5000}
           value={f.alcance}
-          onChange={(e) => setF({ ...f, alcance: e.currentTarget.value })}
+          error={val.error('alcance')}
+          onChange={(e) => {
+            setF({ ...f, alcance: e.currentTarget.value });
+            val.limpiar('alcance');
+          }}
         />
         <Checkbox.Group
           label="Componentes del checklist"

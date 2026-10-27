@@ -54,3 +54,20 @@ export function unirFechaHora(fecha: string, hora: string, nombre: string): { va
   if (h === '') return { valor: '', error: `${nombre}: falta la hora.` };
   return { valor: `${f}T${h}`, error: null };
 }
+
+/**
+ * Lo mismo que unirFechaHora, con el error en el campo que lo tiene (Anexo 5 num. 2.4): `campos` dice el nombre de los campos de la
+ * fecha y de la hora en el formulario. La hora inválida lleva MENSAJE_HORA (el que muestra CampoHora24 al salir del campo).
+ */
+export function unirFechaHoraPorCampo(
+  fecha: string,
+  hora: string,
+  campos: { fecha: string; hora: string },
+): { valor: string; errores: Record<string, string> } {
+  const { valor, error } = unirFechaHora(fecha, hora, '');
+  if (!error) return { valor, errores: {} };
+  const h = leerHora(hora);
+  if (h === null) return { valor: '', errores: { [campos.hora]: MENSAJE_HORA } };
+  if (fecha.trim() === '') return { valor: '', errores: { [campos.fecha]: 'Falta la fecha: escriba la fecha y la hora, o deje las dos vacías.' } };
+  return { valor: '', errores: { [campos.hora]: 'Falta la hora: escriba la fecha y la hora, o deje las dos vacías.' } };
+}

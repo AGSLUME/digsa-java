@@ -16,8 +16,13 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
+import { prepararAudioEnPrimerGesto, sonarEnValidacionNativa } from './shared/alertaSonora';
 import { LimiteErrores } from './shared/LimiteErrores';
 import { tema, variablesDigsa } from './shared/tema';
+
+// Anexo 5 num. 2.4: la validación nativa del navegador (campos obligatorios, correo, rangos) también lleva el aviso sonoro
+sonarEnValidacionNativa();
+prepararAudioEnPrimerGesto();
 
 const consultas = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
 

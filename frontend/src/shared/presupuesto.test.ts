@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   anchoBarra,
+  botonQuitar,
+  celdaReporte,
+  controlPagina,
+  fechasEnTexto,
   consultaReporte,
   FILTROS_REPORTE,
   consultaPresupuesto,
@@ -8,6 +12,8 @@ import {
   etiquetaUmbral,
   mesesDe,
   cuerpoEjecucion,
+  erroresEjecucion,
+  erroresNovedad,
   problemaEjecucion,
   cuerpoNovedad,
   formularioVacio,
@@ -86,6 +92,32 @@ describe('problemaNovedad', () => {
     expect(problemaNovedad(form({ tipo: 'reajuste', porPorcentaje: true, porcentaje: '0' }))).toContain('porcentaje');
     expect(problemaNovedad(form({ tipo: 'reajuste', porPorcentaje: true, porcentaje: '-101' }))).toContain('entre -100 y 1000');
   });
+  it('erroresNovedad: cada mensaje en su campo; el primero es el de problemaNovedad', () => {
+    expect(erroresNovedad(form({ filas: [fila('10')] }))).toEqual({});
+    const mal = form({ vigenciaId: '', soporte: 'Of.1', filas: [fila('1'), { ...fila('abc'), modalidad: '' }] });
+    expect(erroresNovedad(mal)).toEqual({
+      vigenciaId: 'Seleccione la vigencia.',
+      soporte: 'El soporte de la DIGSA debe tener entre 5 y 300 caracteres.',
+      'filas.1.modalidad': 'Línea 2: seleccione la modalidad.',
+      'filas.1.valor': 'Línea 2: el valor no es un monto en pesos con máximo 2 decimales.',
+    });
+    expect(problemaNovedad(mal)).toBe('Seleccione la vigencia.');
+    expect(erroresNovedad(form({ filas: [fila('1'), fila('2')] }))).toEqual({ 'filas.1.puntoId': 'Línea 2: la línea está repetida.' });
+    expect(erroresNovedad(form({ tipo: 'rebalanceo', filas: [fila('5', '11'), fila('6', '7')] }))).toEqual({
+      'filas.1.valor': 'El valor del origen y el del destino deben ser iguales.',
+    });
+    // Con una línea incompleta no se compara la suma de la recomposición
+    expect(erroresNovedad(form({ tipo: 'recomposicion', filas: [fila('5', '11'), fila('', '7')] }))).toEqual({
+      'filas.1.valor': 'Línea 2: el valor no es un monto en pesos con máximo 2 decimales.',
+    });
+    expect(erroresNovedad(form({ tipo: 'recomposicion', filas: [fila('5', '11'), fila('-4', '7')] }))).toEqual({
+      filas: 'La recomposición debe sumar 0,00 (suma 1,00).',
+    });
+    expect(erroresNovedad(form({ tipo: 'reajuste', porPorcentaje: true, porcentaje: 'x', soporte: '' }))).toEqual({
+      soporte: 'El soporte de la DIGSA es obligatorio.',
+      porcentaje: 'Escriba el porcentaje del reajuste (distinto de 0, con máximo 2 decimales).',
+    });
+  });
 });
 
 describe('cuerpoNovedad y consulta', () => {
@@ -135,6 +167,19 @@ describe('problemaEjecucion y cuerpoEjecucion', () => {
     expect(problemaEjecucion({ ...base, facturado: '0' })).toBeNull();
     expect(problemaEjecucion(base, new Set(['5']))).toBe('Seleccione la fuerza de adscripción.');
   });
+  it('erroresEjecucion: cada mensaje en su campo, en el orden de problemaEjecucion', () => {
+    expect(erroresEjecucion(base)).toEqual({});
+    const mal = { ...base, puntoId: '', facturado: 'abc', reconocido: '5', referencia: 'r'.repeat(121) };
+    expect(erroresEjecucion(mal)).toEqual({
+      puntoId: 'Seleccione el ESM.',
+      facturado: 'El facturado debe ser un valor en pesos mayor o igual a 0, con máximo 2 decimales.',
+      referencia: 'La referencia tiene máximo 120 caracteres.',
+    });
+    expect(problemaEjecucion(mal)).toBe('Seleccione el ESM.');
+    expect(erroresEjecucion({ ...base, facturado: '10', reconocido: '12' })).toEqual({
+      reconocido: 'El reconocido (12,00) no puede superar el facturado (10,00).',
+    });
+  });
 });
 
 describe('mesesDe', () => {
@@ -176,5 +221,26 @@ describe('consultaReporte', () => {
     expect(consultaReporte('mensual', f)).toBe('vigencia=3&modalidad=dispensacion%2Csuministro&agrupacion=trimestre');
     expect(consultaReporte('movimientos', f)).toBe('vigencia=3&modalidad=dispensacion%2Csuministro&desde=2027-01-01');
     expect(consultaReporte('alertas', f)).toBe('vigencia=3&desde=2027-01-01');
+  });
+});
+
+describe('pantalla: fechas, celdas del reporte y nombres accesibles', () => {
+  it('fechas ISO dentro de un texto del servidor en dd/mm/aaaa; los meses quedan', () => {
+    expect(fechasEnTexto('2027-01-01 a 2027-12-31')).toBe('01/01/2027 a 31/12/2027');
+    expect(fechasEnTexto('Corte 2027-03')).toBe('Corte 2027-03');
+  });
+  it('celdas: fechas, fechas y horas, números y textos', () => {
+    expect(celdaReporte(null)).toBe('');
+    expect(celdaReporte('2027-03-05')).toBe('05/03/2027');
+    expect(celdaReporte('2027-03-05 14:07:09')).toBe('05/03/2027 14:07');
+    expect(celdaReporte('2027-03')).toBe('2027-03');
+    expect(celdaReporte('450000000,00')).toBe('450000000,00');
+    expect(celdaReporte(12)).toBe('12');
+    expect(celdaReporte(78.4)).toBe('78,40');
+  });
+  it('botones de paginación y de quitar con nombre', () => {
+    expect(controlPagina('previous')).toEqual({ 'aria-label': 'Página anterior' });
+    expect(controlPagina('last')).toEqual({ 'aria-label': 'Última página' });
+    expect(botonQuitar('la vigencia')).toEqual({ 'aria-label': 'Quitar la vigencia' });
   });
 });

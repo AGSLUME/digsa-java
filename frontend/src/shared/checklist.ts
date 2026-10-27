@@ -1,4 +1,5 @@
 /** Tipos y utilidades del formulario de ejecución de la visita (checklist, personal, firmas y acta). */
+import { aNumero, cifra, porcentaje } from './formato';
 
 export type Calificacion = 'C' | 'NC' | 'NA';
 
@@ -358,16 +359,16 @@ export function textoONulo(v: string): string | null {
   return t.length > 0 ? t : null;
 }
 
-/** Tamaño legible en KB o MB. */
+/** Tamaño legible en KB o MB con 2 decimales (Anexo 5 num. 2.4): «2,00 KB», «5,25 MB». */
 export function tamanoLegible(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
+  if (bytes < 1024 * 1024) return `${cifra(bytes / 1024)} KB`;
+  return `${cifra(bytes / (1024 * 1024))} MB`;
 }
 
-/** "75.0" → "75,0 %"; "null" o vacío → null. */
+/** "75.0" → "75,00 %"; "null" o vacío → null. */
 export function cumplimientoLegible(v: string | null | undefined): string | null {
-  if (!v || v === 'null' || Number.isNaN(Number(v))) return null;
-  return `${Number(v).toFixed(1).replace('.', ',')} %`;
+  if (!v || v === 'null' || aNumero(v) === null) return null;
+  return porcentaje(v);
 }
 
 /** Valor efectivo de una fila del 5W2H: la edición local si la hay, si no lo guardado. */
@@ -474,5 +475,34 @@ export function faltantesPlan(plan: DatosPlan, fecha: string | null, ediciones: 
   if (sinQue.length > 0) r.push('el qué de ' + sinQue.join(', '));
   if (sinFin.length > 0) r.push('la fecha fin de ' + sinFin.join(', '));
   if (sinJustificar.length > 0) r.push(`la justificación de la prórroga (mínimo ${MIN_JUSTIFICACION} caracteres) de ` + sinJustificar.join(', '));
+  return r;
+}
+
+/**
+ * Lo mismo que faltantesPlan, por campo, para ponerlo junto a cada uno (Anexo 5 num. 2.4): «fecha» y «que:<clave>», «fin:<clave>» y
+ * «prorroga:<clave>» por fila. Solo informa lo que falta para enviar el acta: el plan se guarda igual.
+ */
+export function faltantesPlanPorCampo(plan: DatosPlan, fecha: string | null, ediciones: Record<string, EdicionPlan>): Record<string, string> {
+  if (plan.hallazgos.length === 0) return {};
+  const r: Record<string, string> = {};
+  if (!(fecha ?? plan.fecha)) r.fecha = 'Falta la fecha del plan para enviar el acta.';
+  for (const h of plan.hallazgos) {
+    const e = valorFila(h, ediciones);
+    if (!e.que.trim()) r['que:' + h.clave] = 'Falta el qué (acción de mejora) para enviar el acta.';
+    if (ESTADOS_ABIERTOS.includes(e.estado) && !e.fin) r['fin:' + h.clave] = 'Falta la fecha fin de la acción abierta para enviar el acta.';
+    if (pideProrroga(h, ediciones) && !justificacionValida(e.prorroga)) {
+      r['prorroga:' + h.clave] = `Justifique la prórroga (mínimo ${MIN_JUSTIFICACION} caracteres).`;
+    }
+  }
+  return r;
+}
+
+/** Fecha fin anterior al inicio en una fila del 5W2H (el servidor no guarda el plan así): mensaje por «fin:<clave>». */
+export function erroresFechasPlan(plan: DatosPlan, ediciones: Record<string, EdicionPlan>): Record<string, string> {
+  const r: Record<string, string> = {};
+  for (const h of plan.hallazgos) {
+    const e = valorFila(h, ediciones);
+    if (fechaValida(e.inicio) && fechaValida(e.fin) && e.fin < e.inicio) r['fin:' + h.clave] = 'La fecha fin no puede ser anterior al inicio.';
+  }
   return r;
 }

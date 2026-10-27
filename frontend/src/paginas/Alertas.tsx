@@ -19,6 +19,9 @@ import {
 import { api, ErrorApi } from '../shared/api';
 import { puedeEntrar, useSesion } from '../shared/sesion';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { conteo, fechaHora } from '../shared/formato';
+import { useValidacion } from '../shared/validacion';
+import { conTexto } from '../shared/validaciones';
 
 /**
  * Pantalla Alertas (Pantallas.ALERTAS: coordinación y, por regla, el administrador). El administrador (el único que entra a Usuarios)
@@ -85,7 +88,7 @@ export function CatalogoAlertas() {
         ))}
         {t.usuarios.length > 0 && (
           <Badge variant="outline" size="sm">
-            {t.usuarios.length} usuario{t.usuarios.length === 1 ? '' : 's'}
+            {conteo(t.usuarios.length)} usuario{t.usuarios.length === 1 ? '' : 's'}
           </Badge>
         )}
         {t.perfiles.length === 0 && t.usuarios.length === 0 && (
@@ -95,8 +98,8 @@ export function CatalogoAlertas() {
         )}
       </Group>
       <Text size="xs" c="dimmed">
-        {t.destinatarios} activo{t.destinatarios === 1 ? '' : 's'}
-        {t.critica && t.sms && t.sinTelefono > 0 ? ` · ${t.sinTelefono} sin móvil válido (solo correo)` : ''}
+        {conteo(t.destinatarios)} activo{t.destinatarios === 1 ? '' : 's'}
+        {t.critica && t.sms && t.sinTelefono > 0 ? ` · ${conteo(t.sinTelefono)} sin móvil válido (solo correo)` : ''}
       </Text>
     </Stack>
   );
@@ -200,7 +203,10 @@ export function CatalogoAlertas() {
 function FormularioTipo({ tipo, datos, alCerrar }: { tipo: TipoAlerta; datos: DatosCatalogo; alCerrar: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<TipoAlerta>(tipo);
-  const [error, setError] = useState<string | null>(null);
+  const v = useValidacion({
+    etiquetas: { nombre: 'Nombre', activa: 'Activa', sms: 'Enviar también por SMS', perfiles: 'Destinatarios por perfil', usuarios: 'Destinatarios por usuario' },
+    testid: 'error-alerta',
+  });
   const guardar = useMutation({
     mutationFn: () => api<RespuestaGuardar>('/api/alertas/catalogo', { metodo: 'PUT', cuerpo: cuerpoEdicion(form) }),
     onSuccess: (r) => {
@@ -208,11 +214,12 @@ function FormularioTipo({ tipo, datos, alCerrar }: { tipo: TipoAlerta; datos: Da
       qc.invalidateQueries({ queryKey: ['alertas'] });
       alCerrar();
     },
-    onError: (e) => setError(errorDe(e, 'No se pudo guardar la alerta.')),
+    onError: (e) => v.errorServidor(e, 'No se pudo guardar la alerta.'),
   });
   const enviar = (e: FormEvent) => {
     e.preventDefault();
-    setError(null);
+    // Solo lo obligatorio; el largo del nombre (3 a 80) lo revisa el servidor y su mensaje queda en el resumen
+    if (!v.validar({ nombre: form.nombre.trim() ? null : 'Escriba el nombre de la alerta.' })) return;
     guardar.mutate();
   };
   const opcionesUsuarios = datos.usuarios.map((u) => ({ value: String(u.id), label: `${u.nombre} (${u.usuario})` }));
@@ -223,20 +230,34 @@ function FormularioTipo({ tipo, datos, alCerrar }: { tipo: TipoAlerta; datos: Da
   }
 
   return (
-    <form onSubmit={enviar}>
+    <form ref={v.ref} onSubmit={enviar} noValidate>
       <Stack>
-        {error && (
-          <Alert color="red" data-testid="error-alerta" role="alert">
-            {error}
-          </Alert>
-        )}
+        {v.resumen}
         {tipo.descripcion && (
           <Text size="sm" c="dimmed">
             {tipo.descripcion}
           </Text>
         )}
-        <TextInput label="Nombre" required maxLength={80} value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.currentTarget.value })} />
-        <Switch label="Activa" checked={form.activa} onChange={(e) => setForm({ ...form, activa: e.currentTarget.checked })} />
+        <TextInput
+          label="Nombre"
+          required
+          maxLength={80}
+          value={form.nombre}
+          error={v.error('nombre')}
+          onChange={(e) => {
+            setForm({ ...form, nombre: e.currentTarget.value });
+            v.limpiar('nombre');
+          }}
+        />
+        <Switch
+          label="Activa"
+          checked={form.activa}
+          error={conTexto(v.error('activa'))}
+          onChange={(e) => {
+            setForm({ ...form, activa: e.currentTarget.checked });
+            v.limpiar('activa');
+          }}
+        />
         <Switch
           label="Enviar también por SMS"
           description={
@@ -246,14 +267,22 @@ function FormularioTipo({ tipo, datos, alCerrar }: { tipo: TipoAlerta; datos: Da
           }
           disabled={!form.critica}
           checked={form.critica && form.sms}
-          onChange={(e) => setForm({ ...form, sms: e.currentTarget.checked })}
+          error={conTexto(v.error('sms'))}
+          onChange={(e) => {
+            setForm({ ...form, sms: e.currentTarget.checked });
+            v.limpiar('sms');
+          }}
         />
         <MultiSelect
           label="Destinatarios por perfil"
           description="Todos los usuarios activos con el perfil reciben la alerta."
           data={datos.perfiles.map((p) => ({ value: p, label: nombrePerfil(p) }))}
           value={form.perfiles}
-          onChange={(v) => setForm({ ...form, perfiles: v })}
+          error={v.error('perfiles')}
+          onChange={(x) => {
+            setForm({ ...form, perfiles: x });
+            v.limpiar('perfiles');
+          }}
           clearable
           comboboxProps={{ withinPortal: true }}
         />
@@ -263,7 +292,11 @@ function FormularioTipo({ tipo, datos, alCerrar }: { tipo: TipoAlerta; datos: Da
           placeholder={form.usuarios.length ? undefined : 'Buscar por nombre o usuario'}
           data={opcionesUsuarios}
           value={form.usuarios.map(String)}
-          onChange={(v) => setForm({ ...form, usuarios: v.map(Number) })}
+          error={v.error('usuarios')}
+          onChange={(x) => {
+            setForm({ ...form, usuarios: x.map(Number) });
+            v.limpiar('usuarios');
+          }}
           searchable
           clearable
           nothingFoundMessage="Sin coincidencias"
@@ -291,6 +324,8 @@ export function EventosAlertas() {
   const qc = useQueryClient();
   const [vista, setVista] = useState<'abiertas' | 'recientes'>('abiertas');
   const [cerrando, setCerrando] = useState<EventoAlerta | null>(null);
+  /** Error al cerrar una alerta: queda a la vista sobre la lista (el diálogo se cierra igual que antes). */
+  const vCerrar = useValidacion({ testid: 'error-cerrar-alerta' });
   const datos = useQuery({
     queryKey: ['alertas', 'eventos', vista],
     queryFn: () => api<DatosEventos>(`/api/alertas/eventos?abiertas=${vista === 'abiertas'}&limite=100`),
@@ -300,11 +335,12 @@ export function EventosAlertas() {
     mutationFn: (id: number) => api<{ mensaje: string }>(`/api/alertas/eventos/${id}/cerrar`, { metodo: 'POST' }),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
+      vCerrar.reiniciar();
       setCerrando(null);
       qc.invalidateQueries({ queryKey: ['alertas', 'eventos'] });
     },
     onError: (e) => {
-      notifications.show({ color: 'red', message: errorDe(e, 'No se pudo cerrar la alerta.') });
+      vCerrar.errorServidor(e, 'No se pudo cerrar la alerta.');
       setCerrando(null);
       qc.invalidateQueries({ queryKey: ['alertas', 'eventos'] });
     },
@@ -316,12 +352,12 @@ export function EventosAlertas() {
 
   const botonCerrar = (e: EventoAlerta) =>
     e.abierta ? (
-      <Button size="xs" variant="light" color="red" aria-label={`Cerrar la alerta ${e.nombre} del ${e.creado ?? ''}`} onClick={() => setCerrando(e)}>
+      <Button size="xs" variant="light" color="red" aria-label={`Cerrar la alerta ${e.nombre} del ${e.creado ? fechaHora(e.creado) : ''}`} onClick={() => setCerrando(e)}>
         Cerrar
       </Button>
     ) : (
       <Text size="xs" c="dimmed">
-        {e.cerradaEn ? 'Cerrada ' + e.cerradaEn : '—'}
+        {e.cerradaEn ? 'Cerrada ' + fechaHora(e.cerradaEn) : '—'}
       </Text>
     );
   const insigniaEstado = (e: EventoAlerta) => {
@@ -348,9 +384,9 @@ export function EventosAlertas() {
           <SimpleGrid cols={{ base: 2, sm: 5 }} spacing="xs">
             <Indicador etiqueta="Latencia p50" valor={latenciaLegible(b?.latenciaP50Ms)} prueba="p50" />
             <Indicador etiqueta="Latencia p95" valor={latenciaLegible(b?.latenciaP95Ms)} prueba="p95" />
-            <Indicador etiqueta="Pendientes" valor={String(b?.pendientes ?? '—')} />
-            <Indicador etiqueta="Enviando" valor={String(b?.enviando ?? '—')} />
-            <Indicador etiqueta="Fallidos" valor={String(b?.fallidos24h ?? '—')} />
+            <Indicador etiqueta="Pendientes" valor={conteo(b?.pendientes)} />
+            <Indicador etiqueta="Enviando" valor={conteo(b?.enviando)} />
+            <Indicador etiqueta="Fallidos" valor={conteo(b?.fallidos24h)} />
           </SimpleGrid>
           <Text size="xs" c="dimmed">
             Latencia: tiempo entre el evento y el envío del correo. La mitad de los envíos tarda menos que el p50 y el 95 % menos que el p95
@@ -374,6 +410,7 @@ export function EventosAlertas() {
         </Button>
       </Group>
 
+      {vCerrar.resumen}
       {datos.error && <Alert color="red">{errorDe(datos.error, 'No se pudieron cargar los eventos.')}</Alert>}
       {datos.isLoading && (
         <Center py="xl">
@@ -404,8 +441,8 @@ export function EventosAlertas() {
                     </Text>
                   )}
                   <Text size="xs" c="dimmed">
-                    Creada {e.creado ?? '—'}
-                    {(e.veces ?? 1) > 1 ? ` · ${e.veces} veces, la última ${e.ultimo ?? '—'}` : ''}
+                    Creada {fechaHora(e.creado)}
+                    {(e.veces ?? 1) > 1 ? ` · ${conteo(e.veces)} veces, la última ${fechaHora(e.ultimo)}` : ''}
                   </Text>
                   <Text size="xs">
                     Correo: {latenciaLegible(e.latenciaCorreoMs)} · {resumenCorreos(e)}
@@ -447,10 +484,10 @@ export function EventosAlertas() {
                       <Text size="sm">{e.detalle || '—'}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{e.creado ?? '—'}</Text>
+                      <Text size="sm">{fechaHora(e.creado)}</Text>
                       {(e.veces ?? 1) > 1 && (
                         <Text size="xs" c="dimmed">
-                          {e.veces} veces; última {e.ultimo ?? '—'}
+                          {conteo(e.veces)} veces; última {fechaHora(e.ultimo)}
                         </Text>
                       )}
                     </Table.Td>
@@ -480,7 +517,7 @@ export function EventosAlertas() {
         {cerrando && (
           <Stack>
             <Text size="sm">
-              ¿Cerrar la alerta «{cerrando.nombre}» creada el {cerrando.creado ?? '—'}? Si el problema vuelve a ocurrir se abrirá una nueva y se
+              ¿Cerrar la alerta «{cerrando.nombre}» creada el {fechaHora(cerrando.creado)}? Si el problema vuelve a ocurrir se abrirá una nueva y se
               avisará de nuevo.
             </Text>
             <Group justify="flex-end">

@@ -85,8 +85,8 @@ describe('botones de la tarjeta del ciclo', () => {
   });
 
   it('etiqueta del año y periodo', () => {
-    expect(etiquetaAnio({ anio: 2, desde: '2028-01-15', hasta: '2029-01-14' })).toBe('Año de contrato 2 (2028-01-15 – 2029-01-14)');
-    expect(periodoCiclo(ciclo)).toBe('2026-09-22 a 2027-09-21');
+    expect(etiquetaAnio({ anio: 2, desde: '2028-01-15', hasta: '2029-01-14' })).toBe('Año de contrato 2 (15/01/2028 – 14/01/2029)');
+    expect(periodoCiclo(ciclo)).toBe('22/09/2026 a 21/09/2027');
     expect(periodoCiclo({ ciclo: 'anual', nombre: '', tipo: '' })).toBe('—');
   });
 });

@@ -17,6 +17,7 @@ export function CampoHora24({
   description = '24 horas (00:00 a 23:59)',
   'aria-label': ariaLabel,
   'data-testid': testid,
+  error,
 }: {
   label: string;
   value: string;
@@ -26,6 +27,8 @@ export function CampoHora24({
   description?: string;
   'aria-label'?: string;
   'data-testid'?: string;
+  /** Error que pone el formulario (falta la hora, error del servidor); el de formato lo pone el propio campo y tiene prioridad. */
+  error?: string | true;
 }) {
   const entrada = useRef<HTMLInputElement>(null);
   const [texto, setTexto] = useState(value);
@@ -57,7 +60,7 @@ export function CampoHora24({
       required={required}
       data-testid={testid}
       value={texto}
-      error={tocado && invalida ? MENSAJE_HORA : undefined}
+      error={tocado && invalida ? MENSAJE_HORA : error}
       onChange={(e) => {
         const t = e.currentTarget.value;
         setTexto(t);

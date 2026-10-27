@@ -17,6 +17,14 @@ body {
   background-color: var(--digsa-error-campo-fondo);
 }
 
+/* Validación nativa (obligatorio, correo, rango) que el usuario ya intentó enviar: el mismo aviso visual que un error de Mantine.
+   :user-invalid no marca los campos vacíos antes de que el usuario interactúe. Solo en formularios que usan la validación del
+   navegador: los que validan con useValidacion (noValidate) muestran su propio mensaje junto al campo. */
+form:not([novalidate]) .mantine-Input-input:user-invalid {
+  border-color: var(--mantine-color-error);
+  background-color: var(--digsa-error-campo-fondo);
+}
+
 /* Foco visible también en un campo con error (Mantine deja el borde rojo igual con o sin foco): es el campo al que se lleva el foco
    después de una validación (Anexo 5 num. 2.4) */
 .mantine-Input-input:focus,

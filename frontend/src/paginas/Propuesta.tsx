@@ -49,10 +49,9 @@ import {
 } from '../shared/propuesta';
 import { puedeEntrar, useSesion } from '../shared/sesion';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
-
-function avisarError(e: unknown, texto: string) {
-  notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : texto });
-}
+import { cifra, conteo, fecha } from '../shared/formato';
+import { useValidacion } from '../shared/validacion';
+import { campoDelAjuste } from '../shared/validaciones';
 
 /** Dónde se registran el inicio del contrato y los parámetros de la propuesta. */
 function EnlaceParametros() {
@@ -81,6 +80,8 @@ export function Propuesta() {
     queryKey: ['propuesta', 'datos', anio],
     queryFn: () => api<DatosPropuesta>('/api/propuesta' + (anio == null ? '' : `?anio=${anio}`)),
   });
+  // Errores al proponer o continuar una confirmación: persistentes encima de los ciclos (antes, aviso de 10 s)
+  const v = useValidacion({ testid: 'error-ciclos' });
 
   const generar = useMutation({
     mutationKey: ['propuesta'],
@@ -88,11 +89,12 @@ export function Propuesta() {
       api<{ id?: number; mensaje: string }>('/api/propuesta/generar', { cuerpo: { ciclo: c.ciclo, anio: c.anioContrato ?? null } }),
     onSuccess: (r) => {
       notifications.show({ color: r.id ? 'green' : 'blue', message: r.mensaje });
+      v.reiniciar();
       if (r.id) setAbierta(r.id);
       void qc.invalidateQueries({ queryKey: ['propuesta'] });
     },
     onError: (e) => {
-      avisarError(e, 'No se pudo generar la propuesta.');
+      v.errorServidor(e, 'No se pudo generar la propuesta.');
       // Otro usuario pudo generarla al mismo tiempo (409): recargar muestra su borrador
       void qc.invalidateQueries({ queryKey: ['propuesta'] });
     },
@@ -103,11 +105,12 @@ export function Propuesta() {
     mutationFn: (id: number) => api<RespuestaConfirmar>(`/api/propuesta/${id}/confirmar`, { metodo: 'POST' }),
     onSuccess: (r, id) => {
       notifications.show({ color: r.parcial ? 'yellow' : 'green', autoClose: 15000, message: r.mensaje });
+      v.reiniciar();
       setAbierta(id);
       void qc.invalidateQueries({ queryKey: ['propuesta'] });
     },
     onError: (e) => {
-      avisarError(e, 'No se pudo continuar la confirmación.');
+      v.errorServidor(e, 'No se pudo continuar la confirmación.');
       void qc.invalidateQueries({ queryKey: ['propuesta'] });
     },
   });
@@ -128,6 +131,7 @@ export function Propuesta() {
     <Stack>
       <EncabezadoPagina titulo="Propuesta de agenda" fuente="Anexo 3 · Anexo 5 · 4.5" />
       {datos.error && <Alert color="red">{datos.error.message}</Alert>}
+      <div ref={v.ref}>{v.resumen}</div>
       {datos.isLoading && (
         <Center py="xl">
           <Loader />
@@ -144,13 +148,13 @@ export function Propuesta() {
               allowDeselect={false}
               data={d.anios.map((a) => ({ value: String(a.anio), label: etiquetaAnio(a) }))}
               value={String(d.anio)}
-              onChange={(v) => {
-                if (v) {
-                  setAnio(Number(v));
+              onChange={(x) => {
+                if (x) {
+                  setAnio(Number(x));
                   setAbierta(null);
                 }
               }}
-              description={`Inicio del contrato: ${d.inicioContrato}. La línea base vence a los 3 meses del inicio; los demás ciclos se cuentan por año de contrato.`}
+              description={`Inicio del contrato: ${fecha(d.inicioContrato)}. La línea base vence a los 3 meses del inicio; los demás ciclos se cuentan por año de contrato.`}
               data-testid="anio-contrato"
             />
           ) : (
@@ -224,8 +228,8 @@ function Explicacion({ visitasPorDia, kmMismoDia }: { visitasPorDia: number; kmM
               </List.Item>
               <List.Item>
                 <b>Fecha.</b> Días hábiles (sin fines de semana ni festivos) que dejan los 15 días de notificación previa al OPL, hasta el límite del
-                ciclo. Cada auditor tiene máximo <b data-testid="visitas-por-dia">{visitasPorDia}</b> visita(s) por día y, el mismo día, solo
-                municipios a no más de <b data-testid="km-mismo-dia">{kmMismoDia}</b> km entre sí.
+                ciclo. Cada auditor tiene máximo <b data-testid="visitas-por-dia">{conteo(visitasPorDia)}</b> visita(s) por día y, el mismo día, solo
+                municipios a no más de <b data-testid="km-mismo-dia">{cifra(kmMismoDia)}</b> km entre sí.
               </List.Item>
               <List.Item>
                 <b>Borrador.</b> Revise las filas, ajuste el líder, el equipo o la fecha (la fila queda fija), recalcule y confirme. Al confirmar,
@@ -248,7 +252,7 @@ function Dato({ etiqueta, valor, color }: { etiqueta: string; valor: number | un
   return (
     <Stack gap={0} align="center">
       <Text size="lg" fw={700} c={color}>
-        {valor ?? '—'}
+        {conteo(valor)}
       </Text>
       <Text size="xs" c="dimmed">
         {etiqueta}
@@ -341,22 +345,46 @@ function VistaPropuesta({ id, auditores, alCerrar }: { id: number; auditores: Au
     queryFn: () => api<DatosBorrador>(`/api/propuesta/${id}`),
   });
   const refrescar = () => void qc.invalidateQueries({ queryKey: ['propuesta'] });
+  // Errores del borrador: persistentes en un resumen de la pantalla (antes, aviso de 10 s). Campos por fila: «fecha-<id>», «lider-<id>»
+  // y «otros-<id>»
+  const v = useValidacion({
+    etiquetas: Object.fromEntries(
+      (propuesta.data?.items ?? []).flatMap((i) => [
+        ['fecha-' + i.id, 'Fecha de ' + i.punto],
+        ['lider-' + i.id, 'Auditor líder de ' + i.punto],
+        ['otros-' + i.id, 'Otros auditores de ' + i.punto],
+      ]),
+    ),
+    testid: 'error-propuesta',
+  });
   const conflicto = (e: unknown, texto: string) => {
-    avisarError(e, texto);
+    v.errorServidor(e, texto);
     refrescar();
+  };
+  const exito = (mensaje: string) => {
+    notifications.show({ color: 'green', message: mensaje });
+    v.reiniciar();
   };
 
   const guardar = useMutation({
     mutationKey: ['propuesta'],
-    mutationFn: (v: { item: ItemPropuesta; edicion: EdicionFila }) =>
-      api<{ mensaje: string }>(`/api/propuesta/items/${v.item.id}`, { metodo: 'PUT', cuerpo: cuerpoAjuste(v.edicion) }),
-    onSuccess: (r, v) => {
-      notifications.show({ color: 'green', message: r.mensaje });
-      setEdiciones(({ [v.item.id]: _, ...resto }) => resto);
+    mutationFn: (x: { item: ItemPropuesta; edicion: EdicionFila }) =>
+      api<{ mensaje: string }>(`/api/propuesta/items/${x.item.id}`, { metodo: 'PUT', cuerpo: cuerpoAjuste(x.edicion) }),
+    onSuccess: (r, x) => {
+      exito(r.mensaje);
+      setEdiciones(({ [x.item.id]: _, ...resto }) => resto);
       refrescar();
     },
-    onError: (e, v) => {
-      avisarError(e, 'No se pudo guardar el ajuste de ' + v.item.punto + '.');
+    onError: (e, x) => {
+      // El rechazo se marca en el campo de la fila (si el mensaje lo deja ver) o dice de qué punto es
+      const campo = e instanceof ErrorApi ? campoDelAjuste(e.message) : null;
+      const error =
+        e instanceof ErrorApi
+          ? campo
+            ? new ErrorApi(e.estado, e.message, { ...e.datos, campo: `${campo}-${x.item.id}` })
+            : new ErrorApi(e.estado, `${x.item.punto}: ${e.message}`, e.datos)
+          : e;
+      v.errorServidor(error, 'No se pudo guardar el ajuste de ' + x.item.punto + '.');
       if (e instanceof ErrorApi && (e.estado === 404 || e.estado === 409)) refrescar();
     },
   });
@@ -364,7 +392,7 @@ function VistaPropuesta({ id, auditores, alCerrar }: { id: number; auditores: Au
     mutationKey: ['propuesta'],
     mutationFn: (i: ItemPropuesta) => api<{ mensaje: string }>(`/api/propuesta/items/${i.id}/liberar`, { metodo: 'POST' }),
     onSuccess: (r) => {
-      notifications.show({ color: 'green', message: r.mensaje });
+      exito(r.mensaje);
       refrescar();
     },
     onError: (e) => conflicto(e, 'No se pudo liberar la fila.'),
@@ -373,7 +401,7 @@ function VistaPropuesta({ id, auditores, alCerrar }: { id: number; auditores: Au
     mutationKey: ['propuesta'],
     mutationFn: () => api<{ mensaje: string }>(`/api/propuesta/${id}/recalcular`, { metodo: 'POST' }),
     onSuccess: (r) => {
-      notifications.show({ color: 'green', message: r.mensaje });
+      exito(r.mensaje);
       setEdiciones({});
       refrescar();
     },
@@ -385,6 +413,7 @@ function VistaPropuesta({ id, auditores, alCerrar }: { id: number; auditores: Au
     onSuccess: (r) => {
       setResultado(r);
       setEdiciones({});
+      v.reiniciar();
       notifications.show({ color: r.parcial ? 'yellow' : 'green', autoClose: 15000, message: r.mensaje });
       refrescar();
     },
@@ -394,7 +423,7 @@ function VistaPropuesta({ id, auditores, alCerrar }: { id: number; auditores: Au
     mutationKey: ['propuesta'],
     mutationFn: () => api<{ mensaje: string }>(`/api/propuesta/${id}/descartar`, { metodo: 'POST' }),
     onSuccess: (r) => {
-      notifications.show({ color: 'green', message: r.mensaje });
+      exito(r.mensaje);
       refrescar();
       alCerrar();
     },
@@ -441,7 +470,11 @@ function VistaPropuesta({ id, auditores, alCerrar }: { id: number; auditores: Au
     ocupado,
     guardando: guardar.isPending && guardar.variables?.item.id === i.id,
     liberando: liberar.isPending && liberar.variables?.id === i.id,
-    alCambiar: (c: Partial<EdicionFila>) => cambiar(i, c),
+    errores: { fecha: v.error('fecha-' + i.id), lider: v.error('lider-' + i.id), otros: v.error('otros-' + i.id) },
+    alCambiar: (c: Partial<EdicionFila>) => {
+      cambiar(i, c);
+      for (const campo of ['fecha', 'lider', 'otros'] as const) if (campo in c) v.limpiar(`${campo}-${i.id}`);
+    },
     alGuardar: () => guardar.mutate({ item: i, edicion: editar(i) }),
     alLiberar: () => liberar.mutate(i),
   });
@@ -455,7 +488,7 @@ function VistaPropuesta({ id, auditores, alCerrar }: { id: number; auditores: Au
               Propuesta N° {p.id} · {p.nombre}
             </Title>
             <Text size="xs" c="dimmed">
-              Periodo {p.desde} a {p.hasta}
+              Periodo {fecha(p.desde)} a {fecha(p.hasta)}
               {p.anioContrato != null ? ` · año de contrato ${p.anioContrato}` : ''}
             </Text>
           </Stack>
@@ -471,8 +504,8 @@ function VistaPropuesta({ id, auditores, alCerrar }: { id: number; auditores: Au
 
         <Alert color={p.resumen.cabe ? 'green' : 'orange'} data-testid="resumen-propuesta" title={p.resumen.texto ?? 'Resumen'}>
           <Text size="sm">
-            {p.resumen.visitas ?? 0} visita(s) · {p.resumen.auditores ?? 0} auditor(es) · {p.resumen.dias ?? 0} día(s)
-            {p.resumen.desde ? ` · del ${p.resumen.desde} al ${p.resumen.hasta ?? p.resumen.desde}` : ''} ·{' '}
+            {conteo(p.resumen.visitas ?? 0)} visita(s) · {conteo(p.resumen.auditores ?? 0)} auditor(es) · {conteo(p.resumen.dias ?? 0)} día(s)
+            {p.resumen.desde ? ` · del ${fecha(p.resumen.desde)} al ${fecha(p.resumen.hasta ?? p.resumen.desde)}` : ''} ·{' '}
             {p.resumen.cabe ? 'cabe en el plazo' : 'no todo cabe'}
           </Text>
           {alertas.length > 0 && (
@@ -496,6 +529,9 @@ function VistaPropuesta({ id, auditores, alCerrar }: { id: number; auditores: Au
             {resultado.mensaje}
           </Alert>
         )}
+
+        {/* Solo el resumen: los campos de la fila salen dos veces (tabla y tarjetas, una oculta), el foco va al resumen que los nombra */}
+        <div ref={v.ref}>{v.resumen}</div>
 
         {/* En el celular, tarjetas: sin desplazamiento horizontal */}
         <Stack hiddenFrom="md" gap="sm" data-testid="tarjetas-propuesta">
@@ -593,12 +629,20 @@ interface PropsFila {
   ocupado: boolean;
   guardando: boolean;
   liberando: boolean;
+  /** Marca de error de cada campo de la fila (rechazo del servidor). */
+  errores: { fecha?: string | true; lider?: string | true; otros?: string | true };
   alCambiar: (c: Partial<EdicionFila>) => void;
   alGuardar: () => void;
   alLiberar: () => void;
 }
 
-function CampoFecha({ item, edicion, alCambiar, tarjeta }: Pick<PropsFila, 'item' | 'edicion' | 'alCambiar'> & { tarjeta?: boolean }) {
+function CampoFecha({
+  item,
+  edicion,
+  errores,
+  alCambiar,
+  tarjeta,
+}: Pick<PropsFila, 'item' | 'edicion' | 'errores' | 'alCambiar'> & { tarjeta?: boolean }) {
   return (
     <TextInput
       type="date"
@@ -606,6 +650,7 @@ function CampoFecha({ item, edicion, alCambiar, tarjeta }: Pick<PropsFila, 'item
       label={tarjeta ? 'Fecha' : undefined}
       aria-label={'Fecha de ' + item.punto}
       value={edicion.fecha}
+      error={errores.fecha}
       onChange={(e) => alCambiar({ fecha: e.currentTarget.value })}
     />
   );
@@ -615,11 +660,13 @@ function CampoLider({
   item,
   edicion,
   auditores,
+  errores,
   alCambiar,
   tarjeta,
-}: Pick<PropsFila, 'item' | 'edicion' | 'auditores' | 'alCambiar'> & { tarjeta?: boolean }) {
+}: Pick<PropsFila, 'item' | 'edicion' | 'auditores' | 'errores' | 'alCambiar'> & { tarjeta?: boolean }) {
   return (
     <Select
+      error={errores.lider}
       size="xs"
       label={tarjeta ? 'Auditor líder' : undefined}
       aria-label={'Auditor líder de ' + item.punto}
@@ -638,11 +685,13 @@ function CampoOtros({
   item,
   edicion,
   auditores,
+  errores,
   alCambiar,
   tarjeta,
-}: Pick<PropsFila, 'item' | 'edicion' | 'auditores' | 'alCambiar'> & { tarjeta?: boolean }) {
+}: Pick<PropsFila, 'item' | 'edicion' | 'auditores' | 'errores' | 'alCambiar'> & { tarjeta?: boolean }) {
   return (
     <MultiSelect
+      error={errores.otros}
       size="xs"
       label={tarjeta ? 'Otros auditores' : undefined}
       aria-label={'Otros auditores de ' + item.punto}
@@ -766,13 +815,13 @@ function FilaTabla(f: PropsFila) {
         </>
       ) : (
         <>
-          <Table.Td style={{ whiteSpace: 'nowrap' }}>{i.fecha ?? 'Sin fecha'}</Table.Td>
+          <Table.Td style={{ whiteSpace: 'nowrap' }}>{i.fecha ? fecha(i.fecha) : 'Sin fecha'}</Table.Td>
           <Table.Td colSpan={2}>
             <TextoEquipo item={i} />
           </Table.Td>
         </>
       )}
-      <Table.Td>{i.km ?? '—'}</Table.Td>
+      <Table.Td>{cifra(i.km)}</Table.Td>
       <Table.Td maw={260}>
         <MotivoYAlertas item={i} />
       </Table.Td>
@@ -807,7 +856,7 @@ function TarjetaFila(f: PropsFila) {
             <Text size="xs" c="dimmed">
               {i.unidad}
               {i.municipio ? ' · ' + i.municipio : ''}
-              {i.km != null ? ` · ${i.km} km` : ''}
+              {i.km != null ? ` · ${cifra(i.km)} km` : ''}
             </Text>
           </Stack>
           {f.borrador && <Candado {...f} />}
@@ -820,7 +869,7 @@ function TarjetaFila(f: PropsFila) {
           </>
         ) : (
           <>
-            <Text size="sm">Fecha: {i.fecha ?? 'Sin fecha'}</Text>
+            <Text size="sm">Fecha: {i.fecha ? fecha(i.fecha) : 'Sin fecha'}</Text>
             <TextoEquipo item={i} />
           </>
         )}

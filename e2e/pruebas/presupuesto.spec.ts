@@ -32,6 +32,21 @@ async function crearUsuario(page: Page, prefijo: string, perfil: number): Promis
   return usuario;
 }
 
+/**
+ * Un año de vigencia libre entre 2030 y 2100 (el servidor acepta 2020 a 2100, una vigencia por año), empezando en uno que varía con la
+ * corrida. La base local de las e2e (.local/pgdata) conserva las vigencias de corridas anteriores: si ya no queda año libre la prueba
+ * falla con el motivo, en lugar de quedarse en un ciclo sin fin que bloquea el proceso (y con él el timeout de Playwright).
+ */
+function anioLibre(usados: Set<number>, desfase: number): number {
+  const total = 2100 - 2030 + 1;
+  const inicio = (Date.now() + desfase) % total;
+  for (let i = 0; i < total; i++) {
+    const anio = 2030 + ((inicio + i) % total);
+    if (!usados.has(anio)) return anio;
+  }
+  throw new Error("No queda un año libre para la vigencia entre 2030 y 2100: borre la base local de las e2e (.local/pgdata) y repita.");
+}
+
 /** Elige una opción de un Select de Mantine dentro de un contenedor. */
 async function elegir(page: Page, dentro: Locator | Page, etiqueta: string, buscar: string, opcion: string | RegExp): Promise<void> {
   const campo = dentro.getByRole('textbox', { name: etiqueta });
@@ -61,8 +76,7 @@ test('M7-1 y M7-2: vigencia, carga del presupuesto, rebalanceo trazado en el his
   expect(ejc.length).toBeGreaterThanOrEqual(2);
   const [neiva, cali] = [ejc[0]!, ejc[1]!];
   const usados = new Set(o.datos.vigencias.map((v) => v.anio));
-  let anio = 2030 + (Date.now() % 70);
-  while (usados.has(anio)) anio = 2030 + ((anio - 2029) % 70);
+  const anio = anioLibre(usados, 0);
 
   // Configuración: la vigencia
   await page.getByRole('tab', { name: 'Configuración' }).click();
@@ -165,8 +179,7 @@ test('F3: ejecución manual que cruza el 25 %, versión del mes y notificación 
   o.datos.puntos.forEach((p) => p.sigla && siglas.set(p.sigla, (siglas.get(p.sigla) ?? 0) + 1));
   const esm = o.datos.puntos.find((p) => p.fuerza === 'EJC' && p.modalidad === 'Dispensación' && p.sigla && siglas.get(p.sigla) === 1)!;
   const usados = new Set(o.datos.vigencias.map((v) => v.anio));
-  let anio = 2030 + ((Date.now() + 37) % 70);
-  for (let i = 0; usados.has(anio) && i < 70; i++) anio = 2030 + ((anio - 2029) % 70);
+  const anio = anioLibre(usados, 37);
   const v = await api<{ id: number }>(page, 'POST', '/api/presupuesto/vigencias', { anio });
   expect(v.estado).toBe(201);
   expect(
@@ -214,8 +227,7 @@ test('M7-3: ejecución por encima de la proyección: alarma por ESM, Fuerza y ni
   o.datos.puntos.forEach((p) => p.sigla && siglas.set(p.sigla, (siglas.get(p.sigla) ?? 0) + 1));
   const esm = o.datos.puntos.filter((p) => p.fuerza === 'EJC' && p.modalidad === 'Dispensación' && p.sigla && siglas.get(p.sigla) === 1)[2]!;
   const usados = new Set(o.datos.vigencias.map((v) => v.anio));
-  let anio = 2030 + ((Date.now() + 53) % 70);
-  for (let i = 0; usados.has(anio) && i < 70; i++) anio = 2030 + ((anio - 2029) % 70);
+  const anio = anioLibre(usados, 53);
   const v = await api<{ id: number }>(page, 'POST', '/api/presupuesto/vigencias', { anio });
   expect(v.estado).toBe(201);
   expect(
@@ -266,8 +278,7 @@ test('F5: tablero con cajas, ejecución por Fuerza y modalidad, ESM con mayor ej
   o.datos.puntos.forEach((p) => p.sigla && siglas.set(p.sigla, (siglas.get(p.sigla) ?? 0) + 1));
   const esm = o.datos.puntos.filter((p) => p.fuerza === 'EJC' && p.modalidad === 'Dispensación' && p.sigla && siglas.get(p.sigla) === 1)[3]!;
   const usados = new Set(o.datos.vigencias.map((v) => v.anio));
-  let anio = 2030 + ((Date.now() + 71) % 70);
-  for (let k = 0; usados.has(anio) && k < 70; k++) anio = 2030 + ((anio - 2029) % 70);
+  const anio = anioLibre(usados, 71);
   const v = await api<{ id: number }>(page, 'POST', '/api/presupuesto/vigencias', { anio });
   expect(v.estado).toBe(201);
   expect(
@@ -321,8 +332,7 @@ test('F6: reportes de presupuesto: ver los movimientos con el rebalanceo y desca
   const ejc = o.datos.puntos.filter((p) => p.fuerza === 'EJC' && p.modalidad === 'Dispensación' && p.sigla && siglas.get(p.sigla) === 1);
   const [x, y] = [ejc[4]!, ejc[5]!];
   const usados = new Set(o.datos.vigencias.map((v) => v.anio));
-  let anio = 2030 + ((Date.now() + 89) % 70);
-  for (let k = 0; usados.has(anio) && k < 70; k++) anio = 2030 + ((anio - 2029) % 70);
+  const anio = anioLibre(usados, 89);
   const v = await api<{ id: number }>(page, 'POST', '/api/presupuesto/vigencias', { anio });
   expect(v.estado).toBe(201);
   const base = { vigenciaId: v.datos.id, soporte: 'Oficio DIGSA de prueba de reportes' };
@@ -355,7 +365,7 @@ test('F6: reportes de presupuesto: ver los movimientos con el rebalanceo y desca
   const tabla = page.getByTestId('reporte-tabla');
   await expect(tabla).toContainText('Rebalanceo');
   await expect(tabla.getByRole('row', { name: new RegExp(x.sigla!) }).filter({ hasText: 'Rebalanceo' })).toContainText('450000000,00');
-  await expect(page.getByTestId('reporte-resultado')).toContainText(`Periodo: ${anio}-01-01 a ${anio}-12-31`);
+  await expect(page.getByTestId('reporte-resultado')).toContainText(`Periodo: 01/01/${anio} a 31/12/${anio}`);
 
   for (const [formato, extension] of [
     ['xlsx', '.xlsx'],

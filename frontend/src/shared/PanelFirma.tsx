@@ -1,14 +1,16 @@
 import { Button, Group, Text } from '@mantine/core';
-import { useEffect, useRef, type PointerEvent } from 'react';
+import { useEffect, useId, useRef, type PointerEvent } from 'react';
 
 const ANCHO = 320;
 const ALTO = 140;
 
 /**
  * Panel de firma: lienzo dibujado con el dedo, el lápiz o el ratón (eventos pointer, sin desplazar la página al firmar).
- * Avisa con la imagen PNG en data URL cada vez que se termina un trazo, o null al borrar.
+ * Avisa con la imagen PNG en data URL cada vez que se termina un trazo, o null al borrar. Con `error` (p. ej. «falta la firma») el
+ * recuadro queda marcado (aria-invalid, recibe el foco de la validación) y el mensaje va debajo (Anexo 5 num. 2.4).
  */
-export function PanelFirma({ alCambiar }: { alCambiar: (png: string | null) => void }) {
+export function PanelFirma({ alCambiar, error }: { alCambiar: (png: string | null) => void; error?: string }) {
+  const idError = useId();
   const lienzo = useRef<HTMLCanvasElement>(null);
   const dibujando = useRef(false);
   const ultimo = useRef<{ x: number; y: number } | null>(null);
@@ -93,6 +95,9 @@ export function PanelFirma({ alCambiar }: { alCambiar: (png: string | null) => v
         role="img"
         aria-label="Panel de firma"
         data-testid="panel-firma"
+        tabIndex={error ? -1 : undefined}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? idError : undefined}
         onPointerDown={empezar}
         onPointerMove={mover}
         onPointerUp={terminar}
@@ -104,12 +109,17 @@ export function PanelFirma({ alCambiar }: { alCambiar: (png: string | null) => v
           maxWidth: ANCHO,
           aspectRatio: `${ANCHO} / ${ALTO}`,
           touchAction: 'none',
-          border: '1px solid var(--mantine-color-gray-5)',
+          border: error ? '1px solid var(--mantine-color-error)' : '1px solid var(--mantine-color-gray-5)',
           borderRadius: 4,
           background: '#ffffff',
           cursor: 'crosshair',
         }}
       />
+      {error && (
+        <Text id={idError} size="xs" c="var(--mantine-color-error)" mt={4}>
+          {error}
+        </Text>
+      )}
       <Group justify="space-between" mt={4}>
         <Text size="xs" c="dimmed">
           Firme dentro del recuadro.

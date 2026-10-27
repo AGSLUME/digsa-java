@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api, ingresar, ingresarComoAdminPropio, ingresarConClaveInicial, salir, sinDesplazamientoHorizontal, unico } from './apoyo';
+import { api, filaDeUsuario, ingresar, ingresarComoAdminPropio, ingresarConClaveInicial, salir, sinDesplazamientoHorizontal, unico } from './apoyo';
 
 test.afterEach(async ({ page }) => salir(page));
 
@@ -43,7 +43,7 @@ test('cambiar mi contraseña: con la actual errada avisa; con la correcta sigue 
   await dialogo.getByRole('textbox', { name: 'Contraseña nueva', exact: true }).fill(NUEVA);
   await dialogo.getByLabel('Confirme la contraseña nueva').fill(NUEVA);
   await dialogo.getByRole('button', { name: 'Cambiar contraseña' }).click();
-  await expect(p.getByTestId('error-mi-clave')).toHaveText('La contraseña actual no es correcta.');
+  await expect(p.getByTestId('error-mi-clave')).toContainText('La contraseña actual no es correcta.');
 
   await dialogo.getByLabel('Contraseña actual').fill(PROPIA);
   await dialogo.getByRole('button', { name: 'Cambiar contraseña' }).click();
@@ -94,7 +94,7 @@ test('un usuario bloqueado por 5 intentos aparece «Bloqueado» y el administrad
   await ctx.close();
 
   await page.getByRole('link', { name: 'Usuarios' }).click();
-  const fila = page.getByTestId('usuario-' + usuario);
+  const fila = await filaDeUsuario(page, usuario);
   await expect(fila.getByText('Bloqueado')).toBeVisible();
   await fila.getByRole('button', { name: 'Desbloquear a Auditor Cuenta de Prueba' }).click();
   await expect(page.getByText('Usuario desbloqueado.')).toBeVisible();

@@ -4,9 +4,12 @@ import { notifications } from '@mantine/notifications';
 import { useMediaQuery } from '@mantine/hooks';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useState } from 'react';
-import { api, descargar, ErrorApi } from '../shared/api';
+import { useState, type FormEvent } from 'react';
+import { api, descargar } from '../shared/api';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { conteo, fechaHora, hoyBogota, sumarDias } from '../shared/formato';
+import { useValidacion } from '../shared/validacion';
+import { errorCorreo } from '../shared/validaciones';
 
 interface Fila {
   id: number;
@@ -41,6 +44,18 @@ interface Opciones {
   correoDefecto: string;
 }
 
+/** Igual que ControladorLogs.MAX_DIAS_TEXTO: con texto, el periodo es de máximo 92 días. */
+const MAX_DIAS_TEXTO = 92;
+
+/** Días entre dos fechas «aaaa-mm-dd» (calendario). */
+function diasEntre(desde: string, hasta: string): number {
+  const utc = (iso: string) => {
+    const [a, m, d] = iso.split('-').map(Number);
+    return Date.UTC(a!, m! - 1, d!);
+  };
+  return Math.round((utc(hasta) - utc(desde)) / 86_400_000);
+}
+
 const NOMBRES: Record<string, string> = {
   insercion: 'Inserción',
   actualizacion: 'Actualización',
@@ -52,8 +67,9 @@ const NOMBRES: Record<string, string> = {
 
 /** Logs del sistema (Anexo 5, prueba 15): en el navegador, con descarga en Excel o CSV y envío por correo sin salir de la aplicación. */
 export function Logs() {
-  const [desde, setDesde] = useState<Date | null>(dayjs().subtract(7, 'day').toDate());
-  const [hasta, setHasta] = useState<Date | null>(new Date());
+  // Por omisión los últimos 7 días, contados en la fecha de Bogotá (como el servidor)
+  const [desde, setDesde] = useState<Date | null>(() => dayjs(sumarDias(hoyBogota(), -7)).toDate());
+  const [hasta, setHasta] = useState<Date | null>(() => dayjs(hoyBogota()).toDate());
   const [usuarioId, setUsuarioId] = useState<string | null>(null);
   const [operacion, setOperacion] = useState<string | null>(null);
   const [texto, setTexto] = useState('');
@@ -66,6 +82,10 @@ export function Logs() {
   const [vuelta, setVuelta] = useState(0);
   const [envio, setEnvio] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const vFiltros = useValidacion({ etiquetas: { desde: 'Desde', hasta: 'Hasta', texto: 'Texto' }, testid: 'error-filtros-logs' });
+  /** Error de una descarga: queda a la vista hasta la siguiente. */
+  const vDescarga = useValidacion({ testid: 'error-descarga-logs' });
+  const vEnvio = useValidacion({ etiquetas: { para: 'Correo de destino' }, testid: 'error-envio-logs' });
 
   const opciones = useQuery({ queryKey: ['logs-opciones'], queryFn: () => api<Opciones>('/api/logs/opciones') });
 
@@ -96,12 +116,34 @@ export function Logs() {
   });
 
   const buscar = () => {
+    // Las mismas reglas del servidor (ControladorLogs.filtro): sin fecha, los últimos 7 días; fechas invertidas se intercambian; con
+    // texto, máximo 92 días entre la menor y la mayor
+    const hoy = hoyBogota();
+    const [d, h] = [desde ? dayjs(desde).format('YYYY-MM-DD') : sumarDias(hoy, -7), hasta ? dayjs(hasta).format('YYYY-MM-DD') : hoy].sort();
+    const ok = vFiltros.validar({
+      texto: texto.trim() && diasEntre(d!, h!) > MAX_DIAS_TEXTO ? `Para buscar por texto, use un periodo de máximo ${MAX_DIAS_TEXTO} días.` : null,
+    });
+    if (!ok) return;
     setAplicado(parametros().toString());
     setVuelta((v) => v + 1);
   };
 
-  const enviarCorreo = async () => {
-    if (!envio || enviando) return;
+  const bajar = (formato: 'xlsx' | 'csv') =>
+    descargar(`/api/logs/exportar?formato=${formato}&` + aplicado).then(
+      () => vDescarga.reiniciar(),
+      (e: unknown) => vDescarga.errorServidor(e, 'No se pudo descargar el archivo.'),
+    );
+
+  const cerrarEnvio = () => {
+    vEnvio.reiniciar();
+    setEnvio(null);
+  };
+
+  const enviarCorreo = async (ev: FormEvent) => {
+    ev.preventDefault();
+    if (envio === null || enviando) return;
+    const para = envio.trim();
+    if (!vEnvio.validar({ para: errorCorreo(para, 'Escriba un correo válido para enviar el reporte.', 'Escriba el correo de destino.') })) return;
     setEnviando(true);
     try {
       const p = new URLSearchParams(aplicado);
@@ -119,9 +161,9 @@ export function Logs() {
         },
       });
       notifications.show({ color: 'green', message: r.mensaje });
-      setEnvio(null);
+      cerrarEnvio();
     } catch (e) {
-      notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo enviar el correo.' });
+      vEnvio.errorServidor(e, 'No se pudo enviar el correo.');
     } finally {
       setEnviando(false);
     }
@@ -132,9 +174,29 @@ export function Logs() {
   return (
     <Stack>
       <EncabezadoPagina titulo="Logs del sistema" fuente="Anexo 5 · 3 · ítem 15" />
-      <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }}>
-        <DatePickerInput label="Desde" value={desde} onChange={setDesde} valueFormat="YYYY-MM-DD" />
-        <DatePickerInput label="Hasta" value={hasta} onChange={setHasta} valueFormat="YYYY-MM-DD" />
+      <SimpleGrid ref={vFiltros.ref} cols={{ base: 1, sm: 2, md: 4 }}>
+        <DatePickerInput
+          label="Desde"
+          value={desde}
+          error={vFiltros.error('desde')}
+          onChange={(x) => {
+            setDesde(x);
+            vFiltros.limpiar('desde');
+            vFiltros.limpiar('texto');
+          }}
+          valueFormat="DD/MM/YYYY"
+        />
+        <DatePickerInput
+          label="Hasta"
+          value={hasta}
+          error={vFiltros.error('hasta')}
+          onChange={(x) => {
+            setHasta(x);
+            vFiltros.limpiar('desde');
+            vFiltros.limpiar('texto');
+          }}
+          valueFormat="DD/MM/YYYY"
+        />
         <Select
           label="Usuario"
           clearable
@@ -162,32 +224,34 @@ export function Logs() {
           label="Texto"
           description="Con texto, el periodo es de máximo 92 días"
           value={texto}
-          onChange={(e) => setTexto(e.currentTarget.value)}
+          error={vFiltros.error('texto')}
+          onChange={(e) => {
+            setTexto(e.currentTarget.value);
+            vFiltros.limpiar('texto');
+          }}
           maxLength={80}
         />
       </SimpleGrid>
       <Group>
         <Button onClick={buscar}>Buscar</Button>
-        <Button
-          variant="light"
-          onClick={() =>
-            descargar('/api/logs/exportar?formato=xlsx&' + aplicado).catch((e: Error) => notifications.show({ color: 'red', message: e.message }))
-          }
-        >
+        <Button variant="light" onClick={() => bajar('xlsx')}>
           Descargar Excel
         </Button>
-        <Button
-          variant="light"
-          onClick={() =>
-            descargar('/api/logs/exportar?formato=csv&' + aplicado).catch((e: Error) => notifications.show({ color: 'red', message: e.message }))
-          }
-        >
+        <Button variant="light" onClick={() => bajar('csv')}>
           Descargar CSV
         </Button>
-        <Button variant="light" onClick={() => setEnvio(opciones.data?.correoDefecto ?? '')}>
+        <Button
+          variant="light"
+          onClick={() => {
+            vEnvio.reiniciar();
+            setEnvio(opciones.data?.correoDefecto ?? '');
+          }}
+        >
           Enviar por correo
         </Button>
       </Group>
+      {vFiltros.resumen}
+      {vDescarga.resumen}
       {lista.error && <Alert color="red">{lista.error.message}</Alert>}
       {opciones.error && <Alert color="red">No se pudieron cargar los filtros: {opciones.error.message}</Alert>}
       <ScrollArea type="auto">
@@ -206,7 +270,7 @@ export function Logs() {
           <Table.Tbody>
             {filas.map((f) => (
               <Table.Tr key={f.id}>
-                <Table.Td style={{ whiteSpace: 'nowrap' }}>{f.fecha}</Table.Td>
+                <Table.Td style={{ whiteSpace: 'nowrap' }}>{fechaHora(f.fecha, { segundos: true })}</Table.Td>
                 <Table.Td>{f.usuario ?? '—'}</Table.Td>
                 <Table.Td>
                   <Badge variant="light">{NOMBRES[f.operacion] ?? f.operacion}</Badge>
@@ -217,7 +281,7 @@ export function Logs() {
                 <Table.Td>
                   {f.cambios && f.cambios.length > 0 && (
                     <Button size="xs" variant="light" aria-label={'Ver los cambios del registro ' + f.id} onClick={() => setDetalle(f)}>
-                      Ver ({f.cambios.length})
+                      Ver ({conteo(f.cambios.length)})
                     </Button>
                   )}
                 </Table.Td>
@@ -236,7 +300,7 @@ export function Logs() {
         {detalle && (
           <Stack>
             <Text size="sm">
-              {detalle.fecha} · {detalle.usuario ?? '—'} · {detalle.tipo}
+              {fechaHora(detalle.fecha, { segundos: true })} · {detalle.usuario ?? '—'} · {detalle.tipo}
             </Text>
             <ScrollArea type="auto">
               <Table striped miw={480} data-testid="tabla-cambios">
@@ -271,18 +335,30 @@ export function Logs() {
           </Stack>
         )}
       </Modal>
-      <Modal opened={envio !== null} onClose={() => setEnvio(null)} title="Enviar logs por correo">
-        <Stack>
-          <TextInput label="Correo de destino" type="email" value={envio ?? ''} onChange={(e) => setEnvio(e.currentTarget.value)} />
-          <Text size="xs" c="dimmed">
-            Se envía el reporte en Excel con los filtros actuales.
-          </Text>
-          <Group justify="flex-end">
-            <Button onClick={enviarCorreo} loading={enviando}>
-              Enviar
-            </Button>
-          </Group>
-        </Stack>
+      <Modal opened={envio !== null} onClose={cerrarEnvio} title="Enviar logs por correo">
+        <form ref={vEnvio.ref} onSubmit={enviarCorreo} noValidate>
+          <Stack>
+            {vEnvio.resumen}
+            <TextInput
+              label="Correo de destino"
+              type="email"
+              value={envio ?? ''}
+              error={vEnvio.error('para')}
+              onChange={(e) => {
+                setEnvio(e.currentTarget.value);
+                vEnvio.limpiar('para');
+              }}
+            />
+            <Text size="xs" c="dimmed">
+              Se envía el reporte en Excel con los filtros actuales.
+            </Text>
+            <Group justify="flex-end">
+              <Button type="submit" loading={enviando}>
+                Enviar
+              </Button>
+            </Group>
+          </Stack>
+        </form>
       </Modal>
     </Stack>
   );

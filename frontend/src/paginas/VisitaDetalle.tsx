@@ -235,7 +235,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
 
       {v.equipo && (
         <Card withBorder>
-          <Title order={5} mb="xs">
+          <Title order={2} size="h5" mb="xs">
             Equipo
           </Title>
           <List spacing={4} size="sm">
@@ -260,7 +260,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
 
       {v.componentes && (
         <Card withBorder>
-          <Title order={5} mb="xs">
+          <Title order={2} size="h5" mb="xs">
             Componentes
           </Title>
           {v.componentes.length === 0 ? (
@@ -281,7 +281,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
 
       {v.reparto && (
         <Card withBorder data-testid={origen === 'mis-visitas' ? 'mis-partes' : 'asignacion'}>
-          <Title order={5} mb="xs">
+          <Title order={2} size="h5" mb="xs">
             {origen === 'mis-visitas' ? 'Mis partes del checklist' : 'Asignación'}
           </Title>
           <TablaAdaptable>
@@ -353,7 +353,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
 
       {v.historial && (
         <Card withBorder>
-          <Title order={5} mb="xs">
+          <Title order={2} size="h5" mb="xs">
             Historial
           </Title>
           <TablaAdaptable>
@@ -383,7 +383,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
 
       {v.notificaciones && (
         <Card withBorder>
-          <Title order={5} mb="xs">
+          <Title order={2} size="h5" mb="xs">
             Notificaciones
           </Title>
           {v.notificaciones.length === 0 ? (
@@ -949,7 +949,7 @@ function RespuestaDelOpl({ id }: { id: number }) {
   return (
     <Card withBorder data-testid="respuesta-del-opl">
       <Group gap="sm" mb="xs">
-        <Title order={5}>Respuesta del OPL</Title>
+        <Title order={2} size="h5">Respuesta del OPL</Title>
         <Badge color={COLOR_FASE[d.fase]}>{NOMBRE_FASE[d.fase]}</Badge>
         <Badge variant="light" color={d.plan.estado === 'firmado' ? 'green' : 'gray'}>
           Plan: {NOMBRE_PLAN[d.plan.estado]}

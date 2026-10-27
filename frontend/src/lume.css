@@ -1,0 +1,16 @@
+/*
+ * Tokens del design system LUME (referencias_interfaz/LUME_design_system.md, 2026-10-27): única fuente de los colores de la interfaz.
+ * No se agregan colores fuera de esta paleta. Las pantallas y estilos.css usan var(--lume-*); el tema de Mantine (shared/tema.ts)
+ * repite estos valores y una prueba comprueba que coinciden. Otras sesiones (Mapas) también los consumen: no renombrar.
+ */
+:root {
+  --lume-blue: #1D4ED8;  --lume-blue-dark: #1E293B;  --lume-blue-active: #2563EB;
+  --lume-bg: #F4F6F9;    --lume-white: #FFFFFF;      --lume-border: #E2E8F0;
+  --lume-text: #0F172A;  --lume-text-muted: #64748B; --lume-edit: #2563EB;
+  --lume-success-bg: #DCEFE1; --lume-success-text: #15803D;
+  --lume-danger: #B91C1C;     --lume-danger-bg: #F5DEDE;
+  --lume-warning-bg: #F5E8D3; --lume-warning-text: #92400E;
+  --lume-info-bg: #DBEAFE;    --lume-info-text: #1D4ED8;
+  --lume-neutral-bg: #E2E8F0; --lume-neutral-text: #475569;
+  --lume-radius: 10px; --lume-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}

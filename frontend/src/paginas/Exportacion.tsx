@@ -76,7 +76,7 @@ export function Exportacion() {
       </Group>
       {v.resumen}
 
-      <Title order={4} mt="md">
+      <Title order={2} size="h4" mt="md">
         Sus exportaciones
       </Title>
       {lista.error && <Alert color="red">{lista.error.message}</Alert>}

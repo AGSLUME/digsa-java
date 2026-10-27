@@ -43,7 +43,7 @@ export function GraficaBarras({ titulo, barras, testid, color }: { titulo: strin
   return (
     <Card withBorder data-testid={testid}>
       <Group justify="space-between" mb="xs" wrap="wrap" gap="xs">
-        <Title order={5}>{titulo}</Title>
+        <Title order={2} size="h5">{titulo}</Title>
         <Button size="compact-xs" variant="subtle" onClick={() => setTabla((t) => !t)} aria-expanded={tabla}>
           {tabla ? 'Ver barras' : 'Ver tabla'}
         </Button>

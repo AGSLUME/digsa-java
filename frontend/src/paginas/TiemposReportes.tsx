@@ -1,8 +1,9 @@
-import { Alert, Badge, Button, Group, Loader, ScrollArea, Select, Stack, Table, Text } from '@mantine/core';
+import { Alert, Badge, Button, Group, Loader, Select, Stack, Table, Text } from '@mantine/core';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../shared/api';
 import { segundos, type Tiempos } from '../shared/reportes';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 /**
  * Tiempos de generación por reporte (Anexo 5, 2.7), para el Administrador: p50, p95 y máximo en pantalla y por formato, y cuántas
@@ -56,7 +57,7 @@ export function TiemposReportes() {
       {t.tiempos.length === 0 ? (
         <Text size="sm">No hay generaciones en el periodo.</Text>
       ) : (
-        <ScrollArea type="auto">
+        <TablaAdaptable>
           <Table striped miw={760} data-testid="tabla-tiempos">
             <Table.Caption>Tiempos de generación de los reportes en el periodo elegido</Table.Caption>
             <Table.Thead>
@@ -94,7 +95,7 @@ export function TiemposReportes() {
               ))}
             </Table.Tbody>
           </Table>
-        </ScrollArea>
+        </TablaAdaptable>
       )}
     </Stack>
   );

@@ -298,7 +298,7 @@ function NuevaSolicitud({ datos, alTerminar }: { datos: DatosSolicitudes; alTerm
             v.limpiar('motivo');
           }}
         />
-        <FileInput label="Escrito (PDF, opcional)" accept="application/pdf" clearable value={escrito} onChange={setEscrito} />
+        <FileInput label="Escrito (PDF, opcional)" placeholder="Elegir el archivo PDF" accept="application/pdf" clearable value={escrito} onChange={setEscrito} />
         <Card withBorder p="xs">
           <Text size="xs" c="dimmed">
             El coordinador recibe un correo con la solicitud. Cuando quede agendada le llega un correo; si la visita se cancela, también se le avisa y

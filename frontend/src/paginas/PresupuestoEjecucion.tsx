@@ -95,7 +95,7 @@ export function CargaArchivo({ titulo, ruta, ayuda, prefijo }: { titulo: string;
   return (
     <Card withBorder ref={v.ref}>
       <Stack>
-        <Title order={5}>{titulo}</Title>
+        <Title order={2} size="h5">{titulo}</Title>
         <Text size="sm" c="dimmed">
           {ayuda}
         </Text>
@@ -200,7 +200,7 @@ function ManualEjecucion({ o }: { o: OpcionesPresupuesto }) {
   return (
     <Card withBorder data-testid="ejecucion-manual" ref={v.ref}>
       <Stack>
-        <Title order={5}>Registro manual de la ejecución del mes</Title>
+        <Title order={2} size="h5">Registro manual de la ejecución del mes</Title>
         <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }}>
           <Select
             label="Vigencia"
@@ -304,7 +304,7 @@ function Versiones({ o }: { o: OpcionesPresupuesto }) {
   return (
     <Card withBorder>
       <Stack>
-        <Title order={5}>Ejecución registrada, mes a mes</Title>
+        <Title order={2} size="h5">Ejecución registrada, mes a mes</Title>
         <Group wrap="wrap" align="flex-end">
           <Select
             label="Vigencia"

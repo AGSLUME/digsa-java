@@ -64,10 +64,10 @@ export function CalendarioMes({ anio, mes, visitas, alAbrir }: { anio: number; m
                 p={4}
                 radius="xs"
                 data-testid={'dia-' + d.iso}
-                bg={d.iso === elegido ? 'digsa.0' : undefined}
+                bg={d.iso === elegido ? 'lume.0' : undefined}
                 style={{ minWidth: 0, overflow: 'hidden', minHeight: angosta ? 52 : 92, opacity: d.delMes ? 1 : 0.45 }}
               >
-                <Text size="xs" fw={d.iso === hoy ? 700 : 400} c={d.iso === hoy ? 'digsa.7' : undefined}>
+                <Text size="xs" fw={d.iso === hoy ? 700 : 400} c={d.iso === hoy ? 'lume.7' : undefined}>
                   {d.dia}
                 </Text>
                 {angosta

@@ -1,5 +1,7 @@
 /** Tipos y reglas de la pantalla de reportes (Anexo 5, 2.8 a 2.12): catálogo, parámetros de la consulta y presentación de las celdas. */
 
+import { cifra } from './formato';
+
 export interface FiltroDef {
   clave: string;
   etiqueta: string;
@@ -61,10 +63,10 @@ export interface Tiempos {
   }[];
 }
 
-/** Milisegundos legibles: «850 ms», «12,4 s», «3 min 5 s». */
+/** Milisegundos legibles: «850 ms», «12,40 s», «3 min 5 s». */
 export function segundos(ms: number): string {
   if (ms < 1000) return `${ms} ms`;
-  if (ms < 59_950) return `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
+  if (ms < 59_950) return `${cifra(ms / 1000)} s`;
   const total = Math.round(ms / 1000);
   const m = Math.floor(total / 60);
   const s = total % 60;
@@ -254,10 +256,13 @@ export function conservarValores(def: DefReporte, valores: Record<string, string
   return r;
 }
 
-/** Celda en pantalla: números con coma decimal y sin separador de miles, como en los archivos. */
+/**
+ * Celda en pantalla: números con dos decimales, coma decimal y sin separador de miles, también los enteros («3,50», «1200,00»; Anexo 5
+ * num. 2.4, hallazgo INT-9 del ítem 13), con la utilidad única de formato.
+ */
 export function celda(v: Celda): string {
   if (v === null || v === undefined) return '';
-  if (typeof v === 'number') return String(v).replace('.', ',');
+  if (typeof v === 'number') return cifra(v);
   return v;
 }
 
@@ -294,11 +299,11 @@ export function recienTerminadas(antes: Descarga[], ahora: Descarga[], seguidas:
   return ahora.filter((x) => (x.estado === 'lista' || x.estado === 'fallida') && (enCurso.has(x.codigo) || seguidas.has(x.codigo)));
 }
 
-/** Tamaño legible: «1,5 MB», «820 KB». */
+/** Tamaño legible: «1,50 MB», «820 KB». */
 export function tamano(bytes: number | null): string {
   if (bytes === null || bytes === undefined) return '';
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1).replace('.', ',')} MB`;
+  return `${cifra(bytes / 1024 / 1024)} MB`;
 }
 
 export const ESTADO_DESCARGA: Record<Descarga['estado'], { texto: string; color: string }> = {

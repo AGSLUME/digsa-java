@@ -1,10 +1,11 @@
-import { Alert, Badge, Button, Loader, ScrollArea, Stack, Table, Text } from '@mantine/core';
+import { Alert, Badge, Button, Loader, Stack, Table, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { api, ErrorApi } from '../shared/api';
 import { descargarReporte } from '../shared/descargaReporte';
 import { type Descarga, estadoDescarga, hayEnCurso, recienTerminadas, tamano } from '../shared/reportes';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 export const CLAVE_DESCARGAS = ['reportes', 'descargas'];
 
@@ -82,7 +83,7 @@ export function DescargasDelDia() {
       {lista.length === 0 ? (
         <Text size="sm">Hoy no ha pedido reportes.</Text>
       ) : (
-        <ScrollArea type="auto">
+        <TablaAdaptable>
           <Table striped miw={760} data-testid="tabla-descargas">
             <Table.Thead>
               <Table.Tr>
@@ -137,7 +138,7 @@ export function DescargasDelDia() {
               ))}
             </Table.Tbody>
           </Table>
-        </ScrollArea>
+        </TablaAdaptable>
       )}
     </Stack>
   );

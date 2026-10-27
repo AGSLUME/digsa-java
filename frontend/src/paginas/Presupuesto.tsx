@@ -30,7 +30,7 @@ import { sonarError } from '../shared/alertaSonora';
 import { api, descargar, ErrorApi, subirArchivos } from '../shared/api';
 import { conteo, fecha, fechaHora } from '../shared/formato';
 import { problemaRango } from '../shared/tablero';
-import { useValidacion, type Validacion } from '../shared/validacion';
+import { primerCampoConError, useValidacion, type Validacion } from '../shared/validacion';
 import { CargaArchivo, Ejecucion, Notificaciones } from './PresupuestoEjecucion';
 import { ReportesPresupuesto } from './PresupuestoReportes';
 import { TableroPresupuesto } from './PresupuestoTablero';
@@ -60,6 +60,7 @@ import {
 } from '../shared/presupuesto';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 import { TablaAdaptable } from '../shared/TablaAdaptable';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
 
 /** Errores por fila o por línea que devuelve el servidor (422 con «errores»). */
 function erroresDe(e: unknown): string[] {
@@ -369,7 +370,10 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
     if (m) return f.filas[Number(m[1])]?.[m[2] as keyof FilaNovedad] ?? '';
     return campo === 'filas' ? '' : String(f[campo as keyof FormNovedad] ?? '');
   };
-  const aLaVista = (campo: string) => (revision[campo] && valorDe(campo).trim() ? revision[campo] : undefined);
+  // El soporte se marca al salir del campo, no desde la primera letra (UI-28: un lector de pantalla anunciaba «inválido» en cada tecla)
+  const [soporteTocado, setSoporteTocado] = useState(false);
+  const aLaVista = (campo: string) =>
+    revision[campo] && valorDe(campo).trim() && (campo !== 'soporte' || soporteTocado) ? revision[campo] : undefined;
   const error = (campo: string) => aLaVista(campo) ?? v.error(campo);
   const marcados = Object.keys(revision).filter((c) => aLaVista(c)).length;
   const pendiente = Object.entries(revision).find(([c]) => !aLaVista(c))?.[1];
@@ -392,6 +396,7 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
       notifications.show({ color: 'green', message: r.mensaje });
       setErrores([]);
       v.reiniciar();
+      setSoporteTocado(false);
       setF(formularioVacio(f.tipo, f.vigenciaId));
       setArchivo(null);
       void qc.invalidateQueries({ queryKey: ['presupuesto'] });
@@ -551,6 +556,7 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
           value={f.soporte}
           onChange={(e) => cambiar({ soporte: e.currentTarget.value })}
           error={error('soporte')}
+          onBlur={() => setSoporteTocado(true)}
           data-testid="novedad-soporte"
         />
         <FileInput
@@ -582,19 +588,32 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
         )}
         {v.resumen}
         <Group>
-          <Button
+          <BotonConMotivo
             onClick={() => {
               setErrores([]);
               v.reiniciar();
               enviar.mutate();
             }}
-            disabled={problema !== null}
+            motivo={problema}
+            idMotivo={idAyuda}
+            alBloquear={() => {
+              // El soporte escrito sin salir del campo también queda marcado; el foco va al primer campo marcado o, si no hay, al motivo
+              setSoporteTocado(true);
+              requestAnimationFrame(() => {
+                const campo = v.ref.current ? primerCampoConError(v.ref.current) : null;
+                const ayuda = document.getElementById(idAyuda);
+                if (!campo) ayuda?.setAttribute('tabindex', '-1');
+                ayuda?.setAttribute('data-motivo', '');
+                (campo ?? ayuda)?.focus();
+              });
+              return true;
+            }}
             aria-describedby={idAyuda}
             loading={enviar.isPending}
             data-testid="novedad-registrar"
           >
             Registrar novedad
-          </Button>
+          </BotonConMotivo>
           <Text size="sm" c={problema ? 'dimmed' : 'green'} id={idAyuda}>
             {ayuda ?? 'Queda reflejada en el historial y en los reportes.'}
           </Text>
@@ -762,7 +781,7 @@ function Cargas() {
   return (
     <Card withBorder ref={v.ref}>
       <Stack>
-        <Title order={5}>Asignación inicial por archivo</Title>
+        <Title order={2} size="h5">Asignación inicial por archivo</Title>
         <Text size="sm" c="dimmed">
           CSV separado por «;» en UTF-8 o Excel (.xlsx) con las columnas vigencia;fuerza;esm;modalidad;valor. El ESM va por sigla o por nombre; la
           fuerza se puede dejar vacía salvo en HOMIL (fuerza de adscripción). Primero se simula: si una sola fila tiene error, no se aplica nada.
@@ -839,9 +858,9 @@ function Cargas() {
         </SimpleGrid>
         {v.resumen}
         <Group>
-          <Button
-            disabled={!listo}
-            aria-describedby={listo ? undefined : idEspera}
+          <BotonConMotivo
+            motivo={listo ? null : 'Simule primero un archivo sin errores.'}
+            idMotivo={idEspera}
             loading={aplicar.isPending}
             onClick={() => {
               if (v.validar({ soporte: soporte.trim().length < 5 ? 'Escriba el soporte de la DIGSA (mínimo 5 caracteres).' : null })) aplicar.mutate();
@@ -849,7 +868,7 @@ function Cargas() {
             data-testid="carga-aplicar"
           >
             Aplicar carga
-          </Button>
+          </BotonConMotivo>
           {!listo && (
             <Text size="sm" c="dimmed" id={idEspera}>
               {resultado?.yaAplicado ? 'Este archivo ya se aplicó.' : 'Para aplicar, simule primero un archivo sin errores.'}
@@ -896,7 +915,7 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
   return (
     <Stack>
       <Card withBorder ref={vVigencia.ref}>
-        <Title order={5}>Vigencias</Title>
+        <Title order={2} size="h5">Vigencias</Title>
         <Text size="sm" c="dimmed">
           Una vigencia por año fiscal; puede empezar o terminar a mitad de año. Una vigencia cerrada no admite novedades ni ejecución.
         </Text>
@@ -979,7 +998,7 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
       </Card>
 
       <Card withBorder>
-        <Title order={5}>Modalidades de facturación</Title>
+        <Title order={2} size="h5">Modalidades de facturación</Title>
         <Text size="sm" c="dimmed">
           Las tres del Anexo 5 §4.6 están activas; las demás del anexo del OPL se activan si la DIGSA las presupuesta aparte.
         </Text>
@@ -1004,7 +1023,7 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
       </Card>
 
       <Card withBorder ref={vParametro.ref}>
-        <Title order={5}>Parámetros</Title>
+        <Title order={2} size="h5">Parámetros</Title>
         {vParametro.resumen && <Box mt="sm">{vParametro.resumen}</Box>}
         <Stack gap="xs" mt="sm">
           {o.parametros.map((p) => (
@@ -1045,7 +1064,7 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
       </Card>
 
       <Card withBorder>
-        <Title order={5}>Satélites y su ESM centralizador</Title>
+        <Title order={2} size="h5">Satélites y su ESM centralizador</Title>
         <Text size="sm" c="dimmed">
           Los satélites dependen presupuestalmente de un ESM centralizador (anexo del OPL §27.2): su ejecución se suma a la línea del centralizador.
         </Text>

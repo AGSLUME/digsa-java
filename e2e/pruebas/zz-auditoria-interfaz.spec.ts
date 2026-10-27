@@ -26,7 +26,13 @@ interface Medicion {
   ruta: string;
   ancho: string;
   desbordaPx: number;
+  /** Elementos que pasan del borde derecho de la ventana (para encontrar el desborde). */
+  desbordan: string[];
+  /** Botones y enlaces sin nombre accesible (etiqueta y clase), para encontrarlos. */
+  sinNombre: string[];
   encabezados: string[];
+  /** Saltos de nivel entre encabezados seguidos (h1 → h3). */
+  saltos: string[];
   tablas: number;
   camposSinEtiqueta: string[];
   botonesSinNombre: number;
@@ -48,15 +54,30 @@ async function medir(page: Page, ruta: string, ancho: string, errores: string[])
         return !(i.id && document.querySelector(`label[for="${CSS.escape(i.id)}"]`));
       })
       .map((e) => `${e.tagName.toLowerCase()}[${(e as HTMLInputElement).type ?? ''}] ${(e as HTMLInputElement).placeholder ?? ''}`.trim());
-    const botonesSinNombre = visibles('button, a[href]').filter(
-      (b) => !(b.textContent ?? '').trim() && !b.getAttribute('aria-label') && !b.getAttribute('title'),
-    ).length;
+    const describir = (e: Element) => `${e.tagName.toLowerCase()}.${(e.getAttribute('class') ?? '').split(/\s+/).slice(0, 2).join('.')}`;
+    const nombrables = visibles('button, a[href]').filter(
+      (b) => !(b.textContent ?? '').trim() && !b.getAttribute('aria-label') && !b.getAttribute('title') && !b.getAttribute('aria-labelledby'),
+    );
+    const botonesSinNombre = nombrables.length;
+    const ancho = document.documentElement.clientWidth;
+    // Los más profundos que pasan del borde (no sus contenedores): dentro de un desplazamiento horizontal propio no cuentan
+    const desbordan = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+      .filter((e) => e.offsetParent !== null && e.getBoundingClientRect().right > ancho + 0.5 && !e.closest('.mantine-ScrollArea-viewport'))
+      .filter((e, _i, todos) => !todos.some((o) => o !== e && e.contains(o)))
+      .slice(0, 5)
+      .map((e) => `${describir(e)} (+${Math.round(e.getBoundingClientRect().right - ancho)} px)`);
     return {
       desbordaPx: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      encabezados: visibles('h1, h2, h3').map((h) => `${h.tagName}: ${(h.textContent ?? '').trim().slice(0, 80)}`),
+      encabezados: visibles('h1, h2, h3, h4, h5, h6').map((h) => `${h.tagName}: ${(h.textContent ?? '').trim().slice(0, 80)}`),
+      // Saltos de nivel (h1 seguido de h3, etc.: WCAG 1.3.1)
+      saltos: visibles('h1, h2, h3, h4, h5, h6')
+        .map((h) => Number(h.tagName.slice(1)))
+        .flatMap((n, i, todos) => (i > 0 && n > todos[i - 1]! + 1 ? [`h${todos[i - 1]}→h${n}`] : [])),
       tablas: visibles('table').length,
       camposSinEtiqueta: sinEtiqueta,
       botonesSinNombre,
+      desbordan,
+      sinNombre: nombrables.slice(0, 5).map(describir),
     };
   });
   return { ruta, ancho, ...datos, erroresConsola: [...errores] };
@@ -111,8 +132,23 @@ test('U0 · capturas por perfil en 360, 768 y 1280 px', async ({ page, browser }
   }
 
   await ingresarComoAdminPropio(page, 'audit');
-  const lista = await api<{ perfiles: { id: number; nombre: string }[] }>(page, 'GET', '/api/usuarios');
+  let lista = await api<{ perfiles: { id: number; nombre: string }[]; puntos: { id: number }[]; regionales: { id: number }[] }>(
+    page,
+    'GET',
+    '/api/usuarios',
+  );
+  // Los perfiles con alcance (Sanidad, ESM, OPL regional) necesitan fuerza, establecimiento o regional; el Auditor, documento (U4)
+  if ((lista.datos.regionales ?? []).length === 0) {
+    await api(page, 'POST', '/api/catalogos/regionales', { nombre: unico('Regional auditoria ') });
+    lista = await api(page, 'GET', '/api/usuarios');
+  }
   const perfiles = lista.datos.perfiles ?? [];
+  const alcance = {
+    documento: '80009999',
+    alcanceFuerza: 'EJC',
+    alcancePunto: lista.datos.puntos?.[0]?.id ?? null,
+    alcanceRegional: lista.datos.regionales?.[0]?.id ?? null,
+  };
   const creados: { perfil: string; usuario: string }[] = [];
   for (const p of perfiles) {
     const usuario = unico('aud');
@@ -122,6 +158,7 @@ test('U0 · capturas por perfil en 360, 768 y 1280 px', async ({ page, browser }
       correo: `${usuario}@example.com`,
       perfiles: [p.id],
       claveInicial: INICIAL,
+      ...alcance,
     });
     if (r.estado === 201) creados.push({ perfil: p.nombre, usuario });
     else
@@ -130,9 +167,12 @@ test('U0 · capturas por perfil en 360, 768 y 1280 px', async ({ page, browser }
         ancho: '-',
         desbordaPx: 0,
         encabezados: [],
+        saltos: [],
         tablas: 0,
         camposSinEtiqueta: [],
         botonesSinNombre: 0,
+        desbordan: [],
+        sinNombre: [],
         erroresConsola: [JSON.stringify(r.datos).slice(0, 200)],
       });
   }

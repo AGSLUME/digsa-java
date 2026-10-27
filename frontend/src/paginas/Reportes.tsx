@@ -9,7 +9,7 @@ import {
   MultiSelect,
   NavLink,
   Pagination,
-  ScrollArea,
+  Box,
   Select,
   SimpleGrid,
   Stack,
@@ -40,13 +40,12 @@ import {
   type Opcion,
   parametros,
   type Resultado,
+  segundos,
   totalPaginas,
 } from '../shared/reportes';
-
-function hoy(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { hoyBogota } from '../shared/formato';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 /** Línea del encabezado 2.9: etiqueta y valor; las largas (código, huella) ocupan la fila entera y se parten donde haga falta. */
 function Dato({ etiqueta, valor, largo = false }: { etiqueta: string; valor: string; largo?: boolean }) {
@@ -71,7 +70,7 @@ export function Reportes() {
   const catalogo = useQuery({ queryKey: ['reportes', 'catalogo'], queryFn: () => api<Catalogo>('/api/reportes/catalogo') });
   const [buscar, setBuscar] = useState('');
   const [elegido, setElegido] = useState<string | null>(null);
-  const [e, setE] = useState<Eleccion>({ desde: `${new Date().getFullYear()}-01-01`, hasta: hoy(), agrupacion: '', valores: {} });
+  const [e, setE] = useState<Eleccion>({ desde: `${hoyBogota().slice(0, 4)}-01-01`, hasta: hoyBogota(), agrupacion: '', valores: {} });
   const [aplicado, setAplicado] = useState<{ def: DefReporte; e: Eleccion } | null>(null);
   const [pagina, setPagina] = useState(1);
   const [para, setPara] = useState('');
@@ -176,9 +175,10 @@ export function Reportes() {
 
   return (
     <Stack>
-      <Title order={3}>Reportes</Title>
+      <EncabezadoPagina titulo="Reportes" fuente="Anexo 5 · 2.7–2.12" />
       <Tabs value={pestana} onChange={(v) => setPestana(v ?? 'generar')}>
-        <Tabs.List>
+        {/* Las pestañas parten en dos líneas en celular en lugar de desbordar la página (360 px) */}
+        <Tabs.List style={{ flexWrap: 'wrap' }}>
           <Tabs.Tab value="generar">Generar</Tabs.Tab>
           <Tabs.Tab value="descargas">Descargas del día</Tabs.Tab>
           <Tabs.Tab value="verificar">Verificar reporte</Tabs.Tab>
@@ -200,7 +200,7 @@ export function Reportes() {
           <Grid>
             <Grid.Col span={{ base: 12, md: 3 }}>
               <Card withBorder data-testid="catalogo-reportes">
-                <Title order={5} mb="xs">
+                <Title order={2} size="h5" mb="xs">
                   Catálogo
                 </Title>
                 <TextInput
@@ -248,12 +248,14 @@ export function Reportes() {
                 >
                   <Group justify="space-between" align="flex-start">
                     <div>
-                      <Title order={4}>{def.titulo}</Title>
+                      <Title order={2} size="h4">
+                        {def.titulo}
+                      </Title>
                       <Text size="sm" c="dimmed" data-testid="descripcion-reporte">
                         {def.descripcion}
                       </Text>
                     </div>
-                    <Badge variant="light" color={def.clase === 'general' ? 'blue' : 'grape'}>
+                    <Badge variant="light" color={def.clase === 'general' ? 'blue' : 'gray'}>
                       {def.clase === 'general' ? 'General (agregado)' : 'Operativo (detalle)'}
                     </Badge>
                   </Group>
@@ -366,7 +368,7 @@ export function Reportes() {
                       <Dato etiqueta="Fuente" valor={r.fuente} />
                       <Dato
                         etiqueta="Registros"
-                        valor={`${r.registros}${r.truncado ? '+' : ''} · generado en ${(r.ms / 1000).toFixed(1).replace('.', ',')} s`}
+                        valor={`${r.registros}${r.truncado ? '+' : ''} · generado en ${segundos(r.ms)}`}
                       />
                       <Dato etiqueta="Página" valor={`${pagina} de ${paginas}`} />
                       <Dato etiqueta="Código de verificación" valor={r.codigo} largo />
@@ -391,31 +393,33 @@ export function Reportes() {
                         </Button>
                       ))}
                     </Group>
-                    <ScrollArea type="auto" mt="sm">
-                      <Table striped miw={900} data-testid="tabla-reporte">
-                        <Table.Thead>
-                          <Table.Tr>
-                            {r.columnas.map((c) => (
-                              <Table.Th key={c}>{c}</Table.Th>
-                            ))}
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {r.filas.length === 0 && (
+                    <Box mt="sm">
+                      <TablaAdaptable>
+                        <Table striped miw={900} data-testid="tabla-reporte">
+                          <Table.Thead>
                             <Table.Tr>
-                              <Table.Td colSpan={r.columnas.length}>Sin registros con estos filtros.</Table.Td>
-                            </Table.Tr>
-                          )}
-                          {filasPagina.map((fila, i) => (
-                            <Table.Tr key={(pagina - 1) * FILAS_POR_PAGINA + i}>
-                              {fila.map((v, j) => (
-                                <Table.Td key={j}>{celda(v)}</Table.Td>
+                              {r.columnas.map((c) => (
+                                <Table.Th key={c}>{c}</Table.Th>
                               ))}
                             </Table.Tr>
-                          ))}
-                        </Table.Tbody>
-                      </Table>
-                    </ScrollArea>
+                          </Table.Thead>
+                          <Table.Tbody>
+                            {r.filas.length === 0 && (
+                              <Table.Tr>
+                                <Table.Td colSpan={r.columnas.length}>Sin registros con estos filtros.</Table.Td>
+                              </Table.Tr>
+                            )}
+                            {filasPagina.map((fila, i) => (
+                              <Table.Tr key={(pagina - 1) * FILAS_POR_PAGINA + i}>
+                                {fila.map((v, j) => (
+                                  <Table.Td key={j}>{celda(v)}</Table.Td>
+                                ))}
+                              </Table.Tr>
+                            ))}
+                          </Table.Tbody>
+                        </Table>
+                      </TablaAdaptable>
+                    </Box>
                     {paginas > 1 && (
                       <nav aria-label="Páginas del reporte">
                         <Pagination mt="sm" total={paginas} value={pagina} onChange={setPagina} />

@@ -3,7 +3,7 @@ import { IconVolume, IconVolumeOff } from '@tabler/icons-react';
 import { useSonido } from './alertaSonora';
 
 /** Interruptor del aviso sonoro de validación (decisión UI-8): activado por omisión, el navegador recuerda la elección. */
-export function InterruptorSonido({ color = 'digsa' }: { color?: string }) {
+export function InterruptorSonido({ color = 'lume' }: { color?: string }) {
   const [activo, activar] = useSonido();
   const texto = activo ? 'Sonido de las alertas activado' : 'Sonido de las alertas desactivado';
   return (

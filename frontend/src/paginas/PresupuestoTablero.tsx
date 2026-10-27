@@ -13,24 +13,8 @@ import {
   type OpcionesPresupuesto,
   type TableroPresupuesto,
 } from '../shared/presupuesto';
+import { Kpi } from '../shared/Kpi';
 
-function Caja({ titulo, valor, sub, testid, color }: { titulo: string; valor: string; sub?: string; testid: string; color?: string }) {
-  return (
-    <Card withBorder padding="sm" data-testid={testid}>
-      <Text size="xs" c="dimmed">
-        {titulo}
-      </Text>
-      <Text size="lg" fw={700} ff="monospace" c={color} style={{ overflowWrap: 'anywhere' }}>
-        {valor}
-      </Text>
-      {sub && (
-        <Text size="xs" c="dimmed">
-          {sub}
-        </Text>
-      )}
-    </Card>
-  );
-}
 
 /** Barra de % de ejecución con marcas en 25, 50, 75 y 100 % (mockup «ESM con mayor ejecución»); pasa del 100 % sin desbordar. */
 function BarraUmbrales({ porcentaje, semaforo, etiqueta }: { porcentaje: string | null; semaforo: string; etiqueta: string }) {
@@ -155,30 +139,30 @@ function TableroDatos({
       </Card>
 
       <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }}>
-        <Caja
+        <Kpi
           titulo="Presupuesto vigente"
           valor={`$ ${d.cajas.presupuestoVigente}`}
-          sub={d.cajas.adiciones === 1 ? 'Incluye 1 adición' : `Incluye ${conteo(d.cajas.adiciones)} adiciones`}
+          detalle={d.cajas.adiciones === 1 ? 'Incluye 1 adición' : `Incluye ${conteo(d.cajas.adiciones)} adiciones`}
           testid="caja-vigente"
         />
-        <Caja
+        <Kpi
           titulo="Ejecutado"
           valor={`$ ${d.cajas.ejecutado}`}
-          sub={d.cajas.porcentaje ? `${d.cajas.porcentaje} %` : 'Sin presupuesto'}
+          detalle={d.cajas.porcentaje ? `${d.cajas.porcentaje} %` : 'Sin presupuesto'}
           testid="caja-ejecutado"
         />
-        <Caja titulo="Saldo" valor={`$ ${d.cajas.saldo}`} color={d.cajas.saldo.startsWith('-') ? 'red' : undefined} testid="caja-saldo" />
-        <Caja
+        <Kpi titulo="Saldo" valor={`$ ${d.cajas.saldo}`} color={d.cajas.saldo.startsWith('-') ? 'red' : undefined} testid="caja-saldo" />
+        <Kpi
           titulo="ESM sobre la proyección"
           valor={contrato ? '—' : conteo(d.cajas.esmSobreProyeccion ?? 0)}
-          sub={contrato ? 'Elija una vigencia' : `de ${conteo(d.cajas.esmTotal ?? 0)} ESM · proyección al corte ${d.cajas.porcentajeProyectado ?? '0,00'} %`}
+          detalle={contrato ? 'Elija una vigencia' : `de ${conteo(d.cajas.esmTotal ?? 0)} ESM · proyección al corte ${d.cajas.porcentajeProyectado ?? '0,00'} %`}
           color={(d.cajas.esmSobreProyeccion ?? 0) > 0 ? 'orange' : undefined}
           testid="caja-proyeccion"
         />
       </SimpleGrid>
 
       <Card withBorder>
-        <Title order={5}>Ejecución por Fuerza y modalidad</Title>
+        <Title order={2} size="h5">Ejecución por Fuerza y modalidad</Title>
         <ScrollArea type="auto" mt="xs">
           <Table striped withTableBorder miw={760} fz="sm" data-testid="tabla-fuerzas">
             <Table.Thead>
@@ -226,7 +210,7 @@ function TableroDatos({
       </Card>
 
       <Card withBorder data-testid="mayor-ejecucion">
-        <Title order={5}>ESM con mayor ejecución</Title>
+        <Title order={2} size="h5">ESM con mayor ejecución</Title>
         <Text size="xs" c="dimmed" mb="xs">
           Marcas en 25, 50, 75 y 100 %. Verde bajo el 75 %, ámbar del 75 al 99,99 % y rojo desde el 100 %.
         </Text>
@@ -254,7 +238,7 @@ function TableroDatos({
       </Card>
 
       <Card withBorder>
-        <Title order={5}>Detalle por ESM y modalidad</Title>
+        <Title order={2} size="h5">Detalle por ESM y modalidad</Title>
         <ScrollArea type="auto" mt="xs">
           <Table striped withTableBorder miw={1000} fz="sm" data-testid="tabla-detalle">
             <Table.Thead>
@@ -329,10 +313,10 @@ export function ResumenPresupuestoInicio() {
   if (!t.data) return null;
   return (
     <Box maw={360}>
-      <Caja
+      <Kpi
         titulo={`Ejecución presupuestal ${t.data.ambito === 'Nacional' ? 'nacional' : `· ${t.data.ambito}`} · vigencia ${t.data.vigencia}`}
         valor={t.data.cajas.porcentaje ? `${t.data.cajas.porcentaje} %` : 'Sin presupuesto'}
-        sub={t.data.cajas.porcentajeProyectado ? `Proyección al corte: ${t.data.cajas.porcentajeProyectado} %` : undefined}
+        detalle={t.data.cajas.porcentajeProyectado ? `Proyección al corte: ${t.data.cajas.porcentajeProyectado} %` : undefined}
         testid="inicio-presupuesto"
       />
     </Box>

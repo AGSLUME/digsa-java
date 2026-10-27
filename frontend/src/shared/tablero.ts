@@ -98,12 +98,11 @@ export function nivelRiesgo(nivel: string): { color: string; insignia: string; e
 }
 
 /**
- * Tono de un texto de color sobre fondo claro con contraste suficiente (los tonos .6 de rojo, naranja y verde no llegan a AA):
- * rojo .8, naranja y verde .9. Sin color, undefined; un color con tono explícito se respeta.
+ * Tono de un texto de color sobre fondo claro: con la paleta LUME (U3.5) el tono del tema de cada color ya es el token de texto, que
+ * llega a AA sobre blanco (tema.test.ts); se deja la función para no tocar las pantallas que la usan.
  */
 export function tonoTexto(color: string | undefined): string | undefined {
-  if (!color || color.includes('.')) return color;
-  return ({ red: 'red.8', orange: 'orange.9', green: 'green.9' } as Record<string, string>)[color] ?? color;
+  return color;
 }
 
 /** Puntaje o promedio con 2 decimales y coma decimal, sin separador de miles (Anexo 5 num. 2.4): «72,00». Sin dato, «—». */

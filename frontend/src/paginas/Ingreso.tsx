@@ -127,7 +127,7 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
         <Stack>
           {/* Pantalla pública (sin la barra de la aplicación): el interruptor del sonido de las alertas va arriba a la derecha */}
           <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
-            <Title order={1} size="h2" c="digsa.8" style={{ minWidth: 0 }}>
+            <Title order={1} size="h2" style={{ minWidth: 0 }}>
               Interventoría Integral DIGSA
             </Title>
             <InterruptorSonido />

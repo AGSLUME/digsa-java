@@ -49,6 +49,7 @@ export function Paginacion({
   paginas,
   alCambiar,
   nombre,
+  porPagina = POR_PAGINA,
 }: {
   total: number;
   pagina: number;
@@ -56,11 +57,15 @@ export function Paginacion({
   alCambiar: (p: number) => void;
   /** «usuarios», «registros»…: para el texto del total y el nombre accesible. */
   nombre: string;
+  porPagina?: number;
 }) {
+  // Como la paginación LUME: «Mostrando X–Y de Z» a la izquierda y los botones a la derecha
+  const desde = total === 0 ? 0 : (pagina - 1) * porPagina + 1;
+  const hasta = Math.min(total, pagina * porPagina);
   return (
     <Group justify="space-between" gap="sm">
       <Text size="sm" c="dimmed" data-testid={`total-${nombre}`}>
-        {conteo(total)} {nombre}
+        {total === 0 ? `0 ${nombre}` : `Mostrando ${conteo(desde)}–${conteo(hasta)} de ${conteo(total)} ${nombre}`}
       </Text>
       {paginas > 1 && (
         <Pagination

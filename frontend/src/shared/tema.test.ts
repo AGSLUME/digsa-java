@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PALETAS, PLACEHOLDER, TONO, TOKENS, variablesDigsa } from './tema';
+import css from '../lume.css?raw';
+import { APAGADO, BORDE_CAMPO, COMPLEMENTOS, LUME, PALETAS, PLACEHOLDER, TONO, VARIANTES, variablesLume } from './tema';
 
 function luminancia(hex: string): number {
   const [r, g, b] = [1, 3, 5]
@@ -13,72 +14,69 @@ function contraste(a: string, b: string): number {
   return (x! + 0.05) / (y! + 0.05);
 }
 
-/** Color con opacidad sobre blanco (el fondo suave que Mantine pone a las insignias y alertas `light`). */
-function sobreBlanco(hex: string, opacidad: number): string {
-  return (
-    '#' +
-    [1, 3, 5]
-      .map((i) => Math.round(255 + (parseInt(hex.slice(i, i + 2), 16) - 255) * opacidad))
-      .map((c) => c.toString(16).padStart(2, '0'))
-      .join('')
-  );
-}
-
-describe('tema: contraste WCAG 2.2 AA', () => {
-  it.each(['digsa', 'red', 'orange', 'yellow', 'green', 'blue', 'gray'])(
-    'el tono %s usado como texto llega a 4,5:1 sobre blanco, el fondo y su fondo suave',
-    (c) => {
-      const texto = PALETAS[c]![TONO]!;
-      expect(contraste(texto, TOKENS.superficie)).toBeGreaterThanOrEqual(4.5);
-      expect(contraste(texto, TOKENS.fondo)).toBeGreaterThanOrEqual(4.5);
-      expect(contraste(texto, sobreBlanco(texto, 0.12))).toBeGreaterThanOrEqual(4.5);
-    },
-  );
-
-  it('las insignias del mockup (crit, adv, info, ok) son legibles sobre su fondo', () => {
-    for (const [t, f] of [
-      [TOKENS.crit, TOKENS.critFondo],
-      [TOKENS.adv, TOKENS.advFondo],
-      [TOKENS.info, TOKENS.infoFondo],
-      [TOKENS.ok, TOKENS.okFondo],
-    ] as const) {
-      expect(contraste(t, f)).toBeGreaterThanOrEqual(4.5);
+describe('tema LUME: contraste WCAG 2.2 AA', () => {
+  it('texto, apagado y placeholder sobre blanco y sobre el fondo de la página', () => {
+    for (const fondo of [LUME.white, LUME.bg]) {
+      expect(contraste(LUME.text, fondo)).toBeGreaterThanOrEqual(4.5);
+      expect(contraste(APAGADO, fondo)).toBeGreaterThanOrEqual(4.5);
+      expect(contraste(PLACEHOLDER, fondo)).toBeGreaterThanOrEqual(4.5);
     }
+    // Encabezados de tabla y migas (#64748B) solo van sobre blanco o #FAFBFC; las etiquetas de campo usan el apagado AA
+    expect(contraste(LUME.textMuted, LUME.white)).toBeGreaterThanOrEqual(4.5);
+    expect(contraste(LUME.textMuted, COMPLEMENTOS.encabezadoTabla)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('el texto apagado (dimmed) llega a 4,5:1 y el borde de los campos a 3:1', () => {
-    expect(PALETAS.gray![6]).toBe(TOKENS.apagado);
-    expect(contraste(TOKENS.apagado, TOKENS.superficie)).toBeGreaterThanOrEqual(4.5);
-    expect(contraste(TOKENS.apagado, TOKENS.fondo)).toBeGreaterThanOrEqual(4.5);
-    expect(contraste(TOKENS.bordeCampo, TOKENS.superficie)).toBeGreaterThanOrEqual(3);
-    expect(contraste(TOKENS.bordeCampo, TOKENS.fondo)).toBeGreaterThanOrEqual(3);
+  it('borde de los campos a 3:1 (WCAG 1.4.11)', () => {
+    expect(contraste(BORDE_CAMPO, LUME.white)).toBeGreaterThanOrEqual(3);
+    expect(contraste(BORDE_CAMPO, LUME.bg)).toBeGreaterThanOrEqual(3);
   });
 
-  it('el texto de ejemplo de los campos (placeholder) llega a 4,5:1, también en un campo con error', () => {
-    expect(variablesDigsa({} as never).light['--mantine-color-placeholder']).toBe(PLACEHOLDER);
-    for (const fondo of [TOKENS.superficie, TOKENS.fondo, TOKENS.errorCampoFondo]) expect(contraste(PLACEHOLDER, fondo)).toBeGreaterThanOrEqual(4.5);
+  it('sidebar: texto, títulos de sección y activo', () => {
+    expect(contraste(COMPLEMENTOS.sidebarTexto, LUME.blueDark)).toBeGreaterThanOrEqual(4.5);
+    expect(contraste(COMPLEMENTOS.sidebarApagado, LUME.blueDark)).toBeGreaterThanOrEqual(4.5);
+    expect(contraste(LUME.white, LUME.blueActive)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('la marca sobre blanco y el texto claro sobre la marca (cabecera)', () => {
-    expect(contraste(TOKENS.marca, TOKENS.superficie)).toBeGreaterThanOrEqual(7);
-    expect(contraste(TOKENS.marcaTinta, TOKENS.marca)).toBeGreaterThanOrEqual(7);
+  it('botones: primario, outline (y su hover), peligro y enlaces', () => {
+    expect(contraste(LUME.white, LUME.blueActive)).toBeGreaterThanOrEqual(4.5);
+    expect(contraste(LUME.white, LUME.blue)).toBeGreaterThanOrEqual(4.5);
+    expect(contraste(LUME.blueActive, LUME.white)).toBeGreaterThanOrEqual(4.5);
+    expect(contraste(LUME.blue, LUME.infoBg)).toBeGreaterThanOrEqual(4.5);
+    expect(contraste(LUME.danger, LUME.white)).toBeGreaterThanOrEqual(4.5);
+    expect(contraste(LUME.danger, LUME.dangerBg)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(Object.entries(VARIANTES))('insignia y alerta %s: texto sobre su fondo', (_n, v) => {
+    expect(contraste(v.texto, v.fondo)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(['red', 'orange', 'yellow', 'green', 'blue', 'lume'])('texto %s (c="color") sobre blanco', (c) => {
+    expect(contraste(PALETAS[c]![TONO]!, LUME.white)).toBeGreaterThanOrEqual(4.5);
   });
 });
 
-describe('tema: tokens del mockup', () => {
-  it('cada paleta tiene 10 tonos y pone el token del mockup en el tono que usa Mantine', () => {
-    for (const p of Object.values(PALETAS)) expect(p).toHaveLength(10);
-    expect(PALETAS.digsa![TONO]).toBe(TOKENS.marca);
-    expect(PALETAS.red![TONO]).toBe(TOKENS.crit);
-    expect(PALETAS.orange![TONO]).toBe(TOKENS.adv);
-    expect(PALETAS.green![TONO]).toBe(TOKENS.ok);
-    expect(PALETAS.blue![TONO]).toBe(TOKENS.info);
+describe('tema LUME: tokens', () => {
+  it('los valores del tema son los de lume.css (única fuente)', () => {
+    const variables = Object.fromEntries([...css.matchAll(/--lume-([a-z-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2]!.trim()]));
+    const nombre = (k: string) => k.replace(/[A-Z]/g, (l) => '-' + l.toLowerCase());
+    for (const [k, v] of Object.entries(LUME)) expect(variables[nombre(k)], k).toBe(v);
+    expect(Object.keys(variables)).toHaveLength(Object.keys(LUME).length);
   });
 
-  it('expone los tokens como variables CSS --digsa-*', () => {
-    const { variables } = variablesDigsa({} as never);
-    expect(variables['--digsa-fondo']).toBe('#F3F5F2');
-    expect(variables['--digsa-borde-campo']).toBe(TOKENS.bordeCampo);
-    expect(variables['--digsa-crit-fondo']).toBe(TOKENS.critFondo);
+  it('las paletas de Mantine tienen 10 tonos y su tono de texto es el token', () => {
+    for (const p of Object.values(PALETAS)) expect(p).toHaveLength(10);
+    expect(PALETAS.lume![TONO]).toBe(LUME.blueActive);
+    expect(PALETAS.lume![TONO + 1]).toBe(LUME.blue);
+    expect(PALETAS.red![TONO]).toBe(LUME.danger);
+    expect(PALETAS.orange![TONO]).toBe(LUME.warningText);
+    expect(PALETAS.green![TONO]).toBe(LUME.successText);
+    expect(PALETAS.blue![TONO]).toBe(LUME.infoText);
+    expect(PALETAS.gray![TONO]).toBe(LUME.neutralText);
+  });
+
+  it('el texto apagado de Mantine es el de AA', () => {
+    const v = variablesLume({} as never).light;
+    expect(v['--mantine-color-dimmed']).toBe(APAGADO);
+    expect(v['--mantine-color-placeholder']).toBe(PLACEHOLDER);
   });
 });

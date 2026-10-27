@@ -324,6 +324,8 @@ export function EventosAlertas() {
   const qc = useQueryClient();
   const [vista, setVista] = useState<'abiertas' | 'recientes'>('abiertas');
   const [cerrando, setCerrando] = useState<EventoAlerta | null>(null);
+  // Si el cierre falla, el diálogo se cierra y el foco queda en el aviso del error: el Modal no lo devuelve al botón de la fila (UI-28)
+  const [sinRetorno, setSinRetorno] = useState(false);
   /** Error al cerrar una alerta: queda a la vista sobre la lista (el diálogo se cierra igual que antes). */
   const vCerrar = useValidacion({ testid: 'error-cerrar-alerta' });
   const datos = useQuery({
@@ -340,6 +342,7 @@ export function EventosAlertas() {
       qc.invalidateQueries({ queryKey: ['alertas', 'eventos'] });
     },
     onError: (e) => {
+      setSinRetorno(true);
       vCerrar.errorServidor(e, 'No se pudo cerrar la alerta.');
       setCerrando(null);
       qc.invalidateQueries({ queryKey: ['alertas', 'eventos'] });
@@ -352,7 +355,10 @@ export function EventosAlertas() {
 
   const botonCerrar = (e: EventoAlerta) =>
     e.abierta ? (
-      <Button size="xs" variant="light" color="red" aria-label={`Cerrar la alerta ${e.nombre} del ${e.creado ? fechaHora(e.creado) : ''}`} onClick={() => setCerrando(e)}>
+      <Button size="xs" variant="light" color="red" aria-label={`Cerrar la alerta ${e.nombre} del ${e.creado ? fechaHora(e.creado) : ''}`} onClick={() => {
+        setSinRetorno(false);
+        setCerrando(e);
+      }}>
         Cerrar
       </Button>
     ) : (
@@ -513,7 +519,7 @@ export function EventosAlertas() {
         </>
       )}
 
-      <Modal opened={cerrando !== null} onClose={() => setCerrando(null)} title="Cerrar la alerta">
+      <Modal opened={cerrando !== null} onClose={() => setCerrando(null)} title="Cerrar la alerta" returnFocus={!sinRetorno}>
         {cerrando && (
           <Stack>
             <Text size="sm">

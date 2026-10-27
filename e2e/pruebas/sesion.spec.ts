@@ -1,9 +1,20 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { ADMIN, filaDeUsuario, ingresar, salir, unico } from './apoyo';
 
 test.afterEach(async ({ page }) => salir(page));
 
 // Portado de tests/ui/ui_sesion.js: ingreso, aviso de inactividad, «Seguir conectado», cierre por inactividad y sesión única.
+
+/**
+ * Espera, en tiempo real, el aviso de inactividad: el servidor de las e2e tiene 1 minuto de TIME OUT y el aviso sale a los 30 s (la
+ * mitad del plazo). No se usa el reloj falso de Playwright: solo corre en el navegador y el aviso se sincroniza con el servidor, que ve
+ * pasar el tiempo real, así que con el equipo cargado la cuenta volvía a empezar a mitad del adelanto (UI-42).
+ */
+async function esperarElAviso(page: Page) {
+  const aviso = page.getByRole('dialog', { name: 'Su sesión está por cerrarse' });
+  await expect(aviso).toBeVisible({ timeout: 45_000 });
+  return aviso;
+}
 
 test('ingreso en dos pasos y salir', async ({ page }) => {
   await ingresar(page, ...ADMIN);
@@ -22,30 +33,19 @@ test('contraseña errada: mensaje genérico', async ({ page }) => {
 });
 
 test('aviso de inactividad con cuenta regresiva y «Seguir conectado»', async ({ page }) => {
-  await page.clock.install();
   await ingresar(page, ...ADMIN);
-  // Cada respuesta del servidor cuenta como actividad: si una consulta del inicio responde después de adelantar el reloj, el plazo
-  // vuelve a empezar y el aviso no sale. Se adelanta con la red quieta.
-  await page.waitForLoadState('networkidle');
-  // Servidor de pruebas con 1 minuto: el aviso sale a los 30 s (la mitad del plazo)
-  await page.clock.fastForward(31_000);
-  await expect(page.getByText('Su sesión está por cerrarse')).toBeVisible();
+  const aviso = await esperarElAviso(page);
   await expect(page.getByTestId('cuenta-regresiva')).toHaveText(/00:\d{2}/);
   await page.getByRole('button', { name: 'Seguir conectado' }).click();
-  await expect(page.getByText('Su sesión está por cerrarse')).toBeHidden();
+  await expect(aviso).toBeHidden();
 });
 
 test('actividad en otra pestaña: el aviso de esta pestaña se cierra', async ({ page }) => {
-  await page.clock.install();
   await ingresar(page, ...ADMIN);
-  await page.waitForLoadState('networkidle');
-  await page.clock.fastForward(31_000);
-  const aviso = page.getByRole('dialog', { name: 'Su sesión está por cerrarse' });
-  await expect(aviso).toBeVisible();
-  // Otra pestaña tuvo respuesta del servidor: deja su marca en localStorage (clave compartida)
+  const aviso = await esperarElAviso(page);
+  // Otra pestaña tuvo respuesta del servidor: deja su marca en localStorage (clave compartida); el aviso lo revisa cada segundo
   await page.evaluate(() => localStorage.setItem('digsa.actividad', String(Date.now())));
-  await page.clock.fastForward(2_000);
-  await expect(aviso).toBeHidden();
+  await expect(aviso).toBeHidden({ timeout: 5_000 });
 });
 
 test('cierre por inactividad: vuelve al ingreso con el motivo', async ({ page, browserName }) => {

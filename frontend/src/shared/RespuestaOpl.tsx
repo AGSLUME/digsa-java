@@ -56,6 +56,7 @@ import {
 import { PanelFirma } from './PanelFirma';
 import { EncabezadoPagina } from './EncabezadoPagina';
 import { useValidacion, type Validacion } from './validacion';
+import { BotonConMotivo } from './BotonConMotivo';
 
 /** Aviso de un error de petición dentro de una sección (cada sección tiene su resumen de errores). */
 type AvisarCon = (v: Validacion) => (e: unknown, texto: string) => void;
@@ -120,6 +121,8 @@ function Contenido({
   alReverificar?: () => void;
   orden: 1 | 2;
 }) {
+  // Secciones un nivel debajo del título de la visita (h1 en la pantalla del OPL, h2 en el portal del enlace del acta)
+  const sec = (orden + 1) as 2 | 3;
   const qc = useQueryClient();
   const [nombre, setNombre] = useState('');
   const [cargo, setCargo] = useState('');
@@ -241,7 +244,7 @@ function Contenido({
         {vResp.resumen}
         {respondibles && (
           <Card withBorder data-testid="quien-responde">
-            <Title order={5} mb="xs">
+            <Title order={sec} size="h5" mb="xs">
               Quién responde
             </Title>
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
@@ -277,7 +280,7 @@ function Contenido({
         )}
   
         <Stack gap="sm">
-          <Title order={4}>Hallazgos</Title>
+          <Title order={sec} size="h4">Hallazgos</Title>
           {d.hallazgos.length === 0 && (
             <Text size="sm" c="dimmed">
               El acta no tiene hallazgos.
@@ -318,7 +321,7 @@ function Contenido({
       </Stack>
 
       <Card withBorder data-testid="plan-opl">
-        <Title order={5} mb={4}>
+        <Title order={sec} size="h5" mb={4}>
           Plan de mejoramiento: quién y cómo
         </Title>
         <Text size="sm" c="dimmed" mb="xs">
@@ -415,6 +418,7 @@ function Contenido({
         sinGuardar={cambiadosPlan.length > 0 || Object.keys(respuestas).length > 0}
         alFirmar={refrescar}
         avisarCon={avisarCon}
+        nivel={sec}
       />
     </Stack>
   );
@@ -717,6 +721,7 @@ function FirmaPlan({
   sinGuardar,
   alFirmar,
   avisarCon,
+  nivel,
 }: {
   base: string;
   d: DetalleOpl;
@@ -724,6 +729,7 @@ function FirmaPlan({
   sinGuardar: boolean;
   alFirmar: () => void;
   avisarCon: AvisarCon;
+  nivel: 2 | 3;
 }) {
   const [nombre, setNombre] = useState('');
   const [cargo, setCargo] = useState('');
@@ -753,7 +759,7 @@ function FirmaPlan({
 
   return (
     <Card withBorder data-testid="firma-plan-opl">
-      <Title order={5} mb="xs">
+      <Title order={nivel} size="h5" mb="xs">
         Firma del plan de mejoramiento
       </Title>
       {firmado ? (
@@ -779,6 +785,7 @@ function FirmaPlan({
           noValidate
           onSubmit={(e) => {
             e.preventDefault();
+            if (sinRespuesta.length > 0 || porDecidir.length > 0) return; // mismo motivo que el botón «Firmar el plan»
             if (sinGuardar) {
               v.alerta('Guarde las respuestas y el quién y cómo antes de firmar el plan.');
               return;
@@ -850,16 +857,16 @@ function FirmaPlan({
                   Se habilita cuando se cumpla lo indicado arriba.
                 </Text>
               )}
-              <Button
+              <BotonConMotivo
                 type="submit"
                 color="green"
                 data-testid="firmar-plan-opl"
-                disabled={sinRespuesta.length > 0 || porDecidir.length > 0}
-                aria-describedby={sinRespuesta.length > 0 || porDecidir.length > 0 ? idEspera : undefined}
+                motivo={sinRespuesta.length > 0 || porDecidir.length > 0 ? 'Se habilita cuando se cumpla lo indicado arriba.' : null}
+                idMotivo={idEspera}
                 loading={firmar.isPending}
               >
                 Firmar el plan
-              </Button>
+              </BotonConMotivo>
             </Group>
           </Stack>
         </form>

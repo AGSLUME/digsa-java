@@ -12,6 +12,27 @@ const INICIAL = 'Inicial.Mapas.2026';
 const relleno = (l: Locator) => l.evaluate((e) => getComputedStyle(e).fill);
 const ancho = (l: Locator) => l.evaluate((e) => e.getBoundingClientRect().width);
 
+/**
+ * Clic en un punto del departamento que no tape ninguna marca ni otra capa: las marcas reciben el clic (pista y selección), así
+ * que un clic al centro del path puede caer sobre un círculo y Playwright reintentaría sin fin. Busca, del centro hacia afuera,
+ * un punto donde el elemento de arriba sea el propio path.
+ */
+async function clicLibre(page: Page, path: Locator): Promise<void> {
+  await path.scrollIntoViewIfNeeded();
+  const punto = await path.evaluate((e) => {
+    const c = e.getBoundingClientRect();
+    const n = 24;
+    const puntos: [number, number][] = [];
+    for (let i = 1; i < n; i++) for (let j = 1; j < n; j++) puntos.push([c.left + (c.width * i) / n, c.top + (c.height * j) / n]);
+    const cx = c.left + c.width / 2;
+    const cy = c.top + c.height / 2;
+    puntos.sort((a, b) => Math.hypot(a[0] - cx, a[1] - cy) - Math.hypot(b[0] - cx, b[1] - cy));
+    return puntos.find(([x, y]) => document.elementFromPoint(x, y) === e) ?? null;
+  });
+  expect(punto, 'el departamento no tiene ningún punto libre de marcas').not.toBeNull();
+  await page.mouse.click(punto![0], punto![1]);
+}
+
 async function crearUsuario(page: Page, prefijo: string, perfil: number, nombre: string): Promise<{ id: number; usuario: string }> {
   const usuario = unico(prefijo);
   const r = await api<{ id: number }>(page, 'POST', '/api/usuarios', {
@@ -91,7 +112,7 @@ test('coordinador: mapa de visitas por departamento y mapa de control con la cob
   await expect(marcaPunto).toHaveCount(1);
   expect(await relleno(marcaPunto)).toBe('rgb(29, 78, 216)');
   await expect(page.getByTestId('cobertura-porcentaje')).toContainText('Cobertura del periodo');
-  await control.locator('path[data-departamento="05"]').click();
+  await clicLibre(page, control.locator('path[data-departamento="05"]'));
   await expect(page.getByTestId('detalle-departamento')).toContainText(nombre);
   await expect(page.getByTestId('detalle-departamento')).toContainText('Con visita por ejecutar');
 });

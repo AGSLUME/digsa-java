@@ -835,3 +835,18 @@ Hecho:
 | 28.13 | **E2E que se bloquean entre sí:** con la sesión única (decisión 7.1), una sesión de `admin.e2e` que queda abierta bloquea un minuto el ingreso de las specs siguientes | Las specs de usuarios, roles y logs usan un administrador propio (`ingresarComoAdminPropio` en `apoyo.ts`) y cierran siempre la sesión (`afterEach`/`finally`) |
 | 28.14 | **Entorno compartido entre sesiones:** <br>- la limpieza versionada mata lo que esté en 8080/54329, aunque sea de otra sesión; <br>- el servidor de las e2e toma el módulo `reglas` del `~/.m2` compartido; <br>- los puertos chocaban entre sesiones | La sesión 1 lo corrige en develop: `DIGSA_E2E_PUERTO`/`DIGSA_E2E_PGPUERTO`, limpieza solo de esos puertos y `MAVEN_OPTS` heredado. Mientras tanto, este worktree corre con una configuración local no versionada (`e2e/.local`): puertos 18180/54349, repositorio Maven propio y limpieza propia |
 | 28.15 | **`riesgo-tablero` (sesión 1) en Firefox:** la notificación «Pesos guardados» a veces tarda más de los 10 s de espera en la corrida completa | Pasa sola (6/6). Sin cambio (no es de este módulo); avisar a la sesión 1 |
+
+### AV1 · Mapas georreferenciados (sesión de ajustes de visitas)
+
+Hecho: pantalla «Mapas de visitas» (`MAPAS`, mismos perfiles y alcance que el dashboard) con dos pestañas:
+
+- **Visitas por departamento:** un punto por visita del filtro con el color de su estado: programada (programada, notificada y reprogramada), en ejecución y ejecutada (cerrada). Las canceladas no salen.
+- **Mapa de control (cobertura de puntos):** por punto activo del alcance: visitado en el periodo, con visita por ejecutar, sin visita en el periodo (visitado antes) o nunca visitado. Decisión del usuario del 2026-10-26: el mapa de control es solo la capa de cobertura.
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| AV.1 | **Mapa base:** ¿tiles (OpenStreetMap, Google) o mapa propio? | SVG propio con los límites departamentales del DANE simplificados (`frontend/src/shared/colombia-departamentos.json`, 54 KB). Sin servicios externos ni cambios de CSP y sin dependencias nuevas; se carga solo al abrir la pantalla. San Andrés y Providencia van en un recuadro |
+| AV.2 | **Ubicación de cada punto:** los puntos no tienen coordenadas propias | Latitud y longitud DANE del municipio del punto (`par_municipios`). Las marcas del mismo municipio se reparten en espiral. Lo que no tiene municipio con coordenadas se cuenta en «sin ubicación» |
+| AV.3 | **Población de la cobertura** | Puntos activos del alcance, con los filtros de fuerza y unidad, **sin suministro ni satélite** (decisión 16.1). Fechas, tipo y auditor filtran las visitas que cuentan. Sin fechas, el periodo es todo el contrato |
+| AV.4 | **Datos personales** | Los mapas no envían el líder ni el equipo. El filtro por auditor sigue siendo solo de la coordinación (como en el dashboard) |
+| AV.5 | **Opciones de filtro** | `/api/mapas/opciones` devuelve las mismas opciones del dashboard con el permiso de `MAPAS`, porque un rol puede tener los mapas sin el dashboard |

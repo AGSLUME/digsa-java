@@ -1,9 +1,26 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { ADMIN, filaDeUsuario, ingresar, salir, unico } from './apoyo';
 
 test.afterEach(async ({ page }) => salir(page));
 
 // Portado de tests/ui/ui_sesion.js: ingreso, aviso de inactividad, «Seguir conectado», cierre por inactividad y sesión única.
+
+/**
+ * Adelanta el reloj hasta que sale el aviso de inactividad (servidor de pruebas con 1 minuto: sale a los 30 s, la mitad del plazo).
+ * Cada respuesta del servidor cuenta como actividad: con el equipo cargado una consulta del inicio puede responder después de la red
+ * quieta y reiniciar el plazo (UI-15). Por eso, si a los 31 s no salió, se adelanta de 5 en 5 s, sin pasar de 51 s: siempre antes del
+ * cierre (62 s), así que la prueba sigue exigiendo el aviso antes de cerrar la sesión.
+ */
+async function adelantarHastaElAviso(page: Page): Promise<void> {
+  const aviso = page.getByRole('dialog', { name: 'Su sesión está por cerrarse' });
+  await page.waitForLoadState('networkidle');
+  await page.clock.fastForward(31_000);
+  for (let i = 0; i < 4 && !(await aviso.isVisible()); i++) {
+    await page.waitForLoadState('networkidle');
+    await page.clock.fastForward(5_000);
+  }
+  await expect(aviso).toBeVisible();
+}
 
 test('ingreso en dos pasos y salir', async ({ page }) => {
   await ingresar(page, ...ADMIN);
@@ -24,12 +41,7 @@ test('contraseña errada: mensaje genérico', async ({ page }) => {
 test('aviso de inactividad con cuenta regresiva y «Seguir conectado»', async ({ page }) => {
   await page.clock.install();
   await ingresar(page, ...ADMIN);
-  // Cada respuesta del servidor cuenta como actividad: si una consulta del inicio responde después de adelantar el reloj, el plazo
-  // vuelve a empezar y el aviso no sale. Se adelanta con la red quieta.
-  await page.waitForLoadState('networkidle');
-  // Servidor de pruebas con 1 minuto: el aviso sale a los 30 s (la mitad del plazo)
-  await page.clock.fastForward(31_000);
-  await expect(page.getByText('Su sesión está por cerrarse')).toBeVisible();
+  await adelantarHastaElAviso(page);
   await expect(page.getByTestId('cuenta-regresiva')).toHaveText(/00:\d{2}/);
   await page.getByRole('button', { name: 'Seguir conectado' }).click();
   await expect(page.getByText('Su sesión está por cerrarse')).toBeHidden();
@@ -38,10 +50,8 @@ test('aviso de inactividad con cuenta regresiva y «Seguir conectado»', async (
 test('actividad en otra pestaña: el aviso de esta pestaña se cierra', async ({ page }) => {
   await page.clock.install();
   await ingresar(page, ...ADMIN);
-  await page.waitForLoadState('networkidle');
-  await page.clock.fastForward(31_000);
+  await adelantarHastaElAviso(page);
   const aviso = page.getByRole('dialog', { name: 'Su sesión está por cerrarse' });
-  await expect(aviso).toBeVisible();
   // Otra pestaña tuvo respuesta del servidor: deja su marca en localStorage (clave compartida)
   await page.evaluate(() => localStorage.setItem('digsa.actividad', String(Date.now())));
   await page.clock.fastForward(2_000);

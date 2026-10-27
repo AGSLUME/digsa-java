@@ -39,7 +39,7 @@ export function EncabezadoPagina({
   }, [nombre]);
 
   return (
-    <Group justify="space-between" align="flex-end" gap="sm">
+    <Group justify="space-between" align="flex-end" gap="sm" mb={8}>
       <Stack gap={4} style={{ flex: '1 1 20rem', minWidth: 0 }}>
         <Group gap="sm">
           <Title order={orden} style={{ overflowWrap: 'anywhere' }}>
@@ -48,7 +48,7 @@ export function EncabezadoPagina({
           {children}
         </Group>
         {descripcion && (
-          <Text size="sm" c="dimmed" maw={820}>
+          <Text fz={13.5} c="dimmed" maw={780}>
             {descripcion}
           </Text>
         )}
@@ -56,7 +56,7 @@ export function EncabezadoPagina({
       {(fuente || acciones) && (
         <Group gap="xs">
           {fuente && (
-            <span className="digsa-fuente">
+            <span className="lume-fuente">
               <VisuallyHidden>Fuente normativa: </VisuallyHidden>
               {fuente}
             </span>

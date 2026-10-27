@@ -1,11 +1,11 @@
 import '@mantine/core/styles.css';
 import '@mantine/dates/styles.css';
 import '@mantine/notifications/styles.css';
-import '@fontsource/ibm-plex-sans/latin-400.css';
-import '@fontsource/ibm-plex-sans/latin-500.css';
-import '@fontsource/ibm-plex-sans/latin-600.css';
-import '@fontsource/ibm-plex-mono/latin-400.css';
-import '@fontsource/ibm-plex-mono/latin-500.css';
+import '@fontsource/inter/latin-400.css';
+import '@fontsource/inter/latin-500.css';
+import '@fontsource/inter/latin-600.css';
+import '@fontsource/inter/latin-700.css';
+import './lume.css';
 import './estilos.css';
 import 'dayjs/locale/es';
 import { MantineProvider } from '@mantine/core';
@@ -18,7 +18,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { prepararAudioEnPrimerGesto, sonarEnValidacionNativa } from './shared/alertaSonora';
 import { LimiteErrores } from './shared/LimiteErrores';
-import { tema, variablesDigsa } from './shared/tema';
+import { tema, variablesLume } from './shared/tema';
 
 // Anexo 5 num. 2.4: la validación nativa del navegador (campos obligatorios, correo, rangos) también lleva el aviso sonoro
 sonarEnValidacionNativa();
@@ -28,7 +28,7 @@ const consultas = new QueryClient({ defaultOptions: { queries: { retry: false, r
 
 createRoot(document.getElementById('raiz')!).render(
   <StrictMode>
-    <MantineProvider theme={tema} cssVariablesResolver={variablesDigsa}>
+    <MantineProvider theme={tema} cssVariablesResolver={variablesLume}>
       <DatesProvider settings={{ locale: 'es', firstDayOfWeek: 1 }}>
         <Notifications position="top-right" />
         <QueryClientProvider client={consultas}>

@@ -30,10 +30,12 @@ export function Inicio() {
       {grupos.length > 0 && (
         <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} data-testid="modulos-inicio">
           {grupos.map(({ grupo, entradas }) => (
-            <Card key={grupo} withBorder padding="md">
-              <Title order={2} size="h5" mb="xs">
-                {grupo}
-              </Title>
+            <Card key={grupo} padding="lg">
+              <Card.Section withBorder px={20} py={16} mb="sm">
+                <Title order={2} className="lume-titulo-card">
+                  {grupo}
+                </Title>
+              </Card.Section>
               <Stack gap={4}>
                 {entradas.map((e) => {
                   const Icono = e.icono;

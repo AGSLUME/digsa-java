@@ -121,7 +121,7 @@ export function OplResponder() {
       <Stack>
         {/* Pantalla pública (sin la barra de la aplicación): el interruptor del sonido de las alertas va arriba a la derecha */}
         <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
-          <Title order={1} c="digsa.8" style={{ minWidth: 0 }}>
+          <Title order={1} style={{ minWidth: 0 }}>
             Respuesta a los hallazgos del acta
           </Title>
           <InterruptorSonido />

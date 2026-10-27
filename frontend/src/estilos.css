@@ -1,7 +1,7 @@
-/* Estilos globales sobre los de Mantine: los tokens vienen de shared/tema.ts (variables --digsa-*). */
+/* Estilos globales sobre los de Mantine con el design system LUME: los tokens son las variables --lume-* de lume.css. */
 
 body {
-  background: var(--digsa-fondo);
+  background: var(--lume-bg);
   font-variant-numeric: tabular-nums;
 }
 
@@ -10,11 +10,11 @@ body {
 .mantine-Input-input:not([data-error]):not(:focus):not(:focus-within):not(:disabled):not([data-disabled]):not([readonly]):not(
     [data-variant='unstyled']
   ) {
-  border-color: var(--digsa-borde-campo);
+  border-color: var(--lume-text-muted);
 }
 
 .mantine-Input-input[data-error] {
-  background-color: var(--digsa-error-campo-fondo);
+  background-color: var(--lume-danger-bg);
 }
 
 /* Validación nativa (obligatorio, correo, rango) que el usuario ya intentó enviar: el mismo aviso visual que un error de Mantine.
@@ -22,7 +22,7 @@ body {
    navegador: los que validan con useValidacion (noValidate) muestran su propio mensaje junto al campo. */
 form:not([novalidate]) .mantine-Input-input:user-invalid {
   border-color: var(--mantine-color-error);
-  background-color: var(--digsa-error-campo-fondo);
+  background-color: var(--lume-danger-bg);
 }
 
 /* Foco visible también en un campo con error (Mantine deja el borde rojo igual con o sin foco): es el campo al que se lleva el foco
@@ -37,7 +37,7 @@ form:not([novalidate]) .mantine-Input-input:user-invalid {
 .mantine-Checkbox-input:not(:checked):not(:disabled),
 .mantine-Radio-radio:not(:checked):not(:disabled),
 .mantine-Switch-track:not([data-checked]) {
-  border-color: var(--digsa-borde-campo);
+  border-color: var(--lume-text-muted);
 }
 
 /* En celular, 16 px en los campos: Safari de iOS amplía la página al enfocar un campo con letra más pequeña */
@@ -49,19 +49,19 @@ form:not([novalidate]) .mantine-Input-input:user-invalid {
 }
 
 /* Etiqueta de la fuente normativa junto al título de la página («Anexo 5 · 4.5»), como .src del mockup */
-.digsa-fuente {
+.lume-fuente {
   font-family: var(--mantine-font-family-monospace);
   font-size: 12px;
-  color: var(--digsa-apagado);
-  background: var(--digsa-suave);
-  border: 1px solid var(--digsa-linea);
+  color: var(--lume-neutral-text);
+  background: var(--lume-bg);
+  border: 1px solid var(--lume-border);
   border-radius: 6px;
   padding: 4px 8px;
   overflow-wrap: anywhere;
 }
 
 @media (min-width: 48em) {
-  .digsa-fuente {
+  .lume-fuente {
     white-space: nowrap;
   }
 }
@@ -91,8 +91,8 @@ form:not([novalidate]) .mantine-Input-input:user-invalid {
   }
   .tabla-adaptable tbody tr,
   .tabla-adaptable tfoot tr {
-    background: var(--digsa-superficie) !important;
-    border: 1px solid var(--digsa-linea);
+    background: var(--lume-white) !important;
+    border: 1px solid var(--lume-border);
     border-radius: 10px;
     padding: 8px 12px;
     margin-bottom: 8px;
@@ -113,7 +113,7 @@ form:not([novalidate]) .mantine-Input-input:user-invalid {
     display: block;
     font-size: 12px;
     font-weight: 400;
-    color: var(--digsa-apagado);
+    color: var(--lume-neutral-text);
   }
 }
 
@@ -129,4 +129,160 @@ form:not([novalidate]) .mantine-Input-input:user-invalid {
     max-height: 100dvh !important;
     border-radius: 0 !important;
   }
+}
+
+/* Botones LUME (los colores salen del tema): secundario con hover --lume-bg; outline con hover --lume-info-bg y texto --lume-blue
+   (el #2563EB sobre ese fondo no llega a 4,5:1); primario deshabilitado #93C5FD con texto blanco */
+.mantine-Button-root[data-variant=default]:hover:not(:disabled):not([data-disabled]) {
+  background-color: var(--lume-bg);
+}
+.mantine-Button-root[data-variant=outline]:hover:not(:disabled):not([data-disabled]) {
+  background-color: var(--lume-info-bg);
+  color: var(--lume-blue);
+}
+.mantine-Button-root:is([data-variant='filled'], :not([data-variant])):is(:disabled, [data-disabled]) {
+  background-color: #93C5FD;
+  color: var(--lume-white);
+}
+
+/* Insignia de estado LUME: píldora con punto de 6 px del color de la variante (shared/tema.ts) */
+.lume-insignia[data-variant='light']::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: var(--badge-dot-color, currentColor);
+}
+
+/* Campos deshabilitados y de solo lectura: caja con fondo --lume-bg */
+.mantine-Input-input:is(:disabled, [data-disabled], [readonly]) {
+  background-color: var(--lume-bg);
+}
+
+/* Shell LUME (shared/Plantilla.tsx): sidebar oscuro, cabecera blanca de 64 px y contenido con padding 28px 32px */
+.lume-sidebar {
+  background: var(--lume-blue-dark);
+  color: #CBD5E1;
+}
+.lume-sidebar-apagado,
+.lume-seccion {
+  /* #94A3B8: el #64748B de la especificación no llega a 4,5:1 sobre --lume-blue-dark (aprobado 2026-10-27) */
+  color: #94A3B8;
+}
+.lume-seccion {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 14px 12px 6px;
+}
+.lume-separador {
+  height: 1px;
+  margin: 10px 8px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.lume-sidebar-boton {
+  color: #CBD5E1;
+}
+.lume-sidebar-boton:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.lume-nav {
+  color: #CBD5E1;
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-height: 44px;
+}
+.lume-nav .mantine-NavLink-label {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.lume-nav:hover:not([data-active]) {
+  background: rgba(255, 255, 255, 0.06);
+}
+.lume-nav[data-active] {
+  background: var(--lume-blue-active);
+  color: var(--lume-white);
+}
+.lume-nav .mantine-NavLink-section[data-position='left'] {
+  margin-inline-end: 10px;
+}
+.lume-nav-numeral {
+  color: #94A3B8;
+}
+.lume-nav[data-active] .lume-nav-numeral {
+  color: var(--lume-white);
+}
+
+.lume-cabecera {
+  background: var(--lume-white);
+  border-bottom: 1px solid var(--lume-border);
+}
+.lume-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--lume-blue-active);
+  color: var(--lume-white);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.lume-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--lume-blue-active);
+  color: var(--lume-white);
+  display: grid;
+  place-items: center;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.lume-migas {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--lume-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.lume-migas li + li::before {
+  content: '/';
+  content: '/' / '';
+  margin-right: 6px;
+}
+.lume-migas li[aria-current='page'] {
+  font-weight: 600;
+  color: var(--lume-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lume-contenido {
+  background: var(--lume-bg);
+}
+
+/* Título del encabezado de una card LUME: 13px/700 en MAYÚSCULAS, apagado */
+.lume-titulo-card {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--lume-text-muted);
+}
+
+/* Foco visible sobre el sidebar oscuro: blanco (14,6:1); el anillo azul de Mantine no llega a 3:1 sobre #1E293B ni se ve en la
+   entrada activa */
+.lume-sidebar :focus-visible {
+  outline: 2px solid var(--lume-white) !important;
+  outline-offset: 2px;
 }

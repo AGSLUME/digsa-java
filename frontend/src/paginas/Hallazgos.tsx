@@ -84,7 +84,7 @@ export function Hallazgos() {
       )}
       {prestadores.map((p) => (
         <Card key={p.puntoId} withBorder data-testid={'prestador-' + p.puntoId}>
-          <Title order={5} style={{ overflowWrap: 'anywhere' }}>
+          <Title order={2} size="h5" style={{ overflowWrap: 'anywhere' }}>
             {p.punto}
           </Title>
           <Text size="sm" c="dimmed" mb="xs">

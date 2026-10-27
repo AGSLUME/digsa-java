@@ -484,7 +484,7 @@ function VistaPropuesta({ id, auditores, alCerrar }: { id: number; auditores: Au
       <Stack>
         <Group justify="space-between" align="flex-start">
           <Stack gap={2}>
-            <Title order={4}>
+            <Title order={2} size="h4">
               Propuesta N° {p.id} · {p.nombre}
             </Title>
             <Text size="xs" c="dimmed">
@@ -746,7 +746,7 @@ function MotivoYAlertas({ item }: { item: ItemPropuesta }) {
     <Stack gap={2}>
       {item.motivo && <Text size="xs">{item.motivo}</Text>}
       {item.alertas.map((a) => (
-        <Text key={a} size="xs" c="orange.8" style={{ overflowWrap: 'anywhere' }}>
+        <Text key={a} size="xs" c="orange" style={{ overflowWrap: 'anywhere' }}>
           Alerta: {a}
         </Text>
       ))}
@@ -768,7 +768,7 @@ function Resultado({ item, verVisita }: { item: ItemPropuesta; verVisita: boolea
           )}
         </Text>
       )}
-      <Text size="xs" c={item.visitaId != null ? undefined : 'orange.8'} style={{ overflowWrap: 'anywhere' }}>
+      <Text size="xs" c={item.visitaId != null ? undefined : 'orange'} style={{ overflowWrap: 'anywhere' }}>
         {item.resultado ?? 'Sin resultado: falta continuar la confirmación.'}
       </Text>
     </Stack>

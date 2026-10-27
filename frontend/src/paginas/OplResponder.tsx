@@ -7,6 +7,7 @@ import { COLOR_FASE, NOMBRE_FASE, tokenDelEnlace, type EnlaceOpl } from '../shar
 import { InterruptorSonido } from '../shared/InterruptorSonido';
 import { RespuestaOpl } from '../shared/RespuestaOpl';
 import { useValidacion } from '../shared/validacion';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
 
 const BASE = '/api/opl-publico';
 const CLAVE_TOKEN = 'digsa.opl.enlace';
@@ -99,7 +100,7 @@ export function OplResponder() {
       <Card withBorder maw={520}>
         <Stack>
           <Group gap="sm">
-            <Title order={4}>
+            <Title order={2} size="h4">
               Visita {enlace.data.numero} · {enlace.data.punto}
             </Title>
             <Badge color={COLOR_FASE[enlace.data.fase]}>{NOMBRE_FASE[enlace.data.fase]}</Badge>
@@ -177,6 +178,7 @@ function PedirCodigo({ correos, alVerificar }: { correos: string[]; alVerificar:
 
   const verificar = async (e: FormEvent) => {
     e.preventDefault();
+    if (codigo.length !== 6) return; // mismo motivo que el botón (por si el formulario se envía sin el clic)
     v.reiniciar();
     setEnviando(true);
     try {
@@ -248,9 +250,9 @@ function PedirCodigo({ correos, alVerificar }: { correos: string[]; alVerificar:
               data-testid="codigo-opl"
             />
             <Group gap="xs">
-              <Button type="submit" loading={enviando} disabled={codigo.length !== 6} aria-describedby={codigo.length !== 6 ? idDigitos : undefined}>
+              <BotonConMotivo type="submit" loading={enviando} motivo={codigo.length !== 6 ? 'Escriba los 6 dígitos del código.' : null} idMotivo={idDigitos}>
                 Verificar código
-              </Button>
+              </BotonConMotivo>
               {codigo.length !== 6 && (
                 <Text size="sm" c="dimmed" id={idDigitos}>
                   Escriba los 6 dígitos del código.

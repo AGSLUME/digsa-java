@@ -238,7 +238,7 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
       {reporte.error && <Alert color="red">{reporte.error.message}</Alert>}
       {reporte.data && (
         <Card withBorder data-testid="reporte-resultado">
-          <Title order={5}>{reporte.data.titulo}</Title>
+          <Title order={2} size="h5">{reporte.data.titulo}</Title>
           <Text size="xs" c="dimmed">
             Generado {fechaHora(reporte.data.generado)} por {reporte.data.usuario} ·{' '}
             {Object.entries(reporte.data.filtros)

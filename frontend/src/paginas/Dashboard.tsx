@@ -1,6 +1,6 @@
 import { Alert, Box, Button, Card, Center, Group, Loader, Select, SimpleGrid, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { api, descargar } from '../shared/api';
 import { conteo, fecha } from '../shared/formato';
 import { GraficaBarras } from '../shared/Barras';
@@ -14,7 +14,6 @@ import {
   problemaFechas,
   textoFiltrosAplicados,
   textoPlanesVencidos,
-  tonoTexto,
   type DatosDashboard,
   type FiltrosDashboard,
   type OpcionesDashboard,
@@ -22,36 +21,8 @@ import {
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 import { useValidacion } from '../shared/validacion';
 import { TablaAdaptable } from '../shared/TablaAdaptable';
+import { Kpi } from '../shared/Kpi';
 
-function Tarjeta({
-  titulo,
-  valor,
-  detalle,
-  color,
-  testid,
-}: {
-  titulo: string;
-  valor: ReactNode;
-  detalle?: ReactNode;
-  color?: string;
-  testid?: string;
-}) {
-  return (
-    <Card withBorder padding="sm" data-testid={testid}>
-      <Text size="xs" c="dimmed">
-        {titulo}
-      </Text>
-      <Text size="xl" fw={700} c={tonoTexto(color)}>
-        {valor}
-      </Text>
-      {detalle && (
-        <Text size="xs" c="dimmed">
-          {detalle}
-        </Text>
-      )}
-    </Card>
-  );
-}
 
 /**
  * «Dashboard» de visitas (docs/especificaciones/riesgo-tablero): indicadores, gráficas por estado, tipo, fuerza, unidad y auditor,
@@ -201,17 +172,17 @@ function Contenido({ d, o }: { d: DatosDashboard; o: OpcionesDashboard | undefin
         </Text>
       )}
       <SimpleGrid cols={{ base: 2, sm: 3, lg: 6 }} data-testid="indicadores-dashboard">
-        <Tarjeta titulo="Visitas en el periodo" valor={conteo(i.total)} testid="ind-total" />
-        <Tarjeta
+        <Kpi titulo="Visitas en el periodo" valor={conteo(i.total)} testid="ind-total" />
+        <Kpi
           titulo="Por ejecutar"
           valor={conteo(i.porEjecutar)}
           detalle={`Programadas ${conteo(i.programadas)} · notificadas ${conteo(i.notificadas)} · reprogramadas ${conteo(i.reprogramadas)}`}
           testid="ind-por-ejecutar"
         />
-        <Tarjeta titulo="En ejecución" valor={conteo(i.ejecucion)} testid="ind-ejecucion" />
-        <Tarjeta titulo="Cerradas" valor={conteo(i.cerradas)} color="green" testid="ind-cerradas" />
-        <Tarjeta titulo="Canceladas" valor={conteo(i.canceladas)} color="gray" testid="ind-canceladas" />
-        <Tarjeta
+        <Kpi titulo="En ejecución" valor={conteo(i.ejecucion)} testid="ind-ejecucion" />
+        <Kpi titulo="Cerradas" valor={conteo(i.cerradas)} color="green" testid="ind-cerradas" />
+        <Kpi titulo="Canceladas" valor={conteo(i.canceladas)} color="gray" testid="ind-canceladas" />
+        <Kpi
           titulo="Con alertas críticas"
           valor={conteo(i.criticas)}
           color={i.criticas > 0 ? 'red' : undefined}
@@ -222,15 +193,15 @@ function Contenido({ d, o }: { d: DatosDashboard; o: OpcionesDashboard | undefin
 
       {lb && lb.total > 0 && (
         <Card withBorder data-testid="linea-base">
-          <Title order={5}>Línea base de los ESM de dispensación</Title>
+          <Title order={2} size="h5">Línea base de los ESM de dispensación</Title>
           <Text size="xs" c="dimmed" mb="xs">
             Sin aplicar los filtros del dashboard.
           </Text>
           <SimpleGrid cols={{ base: 2, sm: 4 }}>
-            <Tarjeta titulo="Con visita inicial cerrada" valor={`${conteo(lb.cerradas)} de ${conteo(lb.total)}`} color="green" />
-            <Tarjeta titulo="En curso o programadas" valor={conteo(lb.enCurso)} />
-            <Tarjeta titulo="Sin programar" valor={conteo(lb.sinProgramar)} color={lb.sinProgramar > 0 ? 'orange' : undefined} />
-            <Tarjeta titulo="Plazo" valor={fecha(lb.plazo)} />
+            <Kpi titulo="Con visita inicial cerrada" valor={`${conteo(lb.cerradas)} de ${conteo(lb.total)}`} color="green" />
+            <Kpi titulo="En curso o programadas" valor={conteo(lb.enCurso)} />
+            <Kpi titulo="Sin programar" valor={conteo(lb.sinProgramar)} color={lb.sinProgramar > 0 ? 'orange' : undefined} />
+            <Kpi titulo="Plazo" valor={fecha(lb.plazo)} />
           </SimpleGrid>
         </Card>
       )}
@@ -245,27 +216,27 @@ function Contenido({ d, o }: { d: DatosDashboard; o: OpcionesDashboard | undefin
 
       {r && (
         <Card withBorder data-testid="resultados-dashboard">
-          <Title order={4}>Resultados de las visitas cerradas</Title>
+          <Title order={2} size="h4">Resultados de las visitas cerradas</Title>
           <Text size="xs" c="dimmed" mb="xs">
             Del resumen guardado al cerrar cada visita; una visita reabierta sale hasta que se cierre de nuevo.
           </Text>
           <SimpleGrid cols={{ base: 2, sm: 3, lg: 6 }}>
-            <Tarjeta titulo="Cumple" valor={conteo(r.c)} color="green" />
-            <Tarjeta titulo="No cumple" valor={conteo(r.nc)} color="red" />
-            <Tarjeta titulo="No aplica" valor={conteo(r.na)} />
-            <Tarjeta titulo="Hallazgos" valor={conteo(r.hallazgos)} />
-            <Tarjeta titulo="Requieren intervención inmediata del OPL" valor={conteo(r.inmediata)} color={r.inmediata > 0 ? 'red' : undefined} />
-            <Tarjeta titulo="Acciones del plan 5W2H abiertas" valor={conteo(r.planesAbiertos)} />
+            <Kpi titulo="Cumple" valor={conteo(r.c)} color="green" />
+            <Kpi titulo="No cumple" valor={conteo(r.nc)} color="red" />
+            <Kpi titulo="No aplica" valor={conteo(r.na)} />
+            <Kpi titulo="Hallazgos" valor={conteo(r.hallazgos)} />
+            <Kpi titulo="Requieren intervención inmediata del OPL" valor={conteo(r.inmediata)} color={r.inmediata > 0 ? 'red' : undefined} />
+            <Kpi titulo="Acciones del plan 5W2H abiertas" valor={conteo(r.planesAbiertos)} />
           </SimpleGrid>
           {r.habilitacion && (
             <>
-              <Title order={5} mt="md" mb="xs">
+              <Title order={3} size="h5" mt="md" mb="xs">
                 Habilitación
               </Title>
               <SimpleGrid cols={{ base: 1, xs: 3 }}>
-                <Tarjeta titulo="Habilitado" valor={conteo(r.habilitacion.habilitado)} color="green" />
-                <Tarjeta titulo="No habilitado · en trámite" valor={conteo(r.habilitacion.tramite)} color="orange" />
-                <Tarjeta titulo="No habilitado sin soporte" valor={conteo(r.habilitacion.no_habilitado)} color="red" />
+                <Kpi titulo="Habilitado" valor={conteo(r.habilitacion.habilitado)} color="green" />
+                <Kpi titulo="No habilitado · en trámite" valor={conteo(r.habilitacion.tramite)} color="orange" />
+                <Kpi titulo="No habilitado sin soporte" valor={conteo(r.habilitacion.no_habilitado)} color="red" />
               </SimpleGrid>
             </>
           )}
@@ -295,7 +266,7 @@ function Contenido({ d, o }: { d: DatosDashboard; o: OpcionesDashboard | undefin
             }))}
             testid="tabla-prestadores"
           />
-          <Title order={5} mt="md" mb="xs">
+          <Title order={3} size="h5" mt="md" mb="xs">
             Vacíos de mayor riesgo con No cumple
           </Title>
           <Table striped data-testid="tabla-vacios">
@@ -338,7 +309,7 @@ function TablaResultados({
 }) {
   return (
     <>
-      <Title order={5} mt="md" mb="xs">
+      <Title order={3} size="h5" mt="md" mb="xs">
         {titulo}
       </Title>
       <TablaAdaptable>

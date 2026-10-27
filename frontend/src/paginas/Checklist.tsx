@@ -77,6 +77,7 @@ import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 import { useValidacion } from '../shared/validacion';
 import { errorCorreo } from '../shared/validaciones';
 import { VisorDocumento } from '../shared/VisorDocumento';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
 
 interface Mensaje {
   mensaje: string;
@@ -324,7 +325,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
       {p.correccion && <Alert color="blue">Corrección del coordinador: los cambios quedan en el historial de la visita.</Alert>}
 
       <Card ref={valDatos.ref} withBorder data-testid="datos-visita">
-        <Title order={5} mb="xs">
+        <Title order={2} size="h5" mb="xs">
           Datos de la visita
         </Title>
         {valDatos.resumen}
@@ -404,7 +405,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
       <Personal id={id} inicial={d.personal} editable={p.escribeVisita} />
 
       <Stack ref={valRespuestas.ref} gap="xs">
-        <Title order={4}>Componentes</Title>
+        <Title order={2} size="h4">Componentes</Title>
         {d.componentes.length === 0 && (
           <Text size="sm" c="dimmed">
             La visita no tiene componentes del checklist.
@@ -467,14 +468,14 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
       </Stack>
 
       <Card withBorder data-testid="soportes-visita">
-        <Title order={5} mb="xs">
+        <Title order={2} size="h5" mb="xs">
           Soportes de la visita
         </Title>
         <Evidencias id={id} clave="visita" archivos={d.archivosVisita} editable={p.escribeVisita} etiqueta="Soportes de la visita" testid="visita" />
       </Card>
 
       <Card ref={valObservaciones.ref} withBorder data-testid="observaciones-visita">
-        <Title order={5} mb="xs">
+        <Title order={2} size="h5" mb="xs">
           Observaciones y recomendaciones
         </Title>
         <Stack gap="xs">
@@ -574,7 +575,7 @@ function Personal({ id, inicial, editable }: { id: string; inicial: PersonaAudit
 
   return (
     <Card withBorder data-testid="personal-auditado">
-      <Title order={5} mb="xs">
+      <Title order={2} size="h5" mb="xs">
         Personal auditado
       </Title>
       {!editable ? (
@@ -1013,7 +1014,7 @@ function Evidencias({
 function Firmas({ id, d }: { id: string; d: DatosFormulario }) {
   return (
     <Card withBorder data-testid="firmas">
-      <Title order={5} mb="xs">
+      <Title order={2} size="h5" mb="xs">
         Firmas{d.visita.ronda > 1 ? ` · ronda ${d.visita.ronda}` : ''}
       </Title>
       <GrupoFirmas id={id} d={d} roles={ROLES_FIRMA} />
@@ -1154,7 +1155,7 @@ function PlanMejoramiento({
 
   return (
     <Card ref={val.ref} withBorder data-testid="plan-mejoramiento">
-      <Title order={5} mb={4}>
+      <Title order={2} size="h5" mb={4}>
         Plan de mejoramiento (5W2H)
       </Title>
       <Text size="sm" c="dimmed" mb="xs">
@@ -1340,7 +1341,7 @@ function PlanMejoramiento({
           </Button>
         </Group>
       )}
-      <Title order={6} mt="md" mb="xs">
+      <Title order={3} size="h6" mt="md" mb="xs">
         Firmas del plan de mejoramiento
       </Title>
       <GrupoFirmas id={id} d={d} roles={ROLES_FIRMA_PLAN} />
@@ -1430,7 +1431,7 @@ function Resumen({ d }: { d: DatosFormulario }) {
   const cumplimiento = cumplimientoLegible(r.cumplimiento);
   return (
     <Card withBorder data-testid="resumen-visita">
-      <Title order={5} mb="xs">
+      <Title order={2} size="h5" mb="xs">
         Resumen
       </Title>
       <SimpleGrid cols={{ base: 3, sm: 6 }} spacing="xs">
@@ -1477,7 +1478,7 @@ function Actas({ id, d, sinGuardar, alFallar }: { id: string; d: DatosFormulario
   const bloqueado = d.faltantes.length > 0 || sinGuardar;
   return (
     <Card ref={val.ref} withBorder data-testid="actas">
-      <Title order={5} mb="xs">
+      <Title order={2} size="h5" mb="xs">
         Acta
       </Title>
       {val.resumen}
@@ -1530,10 +1531,11 @@ function Actas({ id, d, sinGuardar, alFallar }: { id: string; d: DatosFormulario
       )}
       {d.permisos.enviaActa && (
         <Stack gap={4} mt="sm" align="flex-start">
-          <Button
+          <BotonConMotivo
             data-testid="enviar-acta"
             color="green"
-            disabled={bloqueado}
+            motivo={bloqueado ? 'Falta lo indicado debajo para enviar el acta.' : null}
+            idMotivo={idAyuda}
             aria-describedby={idAyuda}
             loading={enviar.isPending}
             onClick={() =>
@@ -1541,7 +1543,7 @@ function Actas({ id, d, sinGuardar, alFallar }: { id: string; d: DatosFormulario
             }
           >
             Enviar acta y cerrar la visita
-          </Button>
+          </BotonConMotivo>
           <Text size="xs" c="dimmed" id={idAyuda}>
             {sinGuardar
               ? 'Hay cambios sin guardar: guárdelos antes de enviar el acta.'

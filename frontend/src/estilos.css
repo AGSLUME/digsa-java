@@ -286,3 +286,23 @@ form:not([novalidate]) .mantine-Input-input:user-invalid {
   outline: 2px solid var(--lume-white) !important;
   outline-offset: 2px;
 }
+
+/* Listas de Mantine: la viñeta va dentro del ítem y el contenido ocupa el 100 %, así que la viñeta lo empuja fuera de la pantalla en
+   celular (Exportación, +3 px a 360 px). Viñeta afuera con su sangría y el texto que parte en varias líneas */
+.mantine-List-root:not([data-with-padding]) {
+  list-style-position: outside;
+  padding-inline-start: 1.25em;
+}
+.mantine-List-item:not([data-with-icon]) {
+  white-space: normal;
+}
+.mantine-List-itemWrapper {
+  max-width: 100%;
+}
+
+/* Texto del motivo de un botón que todavía no se puede usar (BotonConMotivo): el foco llega tras un clic, que no activa :focus-visible */
+[data-motivo]:focus {
+  outline: 2px solid var(--lume-blue-active);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

@@ -52,19 +52,9 @@ import {
   type TableroRiesgo,
 } from '../shared/tablero';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
+import { Kpi } from '../shared/Kpi';
 
-function Caja({ titulo, valor, color, testid }: { titulo: string; valor: string | number; color?: string; testid?: string }) {
-  return (
-    <Card withBorder padding="sm" data-testid={testid}>
-      <Text size="xs" c="dimmed">
-        {titulo}
-      </Text>
-      <Text size="xl" fw={700} c={tonoTexto(color)}>
-        {valor}
-      </Text>
-    </Card>
-  );
-}
 
 /**
  * «Dashboard de riesgo» (docs/especificaciones/riesgo-tablero): puntaje explicable por ESM de dispensación, agregados por país y
@@ -159,15 +149,15 @@ function Pais({ t }: { t: TableroRiesgo }) {
   const p = t.pais;
   return (
     <Stack gap="sm">
-      <Title order={4}>País</Title>
+      <Title order={2} size="h4">País</Title>
       <SimpleGrid cols={{ base: 2, sm: 4 }} data-testid="riesgo-pais">
-        <Caja titulo="ESM evaluados" valor={p.esm} />
-        <Caja titulo="Puntaje promedio" valor={decimal(p.promedio)} />
-        <Caja titulo={`Riesgo alto (≥ ${t.umbrales.alto})`} valor={p.niveles.alto} color="red" />
-        <Caja titulo={`Riesgo medio (≥ ${t.umbrales.medio}) / bajo`} valor={`${p.niveles.medio} / ${p.niveles.bajo}`} color="orange" />
+        <Kpi titulo="ESM evaluados" valor={p.esm} />
+        <Kpi titulo="Puntaje promedio" valor={decimal(p.promedio)} />
+        <Kpi titulo={`Riesgo alto (≥ ${t.umbrales.alto})`} valor={p.niveles.alto} color="red" />
+        <Kpi titulo={`Riesgo medio (≥ ${t.umbrales.medio}) / bajo`} valor={`${p.niveles.medio} / ${p.niveles.bajo}`} color="orange" />
       </SimpleGrid>
       <Card withBorder>
-        <Title order={5} mb="xs">
+        <Title order={3} size="h5" mb="xs">
           Promedio de cada factor
         </Title>
         <Stack gap="xs">
@@ -189,7 +179,7 @@ function Pais({ t }: { t: TableroRiesgo }) {
 function PorFuerza({ t }: { t: TableroRiesgo }) {
   return (
     <Card withBorder>
-      <Title order={4} mb="xs">
+      <Title order={2} size="h4" mb="xs">
         Por fuerza
       </Title>
       {t.porFuerza.length === 0 ? (
@@ -202,7 +192,7 @@ function PorFuerza({ t }: { t: TableroRiesgo }) {
             {t.porFuerza.map((f) => (
               <Card key={f.fuerza} withBorder padding="sm" data-testid={'tarjeta-fuerza-' + f.fuerza}>
                 <Group justify="space-between" gap="xs" wrap="wrap">
-                  <Title order={5}>{f.fuerza}</Title>
+                  <Title order={3} size="h5">{f.fuerza}</Title>
                   <Text size="sm" fw={600}>
                     Promedio {decimal(f.agregado.promedio)}
                   </Text>
@@ -264,7 +254,7 @@ function textoDatos(d: FilaRiesgo['datos']): string[] {
 function TablaEsm({ t }: { t: TableroRiesgo }) {
   return (
     <Card withBorder>
-      <Title order={4} mb="xs">
+      <Title order={2} size="h4" mb="xs">
         Puntaje por ESM
       </Title>
       <TarjetasEsm t={t} />
@@ -302,7 +292,7 @@ function TablaEsm({ t }: { t: TableroRiesgo }) {
                       </Text>
                     )}
                     {e.sinResumen && (
-                      <Text size="xs" c="red.8" fw={600} data-testid={'sin-resumen-' + e.puntoId}>
+                      <Text size="xs" c="red" fw={600} data-testid={'sin-resumen-' + e.puntoId}>
                         Visita sin resumen: incumplimiento no medido
                       </Text>
                     )}
@@ -366,7 +356,7 @@ function TarjetasEsm({ t }: { t: TableroRiesgo }) {
         const n = nivelRiesgo(e.nivel);
         return (
           <Card key={e.puntoId} withBorder padding="sm" data-testid={'tarjeta-riesgo-' + e.puntoId} style={{ minWidth: 0 }}>
-            <Title order={5} style={{ overflowWrap: 'anywhere' }}>
+            <Title order={3} size="h5" style={{ overflowWrap: 'anywhere' }}>
               {e.nombre}
             </Title>
             <Text size="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
@@ -377,7 +367,7 @@ function TarjetasEsm({ t }: { t: TableroRiesgo }) {
               {textoNivel(e.nivel, e.total)}
             </Text>
             {e.sinResumen && (
-              <Text size="xs" c="red.8" fw={600}>
+              <Text size="xs" c="red" fw={600}>
                 Visita sin resumen: incumplimiento no medido
               </Text>
             )}
@@ -490,7 +480,7 @@ function PanelPesos({ t, editable }: { t: TableroRiesgo; editable: boolean }) {
 
   return (
     <Card withBorder data-testid="panel-pesos" ref={v.ref}>
-      <Title order={4}>Pesos y umbrales</Title>
+      <Title order={2} size="h4">Pesos y umbrales</Title>
       <Text size="sm" c="dimmed" mb="sm">
         {t.estadoPesos}. Cada factor suma hasta su peso; los pesos suman 100. Nivel alto con puntaje ≥ {t.umbrales.alto}, medio con ≥{' '}
         {t.umbrales.medio} y bajo por debajo.
@@ -526,7 +516,7 @@ function PanelPesos({ t, editable }: { t: TableroRiesgo; editable: boolean }) {
         ))}
         {editable && (
           <>
-            <Text size="sm" c={sumaPesos(pesos, t.factores) === 100 ? 'dimmed' : 'red.8'}>
+            <Text size="sm" c={sumaPesos(pesos, t.factores) === 100 ? 'dimmed' : 'red'}>
               Suma de los pesos: {sumaPesos(pesos, t.factores)} de 100
             </Text>
             <Group wrap="wrap">
@@ -557,22 +547,22 @@ function PanelPesos({ t, editable }: { t: TableroRiesgo; editable: boolean }) {
             </Group>
             <div id={idProblema} aria-live="polite">
               {problema && (
-                <Text size="sm" c="red.8" data-testid="problema-pesos">
+                <Text size="sm" c="red" data-testid="problema-pesos">
                   {problema}
                 </Text>
               )}
             </div>
             {v.resumen}
             <Group>
-              <Button
+              <BotonConMotivo
                 data-testid="guardar-pesos"
-                disabled={!!problema || !cambiado}
-                aria-describedby={problema ? idProblema : !cambiado ? idAyuda : undefined}
+                motivo={problema ? problema : !cambiado ? 'Cambie un peso o un umbral para guardar.' : null}
+                idMotivo={problema ? idProblema : idAyuda}
                 loading={guardar.isPending}
                 onClick={() => guardar.mutate()}
               >
                 Guardar pesos
-              </Button>
+              </BotonConMotivo>
               {!problema && !cambiado && (
                 <Text size="sm" c="dimmed" id={idAyuda}>
                   Cambie un peso o un umbral para guardar.
@@ -596,6 +586,8 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
   // El ESM elegido debe seguir en la lista (filtrada por fuerza): si el filtro lo oculta, el formulario queda sin ESM
   const form = esm.some((e) => String(e.puntoId) === elegido.puntoId) ? elegido : { ...elegido, puntoId: '' };
   const [cerrando, setCerrando] = useState<Incidencia | null>(null);
+  // Si el cierre falla con 404, el diálogo se cierra y el foco queda en el aviso del error, no en el botón de la fila (UI-28)
+  const [sinRetorno, setSinRetorno] = useState(false);
   const [motivo, setMotivo] = useState('');
   const hoy = hoyIso();
   const problemaMotivo = problemaCierre(motivo);
@@ -614,6 +606,7 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
     setMotivo('');
     vCierre.reiniciar();
     vLista.reiniciar();
+    setSinRetorno(false);
     setCerrando(i);
   };
 
@@ -649,6 +642,7 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
     onError: (e) => {
       // Cerrada por otro o inexistente (404): se cierra el diálogo, el aviso queda sobre la lista y se recarga la lista y el tablero
       if (e instanceof ErrorApi && e.estado === 404) {
+        setSinRetorno(true);
         vLista.errorServidor(e, 'No se pudo cerrar la incidencia.');
         setCerrando(null);
         setMotivo('');
@@ -661,13 +655,13 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
 
   return (
     <Card withBorder data-testid="incidencias">
-      <Title order={4}>Incidencias reportadas por la DIGSA</Title>
+      <Title order={2} size="h4">Incidencias reportadas por la DIGSA</Title>
       <Text size="sm" c="dimmed" mb="sm">
         Cada incidencia abierta de los últimos 12 meses suma al factor «Incidencias de la DIGSA» del ESM. Al cerrarla deja de sumar.
       </Text>
       {registra && (
         <Card withBorder mb="md" data-testid="form-incidencia" ref={v.ref}>
-          <Title order={5} mb="xs">
+          <Title order={3} size="h5" mb="xs">
             Registrar incidencia
           </Title>
           {v.resumen && <Box mb="sm">{v.resumen}</Box>}
@@ -825,7 +819,7 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
           </Table>
         </ScrollArea>
       )}
-      <Modal opened={cerrando !== null} onClose={() => setCerrando(null)} title="Cerrar incidencia">
+      <Modal opened={cerrando !== null} onClose={() => setCerrando(null)} title="Cerrar incidencia" returnFocus={!sinRetorno}>
         {cerrando && (
           <Stack ref={vCierre.ref}>
             <Text size="sm">
@@ -856,15 +850,15 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
               <Button variant="default" onClick={() => setCerrando(null)}>
                 Cancelar
               </Button>
-              <Button
+              <BotonConMotivo
                 color="red"
-                disabled={!!problemaMotivo}
-                aria-describedby={problemaMotivo ? idMotivo : undefined}
+                motivo={problemaMotivo || null}
+                idMotivo={idMotivo}
                 loading={cerrar.isPending}
                 onClick={() => cerrar.mutate(cerrando)}
               >
                 Cerrar incidencia
-              </Button>
+              </BotonConMotivo>
             </Group>
           </Stack>
         )}

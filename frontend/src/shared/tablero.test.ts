@@ -101,9 +101,9 @@ describe('nivel, números y barras', () => {
   });
 
   it('tono de texto con contraste: rojo .8, naranja y verde .9; tonos explícitos y otros colores se respetan', () => {
-    expect(tonoTexto('red')).toBe('red.8');
-    expect(tonoTexto('orange')).toBe('orange.9');
-    expect(tonoTexto('green')).toBe('green.9');
+    expect(tonoTexto('red')).toBe('red');
+    expect(tonoTexto('orange')).toBe('orange');
+    expect(tonoTexto('green')).toBe('green');
     expect(tonoTexto('orange.7')).toBe('orange.7');
     expect(tonoTexto('blue')).toBe('blue');
     expect(tonoTexto(undefined)).toBeUndefined();

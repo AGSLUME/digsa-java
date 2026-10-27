@@ -1,18 +1,45 @@
-import { Alert, Badge, Button, Card, Center, Checkbox, Group, Loader, ScrollArea, Select, SimpleGrid, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Center,
+  Checkbox,
+  Grid,
+  Group,
+  Loader,
+  ScrollArea,
+  Select,
+  SimpleGrid,
+  Stack,
+  Switch,
+  Table,
+  Tabs,
+  Text,
+  TextInput,
+  Title,
+} from '@mantine/core';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useMemo, useState, type ReactNode } from 'react';
 import { api } from '../shared/api';
 import { MapaColombia } from '../shared/MapaColombia';
 import {
+  claseCoropleta,
+  COLOR_COROPLETA,
+  colorCoropleta,
   colorEstado,
+  cortesCoropleta,
   ESTADOS_COBERTURA,
   ESTADOS_VISITA,
+  MAPA_BASE,
   porcentajeCobertura,
   textoConteos,
   textoSinUbicacion,
   ubicar,
+  type Capital,
   type DatosMapa,
   type Estado,
+  type FilaDepartamento,
   type PuntoMapa,
   type Ubicado,
   type VisitaMapa,
@@ -28,13 +55,56 @@ import {
   type OpcionesDashboard,
 } from '../shared/tablero';
 
+/** Las opciones del dashboard más las capitales departamentales del mapa político. */
+type OpcionesMapas = OpcionesDashboard & { capitales?: Capital[] };
+
+/** Cómo se pinta la coropleta: el valor de cada departamento, el color base y las clases. */
+interface Coropleta {
+  titulo: string;
+  base: string;
+  valor: (f: FilaDepartamento) => number;
+  cortes: (max: number) => number[];
+  minimo: number;
+  sufijo: string;
+}
+
+const SIN_CAPITALES: Capital[] = [];
+
+/** Texto de cada clase de la coropleta: «1–3», «4» o «21–40 %». */
+function rangosCoropleta(cortes: number[], minimo: number, sufijo: string): string[] {
+  return cortes.map((hasta, i) => {
+    const desde = i === 0 ? minimo : (cortes[i - 1] ?? 0) + 1;
+    return `${desde === hasta ? hasta : `${desde}–${hasta}`}${sufijo}`;
+  });
+}
+
+const COROPLETA_VISITAS: Coropleta = {
+  titulo: 'Visitas por departamento',
+  base: COLOR_COROPLETA,
+  valor: (f) => f.total,
+  cortes: cortesCoropleta,
+  minimo: 1,
+  sufijo: '',
+};
+const COROPLETA_COBERTURA: Coropleta = {
+  titulo: 'Puntos visitados en el periodo',
+  base: COLOR_COROPLETA,
+  valor: (f) => (f.total ? Math.round((100 * Number(f.visitado ?? 0)) / f.total) : 0),
+  cortes: () => [20, 40, 60, 80, 100],
+  minimo: 0,
+  sufijo: ' %',
+};
+
 /**
  * Mapas georreferenciados (Anexo 4 §9 y §11): el mapa de visitas por departamento (un punto por visita, de color según su estado:
  * programada, en ejecución o ejecutada) y el mapa de control con la cobertura de los puntos activos en el periodo. Mismos filtros,
  * perfiles y alcance que el dashboard.
  */
 export function Mapas() {
-  const opciones = useQuery({ queryKey: ['mapas', 'opciones'], queryFn: () => api<OpcionesDashboard>('/api/mapas/opciones') });
+  const opciones = useQuery({
+    queryKey: ['mapas', 'opciones'],
+    queryFn: () => api<OpcionesMapas>('/api/mapas/opciones'),
+  });
   const [f, setF] = useState<FiltrosDashboard>(FILTROS_VACIOS);
   const [pestana, setPestana] = useState<string | null>('visitas');
   const consulta = consultaFiltros(filtrosConsultables(f));
@@ -52,7 +122,10 @@ export function Mapas() {
             label="Fuerza"
             placeholder="Todas"
             clearable
-            data={(o?.fuerzas ?? []).map((x) => ({ value: x.codigo, label: x.nombre }))}
+            data={(o?.fuerzas ?? []).map((x) => ({
+              value: x.codigo,
+              label: x.nombre,
+            }))}
             value={f.fuerza || null}
             onChange={(v) => setF({ ...f, fuerza: v ?? '' })}
           />
@@ -60,7 +133,10 @@ export function Mapas() {
             label="Tipo de visita"
             placeholder="Todos"
             clearable
-            data={(o?.tipos ?? []).map((x) => ({ value: x.codigo, label: x.nombre }))}
+            data={(o?.tipos ?? []).map((x) => ({
+              value: x.codigo,
+              label: x.nombre,
+            }))}
             value={f.tipo || null}
             onChange={(v) => setF({ ...f, tipo: v ?? '' })}
           />
@@ -70,7 +146,10 @@ export function Mapas() {
               placeholder="Todos"
               clearable
               searchable
-              data={o.auditores.map((x) => ({ value: String(x.id), label: x.nombre }))}
+              data={o.auditores.map((x) => ({
+                value: String(x.id),
+                label: x.nombre,
+              }))}
               value={f.auditor || null}
               onChange={(v) => setF({ ...f, auditor: v ?? '' })}
               nothingFoundMessage="Sin auditores con ese nombre"
@@ -119,7 +198,7 @@ function useMapa<T>(tipo: 'visitas' | 'cobertura', consulta: string, habilitado:
 interface PropsMapa {
   consulta: string;
   habilitado: boolean;
-  o: OpcionesDashboard | undefined;
+  o: OpcionesMapas | undefined;
 }
 
 // Fuera de los componentes: funciones estables, para que las marcas no se recalculen en cada render
@@ -143,6 +222,7 @@ function MapaVisitas({ consulta, habilitado, o }: PropsMapa) {
       titulo={tituloVisita}
       columnas={['Fecha', 'Número', 'Punto', 'Municipio', 'Tipo', 'Estado']}
       celdas={celdasVisita}
+      coropleta={COROPLETA_VISITAS}
       nota={datos.data?.truncado ? 'Hay más visitas de las que caben en el mapa: acote el periodo con «Desde» y «Hasta».' : undefined}
     />
   );
@@ -163,6 +243,7 @@ function MapaControl({ consulta, habilitado, o }: PropsMapa) {
       titulo={tituloPunto}
       columnas={['Punto', 'Unidad', 'Fuerza', 'Municipio', 'Última visita cerrada', 'Estado']}
       celdas={celdasPunto}
+      coropleta={COROPLETA_COBERTURA}
       resumen={
         <Text size="sm" data-testid="cobertura-porcentaje">
           {pct === null ? 'Sin puntos en el filtro.' : `Cobertura del periodo: ${pct} % de los puntos visitados.`}
@@ -183,11 +264,12 @@ function Vista<T extends Ubicado>({
   titulo,
   columnas,
   celdas,
+  coropleta,
   resumen,
   nota,
 }: {
   datos: ReturnType<typeof useMapa<T>>;
-  o: OpcionesDashboard | undefined;
+  o: OpcionesMapas | undefined;
   estados: Estado[];
   elementos: T[];
   que: 'visitas' | 'puntos';
@@ -195,11 +277,13 @@ function Vista<T extends Ubicado>({
   titulo: (x: T) => string;
   columnas: string[];
   celdas: (x: T) => string[];
+  coropleta: Coropleta;
   resumen?: ReactNode;
   nota?: string;
 }) {
   const [ocultos, setOcultos] = useState<string[]>([]);
   const [departamento, setDepartamento] = useState<string | null>(null);
+  const [verCoropleta, setVerCoropleta] = useState(false);
   const d = datos.data;
   const etiquetas = useMemo(() => Object.fromEntries(estados.map((e) => [e.valor, e.etiqueta])), [estados]);
   const visibles = useMemo(() => elementos.filter((x) => !ocultos.includes(x.estado)), [elementos, ocultos]);
@@ -221,8 +305,18 @@ function Vista<T extends Ubicado>({
     for (const x of filas) t[x.codigo] = `${x.nombre}: ${x.total} · ${textoConteos(estados, x)}`;
     return t;
   }, [filas, estados]);
+  const clases = useMemo(() => {
+    if (!verCoropleta) return null;
+    const valores: Record<string, number> = Object.fromEntries(filas.map((x) => [x.codigo, coropleta.valor(x)]));
+    const cortes = coropleta.cortes(Math.max(0, ...Object.values(valores)));
+    const rellenos = Object.fromEntries(
+      MAPA_BASE.departamentos.map((x) => [x.codigo, colorCoropleta(coropleta.base, claseCoropleta(valores[x.codigo], cortes), cortes.length)]),
+    );
+    return { cortes, rellenos };
+  }, [verCoropleta, filas, coropleta]);
   const delDepartamento = departamento ? visibles.filter((x) => x.departamento === departamento) : [];
-  const nombreDepartamento = filas.find((x) => x.codigo === departamento)?.nombre ?? departamento;
+  const nombreDepartamento =
+    filas.find((x) => x.codigo === departamento)?.nombre ?? MAPA_BASE.departamentos.find((x) => x.codigo === departamento)?.nombre ?? departamento;
   const filtros = textoFiltrosAplicados(d?.filtros, o);
   const sinUbicacion = textoSinUbicacion(d?.sinUbicacion ?? 0, que);
 
@@ -242,103 +336,169 @@ function Vista<T extends Ubicado>({
           Filtros aplicados: {filtros}
         </Text>
       )}
-      <SimpleGrid cols={{ base: 1, md: 2 }}>
-        <Card withBorder padding="xs">
-          <MapaColombia marcas={marcas} departamentos={textos} seleccionado={departamento} onSeleccionar={setDepartamento} etiqueta={etiquetaMapa} />
-        </Card>
-        <Stack>
-          <Card withBorder data-testid="leyenda-mapa">
-            <Title order={5} mb="xs">
-              Convenciones
-            </Title>
-            <Stack gap="xs">
-              {estados.map((e) => (
-                <Checkbox
-                  key={e.valor}
-                  color={e.color}
-                  checked={!ocultos.includes(e.valor)}
-                  onChange={(ev) => {
-                    const ver = ev.currentTarget.checked;
-                    setOcultos((s) => (ver ? s.filter((x) => x !== e.valor) : [...s, e.valor]));
-                  }}
-                  label={
-                    <Group gap={6}>
-                      <span style={{ width: 10, height: 10, borderRadius: 5, background: colorEstado(estados, e.valor), display: 'inline-block' }} />
-                      <span>
-                        {e.etiqueta}: <b data-testid={`total-${e.valor}`}>{d.totales[e.valor] ?? 0}</b>
-                      </span>
-                    </Group>
-                  }
-                />
-              ))}
-            </Stack>
-            {resumen && <div style={{ marginTop: 8 }}>{resumen}</div>}
-            {sinUbicacion && (
-              <Text size="xs" c="dimmed" mt="xs" data-testid="sin-ubicacion">
-                {sinUbicacion}
-              </Text>
-            )}
-            {nota && (
-              <Text size="xs" c="dimmed" mt="xs">
-                {nota}
-              </Text>
-            )}
+      <Grid>
+        <Grid.Col span={{ base: 12, md: 7 }}>
+          <Card withBorder padding="xs">
+            <MapaColombia
+              marcas={marcas}
+              departamentos={textos}
+              seleccionado={departamento}
+              onSeleccionar={setDepartamento}
+              etiqueta={etiquetaMapa}
+              capitales={o?.capitales ?? SIN_CAPITALES}
+              rellenos={clases?.rellenos}
+            />
           </Card>
-          <Card withBorder data-testid="tabla-departamentos">
-            <Title order={5} mb="xs">
-              Por departamento
-            </Title>
-            {filas.length === 0 ? (
-              <Text size="sm" c="dimmed">
-                Sin {que} en el filtro.
-              </Text>
-            ) : (
-              <ScrollArea.Autosize mah={320}>
-                <Table striped highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Departamento</Table.Th>
-                      {estados.map((e) => (
-                        <Table.Th key={e.valor} ta="right">
-                          {e.etiqueta}
-                        </Table.Th>
-                      ))}
-                      <Table.Th ta="right">Total</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {filas.map((x) => (
-                      <Table.Tr
-                        key={x.codigo}
-                        data-departamento={x.codigo}
-                        style={{ cursor: 'pointer' }}
-                        bg={departamento === x.codigo ? 'var(--mantine-color-blue-light)' : undefined}
-                        tabIndex={0}
-                        aria-selected={departamento === x.codigo}
-                        onClick={() => setDepartamento(departamento === x.codigo ? null : x.codigo)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            setDepartamento(departamento === x.codigo ? null : x.codigo);
-                          }
-                        }}
-                      >
-                        <Table.Td>{x.nombre}</Table.Td>
+        </Grid.Col>
+        <Grid.Col span={{ base: 12, md: 5 }}>
+          <Stack>
+            <Card withBorder data-testid="leyenda-mapa">
+              <Title order={5} mb="xs">
+                Convenciones
+              </Title>
+              <Stack gap="xs">
+                {estados.map((e) => (
+                  <Checkbox
+                    key={e.valor}
+                    color={e.color}
+                    checked={!ocultos.includes(e.valor)}
+                    onChange={(ev) => {
+                      const ver = ev.currentTarget.checked;
+                      setOcultos((s) => (ver ? s.filter((x) => x !== e.valor) : [...s, e.valor]));
+                    }}
+                    label={
+                      <Group gap={6}>
+                        <span
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: 5,
+                            background: colorEstado(estados, e.valor),
+                            display: 'inline-block',
+                          }}
+                        />
+                        <span>
+                          {e.etiqueta}: <b data-testid={`total-${e.valor}`}>{d.totales[e.valor] ?? 0}</b>
+                        </span>
+                      </Group>
+                    }
+                  />
+                ))}
+              </Stack>
+              <Group gap={6} mt="sm">
+                <svg width={10} height={10} aria-hidden="true">
+                  <circle cx={5} cy={5} r={3.5} fill="#fff" stroke="#0F172A" strokeWidth={1.4} />
+                </svg>
+                <Text size="sm">Capital departamental</Text>
+              </Group>
+              <Switch mt="sm" label="Ver como coropleta" checked={verCoropleta} onChange={(e) => setVerCoropleta(e.currentTarget.checked)} data-testid="ver-coropleta" />
+              {clases && (
+                <Stack gap={4} mt="xs" data-testid="leyenda-coropleta">
+                  <Text size="xs" fw={600}>
+                    {coropleta.titulo}
+                  </Text>
+                  {clases.cortes.length === 0 ? (
+                    <Text size="xs" c="dimmed">
+                      Sin {que} en el filtro.
+                    </Text>
+                  ) : (
+                    rangosCoropleta(clases.cortes, coropleta.minimo, coropleta.sufijo).map((r, i) => (
+                      <Group key={r} gap={6}>
+                        <span
+                          style={{
+                            width: 16,
+                            height: 10,
+                            borderRadius: 2,
+                            background: colorCoropleta(coropleta.base, i + 1, clases.cortes.length),
+                            display: 'inline-block',
+                          }}
+                        />
+                        <Text size="xs">{r}</Text>
+                      </Group>
+                    ))
+                  )}
+                  <Group gap={6}>
+                    <span
+                      style={{
+                        width: 16,
+                        height: 10,
+                        borderRadius: 2,
+                        background: colorCoropleta(coropleta.base, 0),
+                        display: 'inline-block',
+                      }}
+                    />
+                    <Text size="xs">Sin {que}</Text>
+                  </Group>
+                </Stack>
+              )}
+              {resumen && <div style={{ marginTop: 8 }}>{resumen}</div>}
+              {sinUbicacion && (
+                <Text size="xs" c="dimmed" mt="xs" data-testid="sin-ubicacion">
+                  {sinUbicacion}
+                </Text>
+              )}
+              {nota && (
+                <Text size="xs" c="dimmed" mt="xs">
+                  {nota}
+                </Text>
+              )}
+            </Card>
+            <Card withBorder data-testid="tabla-departamentos">
+              <Title order={5} mb="xs">
+                Por departamento
+              </Title>
+              {filas.length === 0 ? (
+                <Text size="sm" c="dimmed">
+                  Sin {que} en el filtro.
+                </Text>
+              ) : (
+                <ScrollArea.Autosize mah={320}>
+                  <Table striped highlightOnHover>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Departamento</Table.Th>
                         {estados.map((e) => (
-                          <Table.Td key={e.valor} ta="right">
-                            {Number(x[e.valor] ?? 0)}
-                          </Table.Td>
+                          <Table.Th key={e.valor} ta="right">
+                            {e.etiqueta}
+                          </Table.Th>
                         ))}
-                        <Table.Td ta="right">{x.total}</Table.Td>
+                        <Table.Th ta="right">Total</Table.Th>
                       </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              </ScrollArea.Autosize>
-            )}
-          </Card>
-        </Stack>
-      </SimpleGrid>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {filas.map((x) => (
+                        <Table.Tr
+                          key={x.codigo}
+                          data-departamento={x.codigo}
+                          style={{ cursor: 'pointer' }}
+                          bg={departamento === x.codigo ? 'var(--mantine-color-blue-light)' : undefined}
+                          tabIndex={0}
+                          aria-selected={departamento === x.codigo}
+                          onClick={() => setDepartamento(departamento === x.codigo ? null : x.codigo)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setDepartamento(departamento === x.codigo ? null : x.codigo);
+                            }
+                          }}
+                        >
+                          <Table.Td>{x.nombre}</Table.Td>
+                          {estados.map((e) => (
+                            <Table.Td key={e.valor} ta="right">
+                              {Number(x[e.valor] ?? 0)}
+                            </Table.Td>
+                          ))}
+                          <Table.Td ta="right">{x.total}</Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </ScrollArea.Autosize>
+              )}
+            </Card>
+          </Stack>
+        </Grid.Col>
+      </Grid>
 
       {departamento && (
         <Card withBorder data-testid="detalle-departamento">

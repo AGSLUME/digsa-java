@@ -113,6 +113,21 @@ class MapasApiTest extends EscenariosVisita {
         assertThat(coord.get("/api/mapas/opciones").json().path("fuerzas").isArray()).isTrue();
     }
 
+    @Test
+    @DisplayName("capitales del mapa político: el municipio 001 de cada departamento con sus coordenadas, salvo Cundinamarca (su capital es Bogotá)")
+    void capitales() {
+        JsonNode capitales = entrar(crearUsuario("coordcap", Perfil.COORDINADOR)).get("/api/mapas/opciones").json().path("capitales");
+        Map<String, JsonNode> porCodigo = new HashMap<>();
+        capitales.forEach(c -> porCodigo.put(c.path("codigo").asText(), c));
+        assertThat(porCodigo).hasSize(32).containsKeys("05001", "11001", "88001", "91001").doesNotContainKey("25001");
+        JsonNode medellin = porCodigo.get("05001");
+        assertThat(medellin.path("nombre").asText()).isEqualTo("MEDELLÍN");
+        assertThat(medellin.path("departamento").asText()).isEqualTo("05");
+        assertThat(medellin.path("latitud").asDouble()).isEqualTo(6.246631);
+        assertThat(medellin.path("longitud").asDouble()).isEqualTo(-75.581775);
+        assertThat(porCodigo.values()).allSatisfy(c -> assertThat(c.path("latitud").isNumber() && c.path("longitud").isNumber()).isTrue());
+    }
+
     private static JsonNode departamento(JsonNode d, String codigo) {
         for (JsonNode x : d.path("porDepartamento")) {
             if (codigo.equals(x.path("codigo").asText())) {

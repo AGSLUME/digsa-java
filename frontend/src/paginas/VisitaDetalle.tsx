@@ -11,7 +11,6 @@ import {
   Loader,
   Modal,
   MultiSelect,
-  ScrollArea,
   Select,
   SimpleGrid,
   Stack,
@@ -26,10 +25,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { colorEstado, horaCorta, type DetalleVisita, type OpcionesAgenda } from '../shared/agenda';
-import { api, ErrorApi } from '../shared/api';
+import { api } from '../shared/api';
 import { CampoHora24 } from '../shared/CampoHora24';
+import { fecha as fechaCorta, fechaHora } from '../shared/formato';
 import { FormularioVisita, MAX_OTROS } from '../shared/FormularioVisita';
 import { horaValida, MENSAJE_HORA } from '../shared/hora';
+import { useValidacion } from '../shared/validacion';
+import { errorTexto10a800 } from '../shared/validaciones';
 import {
   COLOR_ESTADO,
   COLOR_FASE,
@@ -40,6 +42,8 @@ import {
   type HallazgoOpl,
   type OplDeVisita,
 } from '../shared/opl';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 export type OrigenVisita = 'agenda' | 'mis-visitas' | 'calendario';
 
@@ -65,6 +69,9 @@ interface Borrador {
 
 type Dialogo = 'editar' | 'reprogramar' | 'cancelar' | 'reasignar' | 'notificar' | 'reabrir' | null;
 
+/** Error de la petición de un diálogo: queda persistente en el resumen del diálogo (Anexo 5 num. 2.4). */
+type AlFallar = (e: unknown) => void;
+
 const TITULOS: Record<OrigenVisita, string> = { agenda: 'Agenda', 'mis-visitas': 'Mis visitas', calendario: 'Calendario' };
 
 /** Detalle de una visita: el mismo componente sirve a la agenda del coordinador, a Mis visitas y al calendario de consulta. */
@@ -82,6 +89,11 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
   const [dialogo, setDialogo] = useState<Dialogo>(null);
   const navegar = useNavigate();
   const [destinoParte, setDestinoParte] = useState<Record<string, string | null>>({});
+  // Acciones fuera de diálogo (iniciar, mover una parte): el error queda en el resumen bajo el encabezado
+  const val = useValidacion({
+    etiquetas: Object.fromEntries((detalle.data?.reparto ?? []).map((p) => ['mover-' + p.parte, `Mover ${p.parte} a`])),
+    testid: 'error-accion',
+  });
 
   const refrescar = () => {
     qc.invalidateQueries({ queryKey: clave });
@@ -97,9 +109,10 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
       notifications.show({ color: fallo ? 'orange' : 'green', autoClose: fallo ? false : 6000, message: r.mensaje });
       for (const a of r.advertencias ?? []) notifications.show({ color: 'orange', autoClose: 10000, message: a });
       if (r.ok !== false) setDialogo(null); // si el envío manual falló, el diálogo queda abierto con lo editado
+      val.reiniciar();
       refrescar();
     },
-    onError: (e) => notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo completar la acción.' }),
+    // El error de cada llamada lo muestra quien la hace (diálogo o resumen de la página), persistente
   });
 
   if (detalle.isLoading) {
@@ -125,65 +138,73 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
   const equipo = v.equipo ?? [];
 
   return (
-    <Stack data-testid="detalle-visita">
+    <Stack ref={val.ref} data-testid="detalle-visita">
       <Anchor component={Link} to={'/' + origen} size="sm">
         Volver a {TITULOS[origen]}
       </Anchor>
-      <Group justify="space-between">
-        <Group gap="sm">
-          <Title order={3}>Visita {v.numero}</Title>
-          <Badge color={colorEstado(v.estado)} size="lg" data-testid="estado-visita">
-            {v.estadoNombre}
-          </Badge>
-        </Group>
-        <Group gap="xs">
-          {puede('editar') && (
-            <Button variant="light" onClick={() => setDialogo('editar')} disabled={!opciones.data}>
-              Editar
-            </Button>
-          )}
-          {puede('reasignar') && (
-            <Button variant="light" onClick={() => setDialogo('reasignar')} disabled={!opciones.data}>
-              Reasignar equipo
-            </Button>
-          )}
-          {puede('reprogramar') && (
-            <Button variant="light" onClick={() => setDialogo('reprogramar')}>
-              Reprogramar
-            </Button>
-          )}
-          {puede('notificar') && (
-            <Button variant="light" onClick={() => setDialogo('notificar')}>
-              Notificar
-            </Button>
-          )}
-          {puede('cancelar') && (
-            <Button variant="light" color="red" onClick={() => setDialogo('cancelar')}>
-              Cancelar visita
-            </Button>
-          )}
-          {puede('reabrir') && (
-            <Button variant="light" color="grape" data-testid="reabrir" onClick={() => setDialogo('reabrir')} disabled={!opciones.data}>
-              Reabrir
-            </Button>
-          )}
-          {origen !== 'calendario' &&
-            (v.estado === 'ejecucion' || v.estado === 'cerrada') &&
-            !(origen === 'mis-visitas' && v.acciones.includes('iniciar')) && (
-              <Button variant={v.estado === 'cerrada' ? 'light' : 'filled'} onClick={() => navegar(`/visita/${v.id}`)}>
-                Abrir formulario
+      <EncabezadoPagina
+        titulo={`Visita ${v.numero}`}
+        fuente="Anexo 5 · 4.5"
+        acciones={
+          <>
+            {puede('editar') && (
+              <Button variant="light" onClick={() => setDialogo('editar')} disabled={!opciones.data}>
+                Editar
               </Button>
             )}
-          {origen === 'mis-visitas' && v.acciones.includes('iniciar') && (
-            <Button
-              loading={accion.isPending}
-              onClick={() => accion.mutate({ ruta: `/api/mis-visitas/${v.id}/iniciar` }, { onSuccess: () => navegar(`/visita/${v.id}`) })}
-            >
-              {v.estado === 'ejecucion' ? 'Continuar' : 'Iniciar visita'}
-            </Button>
-          )}
-        </Group>
-      </Group>
+            {puede('reasignar') && (
+              <Button variant="light" onClick={() => setDialogo('reasignar')} disabled={!opciones.data}>
+                Reasignar equipo
+              </Button>
+            )}
+            {puede('reprogramar') && (
+              <Button variant="light" onClick={() => setDialogo('reprogramar')}>
+                Reprogramar
+              </Button>
+            )}
+            {puede('notificar') && (
+              <Button variant="light" onClick={() => setDialogo('notificar')}>
+                Notificar
+              </Button>
+            )}
+            {puede('cancelar') && (
+              <Button variant="light" color="red" onClick={() => setDialogo('cancelar')}>
+                Cancelar visita
+              </Button>
+            )}
+            {puede('reabrir') && (
+              <Button variant="light" color="grape" data-testid="reabrir" onClick={() => setDialogo('reabrir')} disabled={!opciones.data}>
+                Reabrir
+              </Button>
+            )}
+            {origen !== 'calendario' &&
+              (v.estado === 'ejecucion' || v.estado === 'cerrada') &&
+              !(origen === 'mis-visitas' && v.acciones.includes('iniciar')) && (
+                <Button variant={v.estado === 'cerrada' ? 'light' : 'filled'} onClick={() => navegar(`/visita/${v.id}`)}>
+                  Abrir formulario
+                </Button>
+              )}
+            {origen === 'mis-visitas' && v.acciones.includes('iniciar') && (
+              <Button
+                loading={accion.isPending}
+                onClick={() =>
+                  accion.mutate(
+                    { ruta: `/api/mis-visitas/${v.id}/iniciar` },
+                    { onSuccess: () => navegar(`/visita/${v.id}`), onError: (e) => val.errorServidor(e, 'No se pudo iniciar la visita.') },
+                  )
+                }
+              >
+                {v.estado === 'ejecucion' ? 'Continuar' : 'Iniciar visita'}
+              </Button>
+            )}
+          </>
+        }
+      >
+        <Badge color={colorEstado(v.estado)} size="lg" data-testid="estado-visita">
+          {v.estadoNombre}
+        </Badge>
+      </EncabezadoPagina>
+      {val.resumen}
       {opciones.error && <Alert color="red">No se pudieron cargar las opciones: {opciones.error.message}</Alert>}
       {v.equipoSinNotificar && deAgenda && <Alert color="orange">El cambio de equipo aún no se ha notificado al OPL y a las DISANES.</Alert>}
       {(v.advertencias ?? []).map((a, i) => (
@@ -201,7 +222,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
           <Dato titulo="Tipo">{v.tipoNombre}</Dato>
           <Dato titulo="Punto">{v.punto}</Dato>
           <Dato titulo="Unidad">{[v.unidad, v.fuerza, v.modalidad].filter(Boolean).join(' · ')}</Dato>
-          {v.fechaSolicitud && <Dato titulo="Fecha de la solicitud">{v.fechaSolicitud}</Dato>}
+          {v.fechaSolicitud && <Dato titulo="Fecha de la solicitud">{fechaCorta(v.fechaSolicitud)}</Dato>}
           <Dato titulo="Versión del checklist">{v.checklistVersion ?? '—'}</Dato>
         </SimpleGrid>
         <Text size="xs" c="dimmed" mt="sm">
@@ -263,7 +284,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
           <Title order={5} mb="xs">
             {origen === 'mis-visitas' ? 'Mis partes del checklist' : 'Asignación'}
           </Title>
-          <ScrollArea type="auto">
+          <TablaAdaptable>
             <Table miw={puede('mover') ? 640 : 420}>
               <Table.Thead>
                 <Table.Tr>
@@ -288,19 +309,27 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
                             placeholder="Integrante"
                             data={equipo.filter((m) => m.id !== p.auditorId && m.activo).map((m) => ({ value: String(m.id), label: m.nombre }))}
                             value={destinoParte[p.parte] ?? null}
-                            onChange={(x) => setDestinoParte({ ...destinoParte, [p.parte]: x })}
+                            error={val.error('mover-' + p.parte)}
+                            onChange={(x) => {
+                              setDestinoParte({ ...destinoParte, [p.parte]: x });
+                              val.limpiar('mover-' + p.parte);
+                            }}
                           />
                           <Button
                             size="xs"
                             variant="light"
                             aria-label={'Mover ' + p.parte}
-                            disabled={!destinoParte[p.parte] || accion.isPending}
-                            onClick={() =>
+                            disabled={accion.isPending}
+                            onClick={() => {
+                              if (!val.validar({ ['mover-' + p.parte]: destinoParte[p.parte] ? null : 'Elija el integrante que recibe la parte.' })) return;
                               accion.mutate(
                                 { ruta: `/api/agenda/${v.id}/mover`, cuerpo: { parte: p.parte, usuarioId: Number(destinoParte[p.parte]) } },
-                                { onSuccess: () => setDestinoParte({ ...destinoParte, [p.parte]: null }) },
-                              )
-                            }
+                                {
+                                  onSuccess: () => setDestinoParte({ ...destinoParte, [p.parte]: null }),
+                                  onError: (e) => val.errorServidor(e, 'No se pudo mover la parte.'),
+                                },
+                              );
+                            }}
                           >
                             Mover
                           </Button>
@@ -311,7 +340,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
                 ))}
               </Table.Tbody>
             </Table>
-          </ScrollArea>
+          </TablaAdaptable>
           {v.reparto.length === 0 && (
             <Text size="sm" c="dimmed">
               Sin partes asignadas.
@@ -327,7 +356,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
           <Title order={5} mb="xs">
             Historial
           </Title>
-          <ScrollArea type="auto">
+          <TablaAdaptable>
             <Table miw={620} data-testid="historial-visita">
               <Table.Thead>
                 <Table.Tr>
@@ -340,7 +369,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
               <Table.Tbody>
                 {v.historial.map((h, i) => (
                   <Table.Tr key={i}>
-                    <Table.Td style={{ whiteSpace: 'nowrap' }}>{formatoFecha(h.fecha)}</Table.Td>
+                    <Table.Td style={{ whiteSpace: 'nowrap' }}>{fechaHora(h.fecha)}</Table.Td>
                     <Table.Td>{h.usuario ?? '—'}</Table.Td>
                     <Table.Td>{h.evento}</Table.Td>
                     <Table.Td>{h.detalle ?? ''}</Table.Td>
@@ -348,7 +377,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
                 ))}
               </Table.Tbody>
             </Table>
-          </ScrollArea>
+          </TablaAdaptable>
         </Card>
       )}
 
@@ -362,7 +391,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
               Aún no se ha enviado ninguna notificación.
             </Text>
           ) : (
-            <ScrollArea type="auto">
+            <TablaAdaptable>
               <Table miw={720} data-testid="notificaciones-visita">
                 <Table.Thead>
                   <Table.Tr>
@@ -377,7 +406,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
                 <Table.Tbody>
                   {v.notificaciones.map((n, i) => (
                     <Table.Tr key={i}>
-                      <Table.Td style={{ whiteSpace: 'nowrap' }}>{formatoFecha(n.creado)}</Table.Td>
+                      <Table.Td style={{ whiteSpace: 'nowrap' }}>{fechaHora(n.creado)}</Table.Td>
                       <Table.Td>{n.origen}</Table.Td>
                       <Table.Td>
                         <Badge color={n.error ? 'red' : 'green'} variant="light" title={n.error ?? undefined}>
@@ -396,7 +425,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
                   ))}
                 </Table.Tbody>
               </Table>
-            </ScrollArea>
+            </TablaAdaptable>
           )}
         </Card>
       )}
@@ -420,7 +449,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
             hora={horaCorta(v.hora)}
             pendiente={accion.isPending}
             alCerrar={() => setDialogo(null)}
-            alEnviar={(cuerpo) => accion.mutate({ ruta: `/api/agenda/${v.id}/reprogramar`, cuerpo })}
+            alEnviar={(cuerpo, alFallar) => accion.mutate({ ruta: `/api/agenda/${v.id}/reprogramar`, cuerpo }, { onError: alFallar })}
           />
         )}
       </Modal>
@@ -431,8 +460,9 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
             boton="Cancelar visita"
             pendiente={accion.isPending}
             alCerrar={() => setDialogo(null)}
-            alEnviar={(motivo) =>
-              window.confirm(`¿Cancelar la visita ${v.numero}?`) && accion.mutate({ ruta: `/api/agenda/${v.id}/cancelar`, cuerpo: { motivo } })
+            alEnviar={(motivo, alFallar) =>
+              window.confirm(`¿Cancelar la visita ${v.numero}?`) &&
+              accion.mutate({ ruta: `/api/agenda/${v.id}/cancelar`, cuerpo: { motivo } }, { onError: alFallar })
             }
           />
         )}
@@ -444,7 +474,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
             motivos={opciones.data.motivosReapertura}
             pendiente={accion.isPending}
             alCerrar={() => setDialogo(null)}
-            alEnviar={(cuerpo) => accion.mutate({ ruta: `/api/visitas/${v.id}/reabrir`, cuerpo })}
+            alEnviar={(cuerpo, alFallar) => accion.mutate({ ruta: `/api/visitas/${v.id}/reabrir`, cuerpo }, { onError: alFallar })}
           />
         )}
       </Modal>
@@ -456,7 +486,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
             otrosIniciales={equipo.filter((m) => !m.lider).map((m) => m.id)}
             pendiente={accion.isPending}
             alCerrar={() => setDialogo(null)}
-            alEnviar={(cuerpo) => accion.mutate({ ruta: `/api/agenda/${v.id}/reasignar`, cuerpo })}
+            alEnviar={(cuerpo, alFallar) => accion.mutate({ ruta: `/api/agenda/${v.id}/reasignar`, cuerpo }, { onError: alFallar })}
           />
         )}
       </Modal>
@@ -466,17 +496,12 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
             id={v.id}
             pendiente={accion.isPending}
             alCerrar={() => setDialogo(null)}
-            alEnviar={(cuerpo) => accion.mutate({ ruta: `/api/agenda/${v.id}/notificar`, cuerpo })}
+            alEnviar={(cuerpo, alFallar) => accion.mutate({ ruta: `/api/agenda/${v.id}/notificar`, cuerpo }, { onError: alFallar })}
           />
         )}
       </Modal>
     </Stack>
   );
-}
-
-/** Fecha del servidor (ISO con zona o "YYYY-MM-DD HH:MM") en formato corto. */
-function formatoFecha(f: string): string {
-  return f.replace('T', ' ').substring(0, 16);
 }
 
 function Dato({ titulo, children }: { titulo: string; children: ReactNode }) {
@@ -514,28 +539,63 @@ function Reprogramar({
   hora: string;
   pendiente: boolean;
   alCerrar: () => void;
-  alEnviar: (c: { fecha: string; hora: string | null; motivo: string; notificar: boolean }) => void;
+  alEnviar: (c: { fecha: string; hora: string | null; motivo: string; notificar: boolean }, alFallar: AlFallar) => void;
 }) {
   const [fecha, setFecha] = useState(f0);
   const [hora, setHora] = useState(h0);
   const [motivo, setMotivo] = useState('');
   const [notificar, setNotificar] = useState(true);
+  const val = useValidacion({ etiquetas: { fecha: 'Fecha', hora: 'Hora', motivo: 'Motivo' }, testid: 'error-reprogramar' });
   const enviar = (e: FormEvent) => {
     e.preventDefault();
-    if (hora && !horaValida(hora)) {
-      notifications.show({ color: 'orange', autoClose: 10000, message: MENSAJE_HORA });
-      return;
-    }
-    alEnviar({ fecha, hora: hora || null, motivo, notificar });
+    // El mensaje de la hora lo pinta CampoHora24 junto al campo (una sola vez); el resumen nombra el campo
+    const ok = val.validar({
+      fecha: fecha ? null : 'Escriba la fecha completa (día, mes y año).',
+      hora: hora && !horaValida(hora) ? MENSAJE_HORA : null,
+      motivo: motivo.trim() ? null : 'Escriba el motivo de la reprogramación.',
+    });
+    if (!ok) return;
+    alEnviar({ fecha, hora: hora || null, motivo, notificar }, (x) => val.errorServidor(x, 'No se pudo reprogramar la visita.'));
   };
   return (
-    <form onSubmit={enviar}>
+    <form ref={val.ref} onSubmit={enviar} noValidate>
       <Stack>
+        {val.resumen}
         <SimpleGrid cols={{ base: 1, xs: 2 }}>
-          <TextInput label="Fecha" type="date" required value={fecha} onChange={(e) => setFecha(e.currentTarget.value)} />
-          <CampoHora24 label="Hora" value={hora} onChange={setHora} />
+          <TextInput
+            label="Fecha"
+            type="date"
+            required
+            value={fecha}
+            error={val.error('fecha')}
+            onChange={(e) => {
+              setFecha(e.currentTarget.value);
+              val.limpiar('fecha');
+            }}
+          />
+          <CampoHora24
+            label="Hora"
+            value={hora}
+            error={val.error('hora')}
+            onChange={(h) => {
+              setHora(h);
+              val.limpiar('hora');
+            }}
+          />
         </SimpleGrid>
-        <Textarea label="Motivo" required autosize minRows={2} maxLength={800} value={motivo} onChange={(e) => setMotivo(e.currentTarget.value)} />
+        <Textarea
+          label="Motivo"
+          required
+          autosize
+          minRows={2}
+          maxLength={800}
+          value={motivo}
+          error={val.error('motivo')}
+          onChange={(e) => {
+            setMotivo(e.currentTarget.value);
+            val.limpiar('motivo');
+          }}
+        />
         <Checkbox label="Notificar la nueva fecha" checked={notificar} onChange={(e) => setNotificar(e.currentTarget.checked)} />
         <Botones boton="Reprogramar" pendiente={pendiente} alCerrar={alCerrar} />
       </Stack>
@@ -554,19 +614,36 @@ function SoloMotivo({
   boton: string;
   pendiente: boolean;
   alCerrar: () => void;
-  alEnviar: (motivo: string) => void;
+  alEnviar: (motivo: string, alFallar: AlFallar) => void;
 }) {
   const [motivo, setMotivo] = useState('');
+  const val = useValidacion({ etiquetas: { motivo: 'Motivo' }, testid: 'error-motivo' });
   return (
     <form
+      ref={val.ref}
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        alEnviar(motivo);
+        if (!val.validar({ motivo: motivo.trim() ? null : 'Escriba el motivo.' })) return;
+        alEnviar(motivo, (x) => val.errorServidor(x, 'No se pudo completar la acción.'));
       }}
     >
       <Stack>
+        {val.resumen}
         <Text size="sm">{texto}</Text>
-        <Textarea label="Motivo" required autosize minRows={2} maxLength={800} value={motivo} onChange={(e) => setMotivo(e.currentTarget.value)} />
+        <Textarea
+          label="Motivo"
+          required
+          autosize
+          minRows={2}
+          maxLength={800}
+          value={motivo}
+          error={val.error('motivo')}
+          onChange={(e) => {
+            setMotivo(e.currentTarget.value);
+            val.limpiar('motivo');
+          }}
+        />
         <Botones boton={boton} pendiente={pendiente} alCerrar={alCerrar} color="red" />
       </Stack>
     </form>
@@ -584,19 +661,27 @@ function Reabrir({
   motivos: Record<string, string>;
   pendiente: boolean;
   alCerrar: () => void;
-  alEnviar: (c: { motivo: string; descripcion: string }) => void;
+  alEnviar: (c: { motivo: string; descripcion: string }, alFallar: AlFallar) => void;
 }) {
   const [motivo, setMotivo] = useState<string | null>(null);
   const [descripcion, setDescripcion] = useState('');
-  const corta = descripcion.trim().length < 10;
+  const val = useValidacion({ etiquetas: { motivo: 'Motivo', descripcion: 'Descripción' }, testid: 'error-reabrir' });
   return (
     <form
+      ref={val.ref}
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        if (motivo && !corta) alEnviar({ motivo, descripcion: descripcion.trim() });
+        const ok = val.validar({
+          motivo: motivo ? null : 'Elija el motivo de la reapertura.',
+          descripcion: errorTexto10a800(descripcion, 'la descripción'),
+        });
+        if (!ok || !motivo) return;
+        alEnviar({ motivo, descripcion: descripcion.trim() }, (x) => val.errorServidor(x, 'No se pudo reabrir la visita.'));
       }}
     >
       <Stack>
+        {val.resumen}
         <Text size="sm">La visita {numero} vuelve a ejecución en una nueva ronda; al enviar el acta otra vez se genera una nueva versión.</Text>
         <Select
           label="Motivo"
@@ -604,7 +689,11 @@ function Reabrir({
           allowDeselect={false}
           data={Object.entries(motivos).map(([value, label]) => ({ value, label }))}
           value={motivo}
-          onChange={setMotivo}
+          error={val.error('motivo')}
+          onChange={(x) => {
+            setMotivo(x);
+            val.limpiar('motivo');
+          }}
         />
         <Textarea
           label="Descripción"
@@ -615,13 +704,17 @@ function Reabrir({
           maxLength={800}
           description="Entre 10 y 800 caracteres."
           value={descripcion}
-          onChange={(e) => setDescripcion(e.currentTarget.value)}
+          error={val.error('descripcion')}
+          onChange={(e) => {
+            setDescripcion(e.currentTarget.value);
+            val.limpiar('descripcion');
+          }}
         />
         <Group justify="flex-end">
           <Button variant="default" onClick={alCerrar}>
             Volver
           </Button>
-          <Button type="submit" loading={pendiente} disabled={!motivo || corta}>
+          <Button type="submit" loading={pendiente}>
             Reabrir visita
           </Button>
         </Group>
@@ -643,29 +736,42 @@ function Reasignar({
   otrosIniciales: number[];
   pendiente: boolean;
   alCerrar: () => void;
-  alEnviar: (c: { liderId: number; otros: number[]; motivo: string }) => void;
+  alEnviar: (c: { liderId: number; otros: number[]; motivo: string }, alFallar: AlFallar) => void;
 }) {
   const [lider, setLider] = useState<string | null>(liderInicial ? String(liderInicial) : null);
   const [otros, setOtros] = useState<string[]>(otrosIniciales.map(String));
   const [motivo, setMotivo] = useState('');
+  const val = useValidacion({ etiquetas: { liderId: 'Auditor líder', motivo: 'Motivo' }, testid: 'error-reasignar' });
   const datos = opciones.auditores.map((a) => ({ value: String(a.id), label: `${a.nombre} · ${opciones.roles[a.rol] ?? a.rol}` }));
   return (
     <form
+      ref={val.ref}
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        if (lider) alEnviar({ liderId: Number(lider), otros: otros.filter((o) => o !== lider).map(Number), motivo });
+        const ok = val.validar({
+          liderId: lider ? null : 'Elija el auditor líder.',
+          motivo: motivo.trim() ? null : 'Escriba el motivo de la reasignación.',
+        });
+        if (!ok || !lider) return;
+        alEnviar({ liderId: Number(lider), otros: otros.filter((o) => o !== lider).map(Number), motivo }, (x) =>
+          val.errorServidor(x, 'No se pudo reasignar el equipo.'),
+        );
       }}
     >
       <Stack>
+        {val.resumen}
         <Select
           label="Auditor líder"
           required
           searchable
           data={datos}
           value={lider}
+          error={val.error('liderId')}
           onChange={(x) => {
             setLider(x);
             setOtros(otros.filter((o) => o !== x));
+            val.limpiar('liderId');
           }}
         />
         <MultiSelect
@@ -676,7 +782,19 @@ function Reasignar({
           value={otros}
           onChange={setOtros}
         />
-        <Textarea label="Motivo" required autosize minRows={2} maxLength={800} value={motivo} onChange={(e) => setMotivo(e.currentTarget.value)} />
+        <Textarea
+          label="Motivo"
+          required
+          autosize
+          minRows={2}
+          maxLength={800}
+          value={motivo}
+          error={val.error('motivo')}
+          onChange={(e) => {
+            setMotivo(e.currentTarget.value);
+            val.limpiar('motivo');
+          }}
+        />
         <Text size="xs" c="dimmed">
           La notificación del cambio de equipo se reenvía al OPL y a las DISANES (obligatorio).
         </Text>
@@ -695,7 +813,7 @@ function Notificar({
   id: number;
   pendiente: boolean;
   alCerrar: () => void;
-  alEnviar: (c: { destinatarios: string[]; asunto: string; cuerpo: string }) => void;
+  alEnviar: (c: { destinatarios: string[]; asunto: string; cuerpo: string }, alFallar: AlFallar) => void;
 }) {
   const borrador = useQuery({
     queryKey: ['visita', 'notificacion', id],
@@ -724,20 +842,31 @@ function FormNotificar({
   borrador: Borrador;
   pendiente: boolean;
   alCerrar: () => void;
-  alEnviar: (c: { destinatarios: string[]; asunto: string; cuerpo: string }) => void;
+  alEnviar: (c: { destinatarios: string[]; asunto: string; cuerpo: string }, alFallar: AlFallar) => void;
 }) {
   const [elegidos, setElegidos] = useState<string[]>(borrador.destinatarios.map((d) => d.correo));
   const [asunto, setAsunto] = useState(borrador.asunto);
   const [cuerpo, setCuerpo] = useState(borrador.cuerpo);
+  const val = useValidacion({ etiquetas: { asunto: 'Asunto', cuerpo: 'Cuerpo' }, testid: 'error-notificar' });
   const obligatorios = borrador.destinatarios.filter((d) => d.obligatorio).map((d) => d.correo);
   return (
     <form
+      ref={val.ref}
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        alEnviar({ destinatarios: Array.from(new Set([...obligatorios, ...elegidos])), asunto, cuerpo });
+        const ok = val.validar({
+          asunto: asunto.trim() ? null : 'Escriba el asunto.',
+          cuerpo: cuerpo.trim() ? null : 'Escriba el cuerpo del mensaje.',
+        });
+        if (!ok) return;
+        alEnviar({ destinatarios: Array.from(new Set([...obligatorios, ...elegidos])), asunto, cuerpo }, (x) =>
+          val.errorServidor(x, 'No se pudo enviar la notificación.'),
+        );
       }}
     >
       <Stack>
+        {val.resumen}
         {borrador.faltan.length > 0 && (
           <Alert color="red" title="Faltan destinatarios">
             <List size="sm">
@@ -760,8 +889,29 @@ function FormNotificar({
             ))}
           </Stack>
         </Checkbox.Group>
-        <TextInput label="Asunto" required value={asunto} onChange={(e) => setAsunto(e.currentTarget.value)} />
-        <Textarea label="Cuerpo" required autosize minRows={6} maxLength={6000} value={cuerpo} onChange={(e) => setCuerpo(e.currentTarget.value)} />
+        <TextInput
+          label="Asunto"
+          required
+          value={asunto}
+          error={val.error('asunto')}
+          onChange={(e) => {
+            setAsunto(e.currentTarget.value);
+            val.limpiar('asunto');
+          }}
+        />
+        <Textarea
+          label="Cuerpo"
+          required
+          autosize
+          minRows={6}
+          maxLength={6000}
+          value={cuerpo}
+          error={val.error('cuerpo')}
+          onChange={(e) => {
+            setCuerpo(e.currentTarget.value);
+            val.limpiar('cuerpo');
+          }}
+        />
         <Botones boton="Enviar" pendiente={pendiente} alCerrar={alCerrar} />
       </Stack>
     </form>
@@ -790,7 +940,7 @@ function RespuestaDelOpl({ id }: { id: number }) {
       qc.invalidateQueries({ queryKey: clave });
       qc.invalidateQueries({ queryKey: ['visita'] });
     },
-    onError: (e) => notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo registrar la decisión.' }),
+    // El error lo muestra el diálogo de la decisión, persistente
   });
 
   // Sin permiso o sin acta con hallazgos: la sección no aplica
@@ -806,7 +956,7 @@ function RespuestaDelOpl({ id }: { id: number }) {
         </Badge>
       </Group>
       <Text size="sm" c="dimmed">
-        Acta enviada el {d.enviado}. Aceptar u objetar hasta el {d.venceObjecionesLargo}; plan firmado hasta el {d.vencePlanLargo}.
+        Acta enviada el {fechaHora(d.enviado)}. Aceptar u objetar hasta el {d.venceObjecionesLargo}; plan firmado hasta el {d.vencePlanLargo}.
       </Text>
       <Stack gap="xs" mt="sm">
         {d.hallazgos.map((h) => (
@@ -875,7 +1025,9 @@ function RespuestaDelOpl({ id }: { id: number }) {
             boton={decidir.resolucion === 'ratifica' ? 'Ratificar' : 'Levantar'}
             pendiente={resolver.isPending}
             alCerrar={() => setDecidir(null)}
-            alEnviar={(motivo) => resolver.mutate({ clave: decidir.h.clave, resolucion: decidir.resolucion, motivo })}
+            alEnviar={(motivo, alFallar) =>
+              resolver.mutate({ clave: decidir.h.clave, resolucion: decidir.resolucion, motivo }, { onError: alFallar })
+            }
           />
         )}
       </Modal>
@@ -894,18 +1046,22 @@ function Decidir({
   boton: string;
   pendiente: boolean;
   alCerrar: () => void;
-  alEnviar: (motivo: string) => void;
+  alEnviar: (motivo: string, alFallar: AlFallar) => void;
 }) {
   const [motivo, setMotivo] = useState('');
-  const corto = motivo.trim().length < 10;
+  const val = useValidacion({ etiquetas: { motivo: 'Motivo' }, testid: 'error-decision' });
   return (
     <form
+      ref={val.ref}
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        if (!corto) alEnviar(motivo.trim());
+        if (!val.validar({ motivo: errorTexto10a800(motivo, 'el motivo') })) return;
+        alEnviar(motivo.trim(), (x) => val.errorServidor(x, 'No se pudo registrar la decisión.'));
       }}
     >
       <Stack>
+        {val.resumen}
         <Text size="sm">{texto} La decisión es una sola vez.</Text>
         <Textarea
           label="Motivo"
@@ -916,13 +1072,17 @@ function Decidir({
           maxLength={800}
           description="Entre 10 y 800 caracteres."
           value={motivo}
-          onChange={(e) => setMotivo(e.currentTarget.value)}
+          error={val.error('motivo')}
+          onChange={(e) => {
+            setMotivo(e.currentTarget.value);
+            val.limpiar('motivo');
+          }}
         />
         <Group justify="flex-end">
           <Button variant="default" onClick={alCerrar}>
             Volver
           </Button>
-          <Button type="submit" loading={pendiente} disabled={corto}>
+          <Button type="submit" loading={pendiente}>
             {boton}
           </Button>
         </Group>

@@ -172,28 +172,59 @@ export function editaQuienComo(d: DetalleOpl, h: HallazgoOpl): boolean {
   return d.fase !== 'vencido';
 }
 
-/** Error de la respuesta (nombre, cargo y justificación) antes de enviarla; null si está bien. Mismos límites que el servidor. */
+/** Primer error de la respuesta (nombre, cargo, decisión y justificación, en ese orden) antes de enviarla; null si está bien. */
 export function errorRespuesta(decision: 'acepta' | 'objeta' | null, justificacion: string, nombre: string, cargo: string): string | null {
-  const n = nombre.trim();
-  const c = cargo.trim();
-  if (n.length < 3 || n.length > 150 || c.length < 2 || c.length > 150) {
-    return 'Escriba el nombre (3 a 150 caracteres) y el cargo (2 a 150) de quien responde.';
-  }
-  if (!decision) return 'Elija si acepta u objeta el hallazgo.';
-  const j = justificacion.trim();
-  if (decision === 'objeta' && (j.length < 10 || j.length > 4000)) return 'La objeción necesita la justificación (de 10 a 4000 caracteres).';
-  return null;
+  return Object.values(erroresRespuesta(decision, justificacion, nombre, cargo))[0] ?? null;
 }
 
-/** Error de la firma del plan antes de enviarla; null si está bien. */
-export function errorFirmaPlan(nombre: string, cargo: string, documento: string, imagen: string | null): string | null {
+/**
+ * Errores de la respuesta por campo, con los mismos límites del servidor (Anexo 5 num. 2.4: el mensaje va junto a su campo). Claves:
+ * nombre, cargo, decision y justificacion; sin errores, objeto vacío.
+ */
+export function erroresRespuesta(
+  decision: 'acepta' | 'objeta' | null,
+  justificacion: string,
+  nombre: string,
+  cargo: string,
+): Record<string, string> {
+  const r: Record<string, string> = {};
   const n = nombre.trim();
   const c = cargo.trim();
-  if (n.length < 3 || n.length > 150 || c.length < 2 || c.length > 150)
-    return 'Escriba el nombre (3 a 150 caracteres) y el cargo (2 a 150) de quien firma.';
-  if (!/^[0-9A-Za-z.-]{4,30}$/.test(documento.trim())) return 'Escriba el número de documento de quien firma.';
-  if (!imagen) return 'Dibuje la firma.';
-  return null;
+  if (n.length < 3 || n.length > 150) r.nombre = 'Escriba el nombre de quien responde (3 a 150 caracteres).';
+  if (c.length < 2 || c.length > 150) r.cargo = 'Escriba el cargo de quien responde (2 a 150 caracteres).';
+  if (!decision) r.decision = 'Elija si acepta u objeta el hallazgo.';
+  const j = justificacion.trim();
+  if (decision === 'objeta' && (j.length < 10 || j.length > 4000)) r.justificacion = 'La objeción necesita la justificación (de 10 a 4000 caracteres).';
+  return r;
+}
+
+/** Errores de la firma del plan por campo, con los mismos límites del servidor: nombre, cargo, documento e imagen. */
+export function erroresFirmaPlan(nombre: string, cargo: string, documento: string, imagen: string | null): Record<string, string> {
+  const r: Record<string, string> = {};
+  const n = nombre.trim();
+  const c = cargo.trim();
+  if (n.length < 3 || n.length > 150) r.nombre = 'Escriba el nombre de quien firma (3 a 150 caracteres).';
+  if (c.length < 2 || c.length > 150) r.cargo = 'Escriba el cargo de quien firma (2 a 150 caracteres).';
+  if (!/^[0-9A-Za-z.-]{4,30}$/.test(documento.trim())) r.documento = 'Escriba el número de documento de quien firma.';
+  if (!imagen) r.imagen = 'Dibuje la firma.';
+  return r;
+}
+
+/** Quién y cómo vacíos de los hallazgos editables que van al plan, por campo («quien-CODIGO», «como-CODIGO»). */
+export function erroresQuienComo(d: DetalleOpl, ediciones: Record<string, QuienComo>): Record<string, string> {
+  const r: Record<string, string> = {};
+  for (const h of d.hallazgos) {
+    if (!editaQuienComo(d, h)) continue;
+    const v = valorQuienComo(h, ediciones);
+    if (!v.quien.trim()) r['quien-' + h.codigo] = 'Falta quién.';
+    if (!v.como.trim()) r['como-' + h.codigo] = 'Falta cómo.';
+  }
+  return r;
+}
+
+/** Primer error de la firma del plan (nombre, cargo, documento e imagen, en ese orden) antes de enviarla; null si está bien. */
+export function errorFirmaPlan(nombre: string, cargo: string, documento: string, imagen: string | null): string | null {
+  return Object.values(erroresFirmaPlan(nombre, cargo, documento, imagen))[0] ?? null;
 }
 
 export interface QuienComo {

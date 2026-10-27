@@ -36,12 +36,19 @@ public class ManejadorErrores {
         return ResponseEntity.status(e.estado()).body(m);
     }
 
+    /**
+     * 422 con el primer error de campo. Además del mensaje lleva {@code campo} (nombre del campo en el cuerpo de la petición), opcional,
+     * para que la interfaz marque el campo (Anexo 5 num. 2.4; decisión UI-6). Un error que no es de campo no lo lleva.
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<Map<String, Object>> validacion(MethodArgumentNotValidException e) {
-        String mensaje = e.getBindingResult().getFieldErrors().stream().findFirst()
+        var primero = e.getBindingResult().getFieldErrors().stream().findFirst();
+        String mensaje = primero
                 .map(f -> f.getDefaultMessage() == null ? "Hay un dato no válido: " + f.getField() + "." : f.getDefaultMessage())
                 .orElse("Hay datos no válidos.");
-        return ResponseEntity.unprocessableEntity().body(cuerpo(mensaje));
+        Map<String, Object> m = cuerpo(mensaje);
+        primero.ifPresent(f -> m.put("campo", f.getField()));
+        return ResponseEntity.unprocessableEntity().body(m);
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MissingServletRequestParameterException.class,

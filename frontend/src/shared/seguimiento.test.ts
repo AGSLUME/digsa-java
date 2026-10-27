@@ -9,10 +9,10 @@ describe('prórrogas del plan', () => {
   });
 
   it('muestra la fecha y hora en hora militar de Bogotá', () => {
-    expect(fechaHora('2026-10-21T19:05:00.000+00:00')).toBe('2026-10-21 14:05');
-    expect(fechaHora('2026-10-21T14:05:00.000-05:00')).toBe('2026-10-21 14:05');
-    expect(fechaHora(Date.UTC(2026, 9, 21, 23, 30))).toBe('2026-10-21 18:30');
-    expect(fechaHora('2026-10-21T08:30:00')).toBe('2026-10-21 08:30');
+    expect(fechaHora('2026-10-21T19:05:00.000+00:00')).toBe('21/10/2026 14:05');
+    expect(fechaHora('2026-10-21T14:05:00.000-05:00')).toBe('21/10/2026 14:05');
+    expect(fechaHora(Date.UTC(2026, 9, 22, 3, 30))).toBe('21/10/2026 22:30');
+    expect(fechaHora('2026-10-21T08:30:00')).toBe('21/10/2026 08:30');
     expect(fechaHora(null)).toBe('—');
   });
 });

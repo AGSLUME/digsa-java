@@ -146,27 +146,5 @@ export function errorMotivo(motivo: string): string | null {
   return n < MOTIVO_MIN || n > MOTIVO_MAX ? `Escriba el motivo del rechazo (de ${MOTIVO_MIN} a ${MOTIVO_MAX} caracteres).` : null;
 }
 
-/**
- * Fecha y hora en hora militar de Bogotá («2026-10-21 14:05»). El servidor manda el instante como texto ISO con zona o como número
- * (milisegundos); null o vacío da «—».
- */
-export function fechaHora(v: string | number | null | undefined): string {
-  if (v === null || v === undefined || v === '') return '—';
-  const d = typeof v === 'number' ? new Date(v) : /[zZ]|[+-]\d{2}:?\d{2}$/.test(v) ? new Date(v) : null;
-  if (d === null) {
-    // Sin zona: ya viene en la hora de Bogotá
-    return v.toString().replace('T', ' ').substring(0, 16);
-  }
-  if (Number.isNaN(d.getTime())) return '—';
-  const partes = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Bogota',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(d);
-  const p = (t: string) => partes.find((x) => x.type === t)?.value ?? '';
-  return `${p('year')}-${p('month')}-${p('day')} ${p('hour')}:${p('minute')}`;
-}
+/** Fecha y hora en hora militar de Bogotá («21/10/2026 14:05»): el formato único de shared/formato.ts (Anexo 5 num. 2.4). */
+export { fechaHora } from './formato';

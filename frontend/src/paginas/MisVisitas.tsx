@@ -1,8 +1,10 @@
-import { Alert, Badge, Button, Card, Center, Group, Loader, SimpleGrid, Stack, Text, Title, UnstyledButton } from '@mantine/core';
+import { Alert, Badge, Button, Card, Center, Group, Loader, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { colorEstado, horaCorta } from '../shared/agenda';
 import { api } from '../shared/api';
+import { fecha } from '../shared/formato';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 interface MiVisita {
   id: number;
@@ -26,7 +28,7 @@ export function MisVisitas() {
 
   return (
     <Stack>
-      <Title order={3}>Mis visitas</Title>
+      <EncabezadoPagina titulo="Mis visitas" fuente="Anexo 5 · 4.5" />
       {lista.error && <Alert color="red">{lista.error.message}</Alert>}
       {lista.isLoading && (
         <Center py="xl">
@@ -46,7 +48,7 @@ export function MisVisitas() {
                 </Group>
               </Group>
               <Text size="sm" mt={4}>
-                {v.fecha} {horaCorta(v.hora)} · {v.tipo}
+                {fecha(v.fecha)} {horaCorta(v.hora)} · {v.tipo}
               </Text>
               <Text size="sm">
                 {v.punto} ({v.unidad})

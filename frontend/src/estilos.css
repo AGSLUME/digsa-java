@@ -1,0 +1,132 @@
+/* Estilos globales sobre los de Mantine: los tokens vienen de shared/tema.ts (variables --digsa-*). */
+
+body {
+  background: var(--digsa-fondo);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Campos: borde con contraste 3:1 y estado de error del mockup (borde y fondo); el foco y el error conservan los colores de Mantine */
+/* (MultiSelect y TagsInput se enfocan por dentro: :focus-within) */
+.mantine-Input-input:not([data-error]):not(:focus):not(:focus-within):not(:disabled):not([data-disabled]):not([readonly]):not(
+    [data-variant='unstyled']
+  ) {
+  border-color: var(--digsa-borde-campo);
+}
+
+.mantine-Input-input[data-error] {
+  background-color: var(--digsa-error-campo-fondo);
+}
+
+/* Validación nativa (obligatorio, correo, rango) que el usuario ya intentó enviar: el mismo aviso visual que un error de Mantine.
+   :user-invalid no marca los campos vacíos antes de que el usuario interactúe. Solo en formularios que usan la validación del
+   navegador: los que validan con useValidacion (noValidate) muestran su propio mensaje junto al campo. */
+form:not([novalidate]) .mantine-Input-input:user-invalid {
+  border-color: var(--mantine-color-error);
+  background-color: var(--digsa-error-campo-fondo);
+}
+
+/* Foco visible también en un campo con error (Mantine deja el borde rojo igual con o sin foco): es el campo al que se lleva el foco
+   después de una validación (Anexo 5 num. 2.4) */
+.mantine-Input-input:focus,
+.mantine-Input-input:focus-within {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 1px;
+}
+
+/* Casillas, radios e interruptores sin marcar: el mismo borde 3:1 que los campos */
+.mantine-Checkbox-input:not(:checked):not(:disabled),
+.mantine-Radio-radio:not(:checked):not(:disabled),
+.mantine-Switch-track:not([data-checked]) {
+  border-color: var(--digsa-borde-campo);
+}
+
+/* En celular, 16 px en los campos: Safari de iOS amplía la página al enfocar un campo con letra más pequeña */
+@media (max-width: 48em) {
+  .mantine-Input-input,
+  .mantine-PinInput-input {
+    font-size: 16px;
+  }
+}
+
+/* Etiqueta de la fuente normativa junto al título de la página («Anexo 5 · 4.5»), como .src del mockup */
+.digsa-fuente {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  color: var(--digsa-apagado);
+  background: var(--digsa-suave);
+  border: 1px solid var(--digsa-linea);
+  border-radius: 6px;
+  padding: 4px 8px;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 48em) {
+  .digsa-fuente {
+    white-space: nowrap;
+  }
+}
+
+/* TablaAdaptable (Anexo 5 num. 1.18; UI-10): en celular y tableta vertical cada fila es una tarjeta con el nombre de la columna sobre
+   su valor. El encabezado queda solo para lectores de pantalla y los roles de tabla van explícitos (shared/TablaAdaptable.tsx). */
+@media (max-width: 47.99em) {
+  .tabla-adaptable table {
+    min-width: 0 !important;
+    width: 100%;
+    border: 0;
+  }
+  .tabla-adaptable thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .tabla-adaptable tbody,
+  .tabla-adaptable tfoot,
+  .tabla-adaptable tr,
+  .tabla-adaptable td,
+  .tabla-adaptable tbody th {
+    display: block;
+  }
+  .tabla-adaptable tbody tr,
+  .tabla-adaptable tfoot tr {
+    background: var(--digsa-superficie) !important;
+    border: 1px solid var(--digsa-linea);
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+  }
+  .tabla-adaptable td,
+  .tabla-adaptable tbody th {
+    border: 0 !important;
+    padding: 4px 0 !important;
+    text-align: left !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+  .tabla-adaptable td[data-etiqueta]:not([data-etiqueta=''])::before,
+  .tabla-adaptable tbody th[data-etiqueta]:not([data-etiqueta=''])::before {
+    content: attr(data-etiqueta);
+    /* Texto alternativo vacío: la etiqueta es visual; el lector de pantalla ya anuncia el encabezado de la columna */
+    content: attr(data-etiqueta) / '';
+    display: block;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--digsa-apagado);
+  }
+}
+
+/* Modales en celular a pantalla completa (U3): los formularios de los modales usan todo el ancho y el teclado no tapa los botones */
+@media (max-width: 47.99em) {
+  .mantine-Modal-inner {
+    padding: 0 !important;
+  }
+  .mantine-Modal-content {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    min-height: 100dvh;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+}

@@ -51,7 +51,7 @@ test('logs: se ven en pantalla con usuario, fecha, operación y detalle; se desc
   await page.getByRole('button', { name: 'Buscar' }).click();
   const tabla = page.getByTestId('tabla-logs');
   await expect(tabla.getByRole('cell', { name: 'login', exact: true }).first()).toBeVisible();
-  await expect(tabla.getByRole('cell', { name: /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/ }).first()).toBeVisible();
+  await expect(tabla.getByRole('cell', { name: /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/ }).first()).toBeVisible();
   const [descarga] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Descargar Excel' }).click()]);
   expect(descarga.suggestedFilename()).toMatch(/^logs_auditoria_\d{8}_\d{4}\.xlsx$/);
   await page.getByRole('button', { name: 'Enviar por correo' }).click();

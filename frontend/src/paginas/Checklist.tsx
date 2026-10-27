@@ -27,10 +27,10 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { colorEstado, horaCorta } from '../shared/agenda';
-import { api, ErrorApi, subirArchivos } from '../shared/api';
+import { api, subirArchivos } from '../shared/api';
 import { CampoHora24 } from '../shared/CampoHora24';
 import {
   conCalificacion,
@@ -40,9 +40,10 @@ import {
   ENTIDADES,
   ESTADOS_ABIERTOS,
   ETIQUETA_CALIFICACION,
+  erroresFechasPlan,
   faltantesPlan,
+  faltantesPlanPorCampo,
   inmediataEfectiva,
-  justificacionValida,
   MIN_JUSTIFICACION,
   pideProrroga,
   planCambiado,
@@ -68,9 +69,14 @@ import {
   type PersonaAuditada,
   type RolFirma,
 } from '../shared/checklist';
-import { separarFechaHora, unirFechaHora } from '../shared/hora';
+import { fecha as fechaCorta, fechaHora } from '../shared/formato';
+import { separarFechaHora, unirFechaHoraPorCampo } from '../shared/hora';
 import { PanelFirma } from '../shared/PanelFirma';
 import { puedeEntrar, useSesion } from '../shared/sesion';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { useValidacion } from '../shared/validacion';
+import { errorCorreo } from '../shared/validaciones';
+import { VisorDocumento } from '../shared/VisorDocumento';
 
 interface Mensaje {
   mensaje: string;
@@ -111,12 +117,26 @@ function camposIniciales(e: Ejecucion): CamposEjecucion {
   };
 }
 
-/** Cuerpo del PUT de la ejecución, o el error si el inicio o el fin real quedaron a medias o con una hora inválida. */
+/** Nombre visible de los campos de la ejecución (resumen de errores). */
+const ETIQUETAS_EJECUCION = {
+  inicioFecha: 'Fecha de inicio real',
+  inicioHora: 'Hora de inicio real',
+  finFecha: 'Fecha de fin real',
+  finHora: 'Hora de fin real',
+  objeto: 'Objeto de la visita',
+};
+
+/**
+ * Cuerpo del PUT de la ejecución, o los errores por campo si el inicio o el fin real quedaron a medias, con una hora inválida o con el
+ * fin antes del inicio (la misma regla del servidor).
+ */
 function cuerpoEjecucion(f: CamposEjecucion) {
-  const inicio = unirFechaHora(f.inicioFecha, f.inicioHora, 'Inicio real');
-  const fin = unirFechaHora(f.finFecha, f.finHora, 'Fin real');
-  const error = inicio.error ?? fin.error;
-  if (error) return { error };
+  const inicio = unirFechaHoraPorCampo(f.inicioFecha, f.inicioHora, { fecha: 'inicioFecha', hora: 'inicioHora' });
+  const fin = unirFechaHoraPorCampo(f.finFecha, f.finHora, { fecha: 'finFecha', hora: 'finHora' });
+  const errores: Record<string, string> = { ...inicio.errores, ...fin.errores };
+  // «yyyy-MM-ddTHH:mm» se compara como texto
+  if (inicio.valor && fin.valor && fin.valor < inicio.valor) errores.finFecha = 'La fecha y hora de fin no puede ser anterior a la de inicio.';
+  if (Object.keys(errores).length > 0) return { errores };
   return {
     inicioReal: inicio.valor || null,
     finReal: fin.valor || null,
@@ -128,11 +148,10 @@ function cuerpoEjecucion(f: CamposEjecucion) {
   };
 }
 
-function avisarError(e: unknown, texto = 'No se pudo completar la acción.') {
-  notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : texto });
-}
-
-/** Mutación con aviso del mensaje del servidor; refresca el formulario y la agenda. */
+/**
+ * Mutación con aviso del mensaje del servidor; refresca el formulario y la agenda. El error lo muestra quien llama (resumen persistente
+ * de su sección, Anexo 5 num. 2.4).
+ */
 function usePeticion(id: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -142,7 +161,6 @@ function usePeticion(id: string) {
       qc.invalidateQueries({ queryKey: ['formulario', id] });
       qc.invalidateQueries({ queryKey: ['agenda'] });
     },
-    onError: (e) => avisarError(e),
   });
 }
 
@@ -185,15 +203,34 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
   // 5W2H: solo lo editado (por clave del hallazgo); null en la fecha es «sin cambio»
   const [fechaPlan, setFechaPlan] = useState<string | null>(null);
   const [edicionesPlan, setEdicionesPlan] = useState<Record<string, EdicionPlan>>({});
+  // Lo que falta del plan para el acta se marca como error solo después de intentar guardar el plan o enviar el acta
+  const [planIntentado, setPlanIntentado] = useState(false);
   const guardarDatos = usePeticion(id);
   const guardarObservaciones = usePeticion(id);
-  const guardarEjecucion = (peticion: typeof guardarDatos) => {
+  const valDatos = useValidacion({ etiquetas: ETIQUETAS_EJECUCION, campos: { inicioReal: 'inicioFecha', finReal: 'finFecha' }, testid: 'error-datos-visita' });
+  const valObservaciones = useValidacion({ testid: 'error-observaciones' });
+  const valRespuestas = useValidacion({
+    etiquetas: Object.fromEntries(d.componentes.flatMap((c) => c.items.map((it) => ['hallazgo-' + it.codigo, 'Hallazgo de ' + it.codigo]))),
+    testid: 'error-calificaciones',
+  });
+  // Los datos y las observaciones van en el mismo PUT: la fecha y hora a medias se marcan siempre en «Datos de la visita»
+  const guardarEjecucion = (peticion: typeof guardarDatos, val: typeof valDatos) => {
     const cuerpo = cuerpoEjecucion(campos);
-    if ('error' in cuerpo) {
-      notifications.show({ color: 'orange', autoClose: 10000, message: cuerpo.error });
+    if ('errores' in cuerpo) {
+      if (val !== valDatos) val.reiniciar();
+      valDatos.validar(cuerpo.errores ?? {});
       return;
     }
-    peticion.mutate({ ruta: `/api/visitas/${id}/ejecucion`, metodo: 'PUT', cuerpo });
+    valDatos.reiniciar();
+    val.reiniciar();
+    peticion.mutate(
+      { ruta: `/api/visitas/${id}/ejecucion`, metodo: 'PUT', cuerpo },
+      { onError: (e) => val.errorServidor(e, 'No se pudieron guardar los datos de la visita.') },
+    );
+  };
+  const editarCampo = (cambio: Partial<CamposEjecucion>) => {
+    setCampos((c) => ({ ...c, ...cambio }));
+    for (const k of Object.keys(cambio)) valDatos.limpiar(k);
   };
   const qc = useQueryClient();
 
@@ -214,6 +251,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
       api<Mensaje & { cambiados?: string[] }>(`/api/visitas/${id}/respuestas`, { metodo: 'PUT', cuerpo: { respuestas } }),
     onSuccess: (r, enviadas) => {
       notifications.show({ color: 'green', message: r.mensaje });
+      valRespuestas.reiniciar();
       // Solo se descartan las ediciones que siguen iguales a lo enviado: lo escrito mientras se guardaba se conserva
       const enviadasPorItem = new Map(enviadas.map((x) => [x.item, x]));
       setEdiciones((ed) =>
@@ -233,16 +271,18 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
       qc.invalidateQueries({ queryKey: ['formulario', id] });
       qc.invalidateQueries({ queryKey: ['agenda'] });
     },
-    onError: (e) => avisarError(e, 'No se pudieron guardar las calificaciones.'),
+    onError: (e) => valRespuestas.errorServidor(e, 'No se pudieron guardar las calificaciones.'),
   });
 
+  // Componentes desplegados: al guardar se abren los que tienen un hallazgo por escribir (un panel plegado no recibe el foco)
+  const [abiertos, setAbiertos] = useState<string[]>(() => d.componentes.map((c) => c.codigo));
   const enviarRespuestas = () => {
     if (cambiadas.length === 0) return;
+    // «No cumple» sin hallazgo: cada ítem ya lo dice junto a su campo; el resumen los nombra y el foco va al primero
     const faltan = sinHallazgo(cambiadas);
-    if (faltan.length > 0) {
-      notifications.show({ color: 'orange', autoClose: 10000, message: `Escriba el hallazgo de ${faltan.join(', ')}.` });
-      return;
-    }
+    const conFalta = d.componentes.filter((c) => c.items.some((it) => faltan.includes(it.codigo))).map((c) => c.codigo);
+    if (conFalta.some((c) => !abiertos.includes(c))) setAbiertos((a) => [...a, ...conFalta.filter((c) => !a.includes(c))]);
+    if (!valRespuestas.validar(Object.fromEntries(faltan.map((c) => ['hallazgo-' + c, 'Escriba el hallazgo.'])))) return;
     guardarRespuestas.mutate(cambiadas);
   };
 
@@ -255,8 +295,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
       <Anchor component={Link} to={volver} size="sm">
         Volver a la visita
       </Anchor>
-      <Group gap="sm">
-        <Title order={3}>Formulario de la visita {v.numero}</Title>
+      <EncabezadoPagina titulo={`Formulario de la visita ${v.numero}`} fuente="Anexo 5 · 4.5 · Anexo 3">
         <Badge color={colorEstado(v.estado)} size="lg" data-testid="estado-visita">
           {v.estadoNombre}
         </Badge>
@@ -265,12 +304,12 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
             Ronda {v.ronda} · reabierta
           </Badge>
         )}
-      </Group>
+      </EncabezadoPagina>
       {d.seguimiento && (
         <Alert color="blue" title={`${d.seguimiento.ordinal} visita de seguimiento al plan de mejoramiento`} data-testid="aviso-seguimiento">
           <Text size="sm">{d.seguimiento.aviso}</Text>
           <Text size="xs" c="dimmed" mt={4}>
-            Visita de origen: {d.seguimiento.origenNumero} del {d.seguimiento.origenFecha}.
+            Visita de origen: {d.seguimiento.origenNumero} del {fechaCorta(d.seguimiento.origenFecha)}.
           </Text>
         </Alert>
       )}
@@ -284,10 +323,11 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
       {!p.escribible && <Alert color="yellow">{p.motivo ?? 'El formulario está en solo lectura.'}</Alert>}
       {p.correccion && <Alert color="blue">Corrección del coordinador: los cambios quedan en el historial de la visita.</Alert>}
 
-      <Card withBorder data-testid="datos-visita">
+      <Card ref={valDatos.ref} withBorder data-testid="datos-visita">
         <Title order={5} mb="xs">
           Datos de la visita
         </Title>
+        {valDatos.resumen}
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
           <TextInput label="Número" readOnly value={v.numero} data-testid="campo-numero" />
           <Select
@@ -315,26 +355,30 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
             type="date"
             readOnly={soloLectura}
             value={campos.inicioFecha}
-            onChange={(e) => setCampos({ ...campos, inicioFecha: e.currentTarget.value })}
+            error={valDatos.error('inicioFecha')}
+            onChange={(e) => editarCampo({ inicioFecha: e.currentTarget.value })}
           />
           <CampoHora24
             label="Hora de inicio real"
             readOnly={soloLectura}
             value={campos.inicioHora}
-            onChange={(inicioHora) => setCampos((c) => ({ ...c, inicioHora }))}
+            error={valDatos.error('inicioHora')}
+            onChange={(inicioHora) => editarCampo({ inicioHora })}
           />
           <TextInput
             label="Fecha de fin real"
             type="date"
             readOnly={soloLectura}
             value={campos.finFecha}
-            onChange={(e) => setCampos({ ...campos, finFecha: e.currentTarget.value })}
+            error={valDatos.error('finFecha')}
+            onChange={(e) => editarCampo({ finFecha: e.currentTarget.value })}
           />
           <CampoHora24
             label="Hora de fin real"
             readOnly={soloLectura}
             value={campos.finHora}
-            onChange={(finHora) => setCampos((c) => ({ ...c, finHora }))}
+            error={valDatos.error('finHora')}
+            onChange={(finHora) => editarCampo({ finHora })}
           />
         </SimpleGrid>
         <Textarea
@@ -345,11 +389,12 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
           maxLength={2000}
           readOnly={soloLectura}
           value={campos.objeto}
-          onChange={(e) => setCampos({ ...campos, objeto: e.currentTarget.value })}
+          error={valDatos.error('objeto')}
+          onChange={(e) => editarCampo({ objeto: e.currentTarget.value })}
         />
         {!soloLectura && (
           <Group justify="flex-end" mt="sm">
-            <Button loading={guardarDatos.isPending} onClick={() => guardarEjecucion(guardarDatos)}>
+            <Button loading={guardarDatos.isPending} onClick={() => guardarEjecucion(guardarDatos, valDatos)}>
               Guardar datos de la visita
             </Button>
           </Group>
@@ -358,14 +403,14 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
 
       <Personal id={id} inicial={d.personal} editable={p.escribeVisita} />
 
-      <Stack gap="xs">
+      <Stack ref={valRespuestas.ref} gap="xs">
         <Title order={4}>Componentes</Title>
         {d.componentes.length === 0 && (
           <Text size="sm" c="dimmed">
             La visita no tiene componentes del checklist.
           </Text>
         )}
-        <Accordion multiple variant="separated" defaultValue={d.componentes.map((c) => c.codigo)}>
+        <Accordion multiple variant="separated" value={abiertos} onChange={setAbiertos}>
           {d.componentes.map((c) => {
             const n = conteo(c.items, ediciones);
             return (
@@ -397,6 +442,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
             );
           })}
         </Accordion>
+        {valRespuestas.resumen}
         {d.componentes.some((c) => c.items.some((i) => i.editable)) && (
           <Paper withBorder shadow="sm" p="sm" style={{ position: 'sticky', bottom: 8, zIndex: 5 }}>
             <Group justify="space-between" gap="xs">
@@ -427,11 +473,12 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
         <Evidencias id={id} clave="visita" archivos={d.archivosVisita} editable={p.escribeVisita} etiqueta="Soportes de la visita" testid="visita" />
       </Card>
 
-      <Card withBorder data-testid="observaciones-visita">
+      <Card ref={valObservaciones.ref} withBorder data-testid="observaciones-visita">
         <Title order={5} mb="xs">
           Observaciones y recomendaciones
         </Title>
         <Stack gap="xs">
+          {valObservaciones.resumen}
           {(
             [
               ['recomendaciones', 'Recomendaciones'],
@@ -448,12 +495,12 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
               maxLength={4000}
               readOnly={soloLectura}
               value={campos[campo]}
-              onChange={(e) => setCampos({ ...campos, [campo]: e.currentTarget.value })}
+              onChange={(e) => editarCampo({ [campo]: e.currentTarget.value })}
             />
           ))}
           {!soloLectura && (
             <Group justify="flex-end">
-              <Button loading={guardarObservaciones.isPending} onClick={() => guardarEjecucion(guardarObservaciones)}>
+              <Button loading={guardarObservaciones.isPending} onClick={() => guardarEjecucion(guardarObservaciones, valObservaciones)}>
                 Guardar observaciones
               </Button>
             </Group>
@@ -469,6 +516,8 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
           fecha={fechaPlan}
           ediciones={edicionesPlan}
           sinGuardar={planSinGuardar}
+          intentado={planIntentado}
+          alIntentar={() => setPlanIntentado(true)}
           alCambiarFecha={setFechaPlan}
           alEditar={(clave, e) => setEdicionesPlan((x) => ({ ...x, [clave]: e }))}
           alGuardar={(fechaEnviada, enviadas) => {
@@ -479,7 +528,7 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
         />
       )}
       <Resumen d={d} />
-      <Actas id={id} d={d} sinGuardar={sinGuardar} />
+      <Actas id={id} d={d} sinGuardar={sinGuardar} alFallar={() => setPlanIntentado(true)} />
     </Stack>
   );
 }
@@ -487,7 +536,41 @@ function Contenido({ id, d, volver }: { id: string; d: DatosFormulario; volver: 
 function Personal({ id, inicial, editable }: { id: string; inicial: PersonaAuditada[]; editable: boolean }) {
   const [personas, setPersonas] = useState<PersonaAuditada[]>(inicial);
   const guardar = usePeticion(id);
-  const cambiar = (i: number, cambio: Partial<PersonaAuditada>) => setPersonas(personas.map((x, j) => (j === i ? { ...x, ...cambio } : x)));
+  const val = useValidacion({
+    etiquetas: Object.fromEntries(personas.flatMap((_, i) => [[`nombre-${i}`, `Nombre (persona ${i + 1})`], [`correo-${i}`, `Correo (persona ${i + 1})`]])),
+    testid: 'error-personal',
+  });
+  const cambiar = (i: number, cambio: Partial<PersonaAuditada>) => {
+    setPersonas(personas.map((x, j) => (j === i ? { ...x, ...cambio } : x)));
+    for (const k of Object.keys(cambio)) val.limpiar(`${k}-${i}`);
+  };
+  // Las mismas reglas del servidor: nombre de al menos 3 caracteres y correo con formato válido (si se escribe)
+  const guardarPersonal = () => {
+    const errores: Record<string, string | null> = {};
+    personas.forEach((x, i) => {
+      const nombre = x.nombre.trim();
+      errores[`nombre-${i}`] = nombre.length === 0 ? 'Escriba el nombre.' : nombre.length < 3 ? 'Escriba el nombre completo (mínimo 3 caracteres).' : null;
+      const correo = (x.correo ?? '').trim();
+      errores[`correo-${i}`] = errorCorreo(correo, 'Escriba un correo válido, p. ej. nombre@dominio.co.');
+    });
+    if (!val.validar(errores)) return;
+    guardar.mutate(
+      {
+        ruta: `/api/visitas/${id}/personal`,
+        metodo: 'PUT',
+        cuerpo: {
+          personas: personas.map((x) => ({
+            entidad: x.entidad,
+            nombre: x.nombre.trim(),
+            cargo: textoONulo(x.cargo ?? ''),
+            documento: textoONulo(x.documento ?? ''),
+            correo: textoONulo(x.correo ?? ''),
+          })),
+        },
+      },
+      { onError: (e) => val.errorServidor(e, 'No se pudo guardar el personal auditado.') },
+    );
+  };
 
   return (
     <Card withBorder data-testid="personal-auditado">
@@ -526,7 +609,8 @@ function Personal({ id, inicial, editable }: { id: string; inicial: PersonaAudit
           </ScrollArea>
         )
       ) : (
-        <Stack gap="sm">
+        <Stack ref={val.ref} gap="sm">
+          {val.resumen}
           {personas.length === 0 && (
             <Text size="sm" c="dimmed">
               Agregue a las personas que atendieron la visita.
@@ -542,7 +626,14 @@ function Personal({ id, inicial, editable }: { id: string; inicial: PersonaAudit
                   value={x.entidad}
                   onChange={(e) => cambiar(i, { entidad: e ?? 'ESM' })}
                 />
-                <TextInput label="Nombre" required maxLength={150} value={x.nombre} onChange={(e) => cambiar(i, { nombre: e.currentTarget.value })} />
+                <TextInput
+                  label="Nombre"
+                  required
+                  maxLength={150}
+                  value={x.nombre}
+                  error={val.error(`nombre-${i}`)}
+                  onChange={(e) => cambiar(i, { nombre: e.currentTarget.value })}
+                />
                 <TextInput label="Cargo" maxLength={120} value={x.cargo ?? ''} onChange={(e) => cambiar(i, { cargo: e.currentTarget.value })} />
                 <TextInput
                   label="Documento"
@@ -550,10 +641,24 @@ function Personal({ id, inicial, editable }: { id: string; inicial: PersonaAudit
                   value={x.documento ?? ''}
                   onChange={(e) => cambiar(i, { documento: e.currentTarget.value })}
                 />
-                <TextInput label="Correo" type="email" value={x.correo ?? ''} onChange={(e) => cambiar(i, { correo: e.currentTarget.value })} />
+                <TextInput
+                  label="Correo"
+                  type="email"
+                  value={x.correo ?? ''}
+                  error={val.error(`correo-${i}`)}
+                  onChange={(e) => cambiar(i, { correo: e.currentTarget.value })}
+                />
               </SimpleGrid>
               <Group justify="flex-end" mt={6}>
-                <Button size="xs" variant="subtle" color="red" onClick={() => setPersonas(personas.filter((_, j) => j !== i))}>
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  color="red"
+                  onClick={() => {
+                    setPersonas(personas.filter((_, j) => j !== i));
+                    val.reiniciar(); // los errores van por posición: al quitar una persona se corren
+                  }}
+                >
                   Quitar
                 </Button>
               </Group>
@@ -567,24 +672,7 @@ function Personal({ id, inicial, editable }: { id: string; inicial: PersonaAudit
             >
               Agregar persona
             </Button>
-            <Button
-              loading={guardar.isPending}
-              onClick={() =>
-                guardar.mutate({
-                  ruta: `/api/visitas/${id}/personal`,
-                  metodo: 'PUT',
-                  cuerpo: {
-                    personas: personas.map((x) => ({
-                      entidad: x.entidad,
-                      nombre: x.nombre.trim(),
-                      cargo: textoONulo(x.cargo ?? ''),
-                      documento: textoONulo(x.documento ?? ''),
-                      correo: textoONulo(x.correo ?? ''),
-                    })),
-                  },
-                })
-              }
-            >
+            <Button loading={guardar.isPending} onClick={guardarPersonal}>
               Guardar personal
             </Button>
           </Group>
@@ -779,7 +867,7 @@ function HallazgoDeAntes({
         {anterior.hallazgo ?? '—'}
       </Text>
       <Text size="xs" c="dimmed" mt={4} style={{ overflowWrap: 'anywhere' }}>
-        Acción del plan: {anterior.que ?? '—'} · Fin: {anterior.fin ?? '—'} · Estado: {anterior.estado}
+        Acción del plan: {anterior.que ?? '—'} · Fin: {fechaCorta(anterior.fin)} · Estado: {anterior.estado}
       </Text>
       <Text size="xs" fw={500} mt={6}>
         Soportes de la visita anterior
@@ -793,9 +881,9 @@ function HallazgoDeAntes({
           {archivos.map((a) => (
             <List.Item key={a.id}>
               <Group gap={6} wrap="wrap">
-                <Anchor href={`/api/visitas/${id}/anteriores/${a.id}`} target="_blank" rel="noopener" size="sm" style={{ wordBreak: 'break-all' }}>
+                <VisorDocumento url={`/api/visitas/${id}/anteriores/${a.id}`} nombre={a.nombre}>
                   {a.nombre}
-                </Anchor>
+                </VisorDocumento>
                 <Text size="xs" c="dimmed">
                   {tamanoLegible(a.tamano)}
                 </Text>
@@ -828,19 +916,22 @@ function Evidencias({
   const entrada = useRef<HTMLInputElement>(null);
   const [elegidos, setElegidos] = useState<File[]>([]);
   const quitar = usePeticion(id);
+  const val = useValidacion({ testid: 'error-evidencias-' + testid });
   const subir = useMutation({
     mutationFn: (files: File[]) => subirArchivos<Mensaje>(`/api/visitas/${id}/archivos`, { clave }, files),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
+      val.reiniciar();
       setElegidos([]);
       if (entrada.current) entrada.current.value = '';
       qc.invalidateQueries({ queryKey: ['formulario', id] });
     },
-    onError: (e) => avisarError(e, 'No se pudieron subir los archivos.'),
+    onError: (e) => val.errorServidor(e, 'No se pudieron subir los archivos.'),
   });
 
   return (
-    <Stack gap={4} data-testid={'evidencias-' + testid}>
+    <Stack ref={val.ref} gap={4} data-testid={'evidencias-' + testid}>
+      {val.resumen}
       {archivos.length === 0 ? (
         <Text size="xs" c="dimmed">
           Sin archivos.
@@ -850,9 +941,9 @@ function Evidencias({
           {archivos.map((a) => (
             <List.Item key={a.id}>
               <Group gap={6} wrap="wrap">
-                <Anchor href={`/api/archivos/${a.id}`} target="_blank" rel="noopener" size="sm" style={{ wordBreak: 'break-all' }}>
+                <VisorDocumento url={`/api/archivos/${a.id}`} nombre={a.nombre}>
                   {a.nombre}
-                </Anchor>
+                </VisorDocumento>
                 <Text size="xs" c="dimmed">
                   {tamanoLegible(a.tamano)}
                   {a.subidoPor ? ' · ' + a.subidoPor : ''}
@@ -865,7 +956,11 @@ function Evidencias({
                     aria-label={'Quitar ' + a.nombre}
                     disabled={quitar.isPending}
                     onClick={() =>
-                      window.confirm(`¿Quitar el archivo ${a.nombre}?`) && quitar.mutate({ ruta: `/api/archivos/${a.id}`, metodo: 'DELETE' })
+                      window.confirm(`¿Quitar el archivo ${a.nombre}?`) &&
+                      quitar.mutate(
+                        { ruta: `/api/archivos/${a.id}`, metodo: 'DELETE' },
+                        { onSuccess: () => val.reiniciar(), onError: (e) => val.errorServidor(e, 'No se pudo quitar el archivo.') },
+                      )
                     }
                   >
                     Quitar
@@ -884,15 +979,23 @@ function Evidencias({
             multiple
             aria-label={etiqueta}
             style={{ maxWidth: '100%', fontSize: 'var(--mantine-font-size-xs)' }}
-            onChange={(e) => setElegidos(Array.from(e.currentTarget.files ?? []))}
+            onChange={(e) => {
+              setElegidos(Array.from(e.currentTarget.files ?? []));
+              val.reiniciar();
+            }}
           />
           <Button
             size="xs"
             variant="light"
             data-testid={'subir-' + testid}
-            disabled={elegidos.length === 0}
             loading={subir.isPending}
-            onClick={() => subir.mutate(elegidos)}
+            onClick={() => {
+              if (elegidos.length === 0) {
+                val.alerta('Elija uno o más archivos para subir.');
+                return;
+              }
+              subir.mutate(elegidos);
+            }}
           >
             Subir
           </Button>
@@ -940,7 +1043,7 @@ function GrupoFirmas({ id, d, roles }: { id: string; d: DatosFormulario; roles: 
                     {[f.cargo, f.documento].filter(Boolean).join(' · ')}
                   </Text>
                   <Badge size="sm" color="green" variant="light" mt={4}>
-                    Firmado {f.firmado.replace('T', ' ').substring(0, 16)}
+                    Firmado {fechaHora(f.firmado)}
                   </Badge>
                 </>
               ) : (
@@ -981,6 +1084,8 @@ function PlanMejoramiento({
   fecha,
   ediciones,
   sinGuardar,
+  intentado,
+  alIntentar,
   alCambiarFecha,
   alEditar,
   alGuardar,
@@ -990,6 +1095,8 @@ function PlanMejoramiento({
   fecha: string | null;
   ediciones: Record<string, EdicionPlan>;
   sinGuardar: boolean;
+  intentado: boolean;
+  alIntentar: () => void;
   alCambiarFecha: (f: string) => void;
   alEditar: (clave: string, e: EdicionPlan) => void;
   alGuardar: (fecha: string | null, enviadas: Record<string, EdicionPlan>) => void;
@@ -997,21 +1104,56 @@ function PlanMejoramiento({
   const qc = useQueryClient();
   const plan = d.plan;
   const editable = d.permisos.escribeVisita;
+  const val = useValidacion({
+    etiquetas: {
+      fecha: 'Fecha del plan',
+      ...Object.fromEntries(
+        plan.hallazgos.flatMap((h) => [
+          ['que:' + h.clave, `Qué de ${h.codigo}`],
+          ['fin:' + h.clave, `Fin de ${h.codigo}`],
+          ['prorroga:' + h.clave, `Justificación de la prórroga de ${h.codigo}`],
+        ]),
+      ),
+    },
+    testid: 'error-plan',
+  });
   const guardar = useMutation({
     mutationFn: (x: { fecha: string | null; enviadas: Record<string, EdicionPlan> }) =>
       api<Mensaje>(`/api/visitas/${id}/plan`, { metodo: 'PUT', cuerpo: cuerpoPlan(plan, x.fecha, x.enviadas) }),
     onSuccess: (r, x) => {
       notifications.show({ color: 'green', message: r.mensaje });
+      val.reiniciar();
+      alIntentar();
       alGuardar(x.fecha, x.enviadas);
       qc.invalidateQueries({ queryKey: ['formulario', id] });
     },
-    onError: (e) => avisarError(e, 'No se pudo guardar el plan de mejoramiento.'),
+    onError: (e) => {
+      alIntentar();
+      val.errorServidor(e, 'No se pudo guardar el plan de mejoramiento.');
+    },
   });
   const faltan = faltantesPlan(plan, fecha, ediciones);
+  // Lo que falta para enviar el acta, junto a cada campo (no impide guardar el plan): en tono neutro (descripción) hasta el primer intento
+  // de guardar el plan o de enviar el acta, y como error después. Un error de la validación tiene prioridad (y se lleva el foco).
+  const porCampo = faltantesPlanPorCampo(plan, fecha, ediciones);
+  const errorDe = (campo: string) => val.error(campo) ?? (editable && intentado ? porCampo[campo] : undefined);
+  const ayuda = (campo: string, base?: string): ReactNode => {
+    const falta = editable && !intentado && val.error(campo) === undefined ? porCampo[campo] : undefined;
+    if (!falta) return base;
+    return base ? (
+      <>
+        {base}
+        <br />
+        {falta}
+      </>
+    ) : (
+      falta
+    );
+  };
   const estados = plan.estados.map((e) => ({ value: e, label: e }));
 
   return (
-    <Card withBorder data-testid="plan-mejoramiento">
+    <Card ref={val.ref} withBorder data-testid="plan-mejoramiento">
       <Title order={5} mb={4}>
         Plan de mejoramiento (5W2H)
       </Title>
@@ -1028,12 +1170,20 @@ function PlanMejoramiento({
         required
         readOnly={!editable}
         value={fecha ?? plan.fecha ?? ''}
-        onChange={(e) => alCambiarFecha(e.currentTarget.value)}
+        description={ayuda('fecha')}
+        error={errorDe('fecha')}
+        onChange={(e) => {
+          alCambiarFecha(e.currentTarget.value);
+          val.limpiar('fecha');
+        }}
       />
       <Stack gap="sm" mt="sm">
         {plan.hallazgos.map((h) => {
           const v = valorFila(h, ediciones);
-          const cambiar = (c: Partial<EdicionPlan>) => alEditar(h.clave, { ...v, ...c });
+          const cambiar = (c: Partial<EdicionPlan>) => {
+            alEditar(h.clave, { ...v, ...c });
+            for (const k of Object.keys(c)) val.limpiar(`${k === 'inicio' ? 'fin' : k}:${h.clave}`);
+          };
           const prorroga = pideProrroga(h, ediciones);
           return (
             <Paper key={h.clave} withBorder p="sm" data-testid={'plan-' + h.codigo}>
@@ -1078,12 +1228,13 @@ function PlanMejoramiento({
                 />
                 <Textarea
                   label="Qué"
-                  description="Acción de mejora"
+                  description={ayuda('que:' + h.clave, 'Acción de mejora')}
                   required
                   autosize
                   minRows={2}
                   maxLength={2000}
                   readOnly={!editable}
+                  error={errorDe('que:' + h.clave)}
                   value={v.que}
                   onChange={(e) => cambiar({ que: e.currentTarget.value })}
                 />
@@ -1116,6 +1267,8 @@ function PlanMejoramiento({
                   required={ESTADOS_ABIERTOS.includes(v.estado)}
                   min={v.inicio || undefined}
                   readOnly={!editable}
+                  description={ayuda('fin:' + h.clave)}
+                  error={errorDe('fin:' + h.clave)}
                   value={v.fin}
                   onChange={(e) => cambiar({ fin: e.currentTarget.value })}
                 />
@@ -1141,7 +1294,10 @@ function PlanMejoramiento({
               {prorroga && (
                 <Textarea
                   label="Justificación de la prórroga"
-                  description={`La fecha fin pasa del ${h.finAnterior ?? '—'} al ${v.fin}. Mínimo ${MIN_JUSTIFICACION} caracteres; queda solicitada hasta que la aprueben la coordinación y la DIGSA.`}
+                  description={ayuda(
+                    'prorroga:' + h.clave,
+                    `La fecha fin pasa del ${fechaCorta(h.finAnterior)} al ${fechaCorta(v.fin)}. Mínimo ${MIN_JUSTIFICACION} caracteres; queda solicitada hasta que la aprueben la coordinación y la DIGSA.`,
+                  )}
                   data-testid={'prorroga-' + h.codigo}
                   required
                   mt="xs"
@@ -1149,9 +1305,7 @@ function PlanMejoramiento({
                   minRows={2}
                   maxLength={2000}
                   readOnly={!editable}
-                  error={
-                    editable && !justificacionValida(v.prorroga) ? `Justifique la prórroga (mínimo ${MIN_JUSTIFICACION} caracteres).` : undefined
-                  }
+                  error={errorDe('prorroga:' + h.clave)}
                   value={v.prorroga}
                   onChange={(e) => cambiar({ prorroga: e.currentTarget.value })}
                 />
@@ -1161,10 +1315,12 @@ function PlanMejoramiento({
         })}
       </Stack>
       {faltan.length > 0 && (
-        <Text size="sm" c="orange" mt="xs" data-testid="faltantes-plan">
-          Falta {faltan.join('; ')}.
+        // Resumen de lo que falta para enviar el acta (cada campo lo dice junto a él); el plan se puede guardar igual
+        <Text size="sm" c="dimmed" mt="xs" data-testid="faltantes-plan">
+          Para enviar el acta falta {faltan.join('; ')}.
         </Text>
       )}
+      {editable && <Box mt="sm">{val.resumen}</Box>}
       {editable && (
         <Group justify="space-between" mt="sm">
           <Text size="sm" c={sinGuardar ? 'orange' : 'dimmed'}>
@@ -1174,7 +1330,11 @@ function PlanMejoramiento({
             data-testid="guardar-plan"
             disabled={!sinGuardar}
             loading={guardar.isPending}
-            onClick={() => guardar.mutate({ fecha, enviadas: ediciones })}
+            onClick={() => {
+              // Solo bloquea lo que el servidor rechaza (fin antes del inicio); lo que falta para el acta no impide guardar
+              if (!val.validar(erroresFechasPlan(plan, ediciones))) return;
+              guardar.mutate({ fecha, enviadas: ediciones });
+            }}
           >
             Guardar plan
           </Button>
@@ -1194,31 +1354,58 @@ function FormFirma({ id, rol, nombreInicial, alCerrar }: { id: string; rol: RolF
   const [cargo, setCargo] = useState('');
   const [imagen, setImagen] = useState<string | null>(null);
   const guardar = usePeticion(id);
+  const val = useValidacion({ etiquetas: { nombre: 'Nombre', imagen: 'Firma' }, testid: 'error-firma' });
   return (
     <form
+      ref={val.ref}
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        if (!imagen) return;
+        const n = nombre.trim();
+        // Las mismas reglas del servidor: nombre de al menos 3 caracteres y la firma dibujada
+        const ok = val.validar({
+          nombre: n.length === 0 ? 'Escriba el nombre de quien firma.' : n.length < 3 ? 'Escriba el nombre completo (mínimo 3 caracteres).' : null,
+          imagen: imagen ? null : 'Falta la firma: dibújela dentro del recuadro.',
+        });
+        if (!ok || !imagen) return;
         guardar.mutate(
           {
             ruta: `/api/visitas/${id}/firmas`,
             metodo: 'POST',
-            cuerpo: { rol, nombre: nombre.trim(), documento: textoONulo(documento), cargo: textoONulo(cargo), imagen },
+            cuerpo: { rol, nombre: n, documento: textoONulo(documento), cargo: textoONulo(cargo), imagen },
           },
-          { onSuccess: alCerrar },
+          { onSuccess: alCerrar, onError: (x) => val.errorServidor(x, 'No se pudo guardar la firma.') },
         );
       }}
     >
       <Stack gap="xs">
-        <TextInput label="Nombre" required minLength={3} maxLength={150} value={nombre} onChange={(e) => setNombre(e.currentTarget.value)} />
+        {val.resumen}
+        <TextInput
+          label="Nombre"
+          required
+          minLength={3}
+          maxLength={150}
+          value={nombre}
+          error={val.error('nombre')}
+          onChange={(e) => {
+            setNombre(e.currentTarget.value);
+            val.limpiar('nombre');
+          }}
+        />
         <TextInput label="Documento" maxLength={30} value={documento} onChange={(e) => setDocumento(e.currentTarget.value)} />
         <TextInput label="Cargo" maxLength={120} value={cargo} onChange={(e) => setCargo(e.currentTarget.value)} />
-        <PanelFirma alCambiar={setImagen} />
+        <PanelFirma
+          error={typeof val.error('imagen') === 'string' ? (val.error('imagen') as string) : undefined}
+          alCambiar={(png) => {
+            setImagen(png);
+            if (png) val.limpiar('imagen');
+          }}
+        />
         <Group justify="flex-end">
           <Button variant="default" onClick={alCerrar}>
             Volver
           </Button>
-          <Button type="submit" disabled={!imagen} loading={guardar.isPending}>
+          <Button type="submit" loading={guardar.isPending}>
             Guardar firma
           </Button>
         </Group>
@@ -1267,28 +1454,33 @@ function Resumen({ d }: { d: DatosFormulario }) {
   );
 }
 
-function Actas({ id, d, sinGuardar }: { id: string; d: DatosFormulario; sinGuardar: boolean }) {
+function Actas({ id, d, sinGuardar, alFallar }: { id: string; d: DatosFormulario; sinGuardar: boolean; alFallar: () => void }) {
   const qc = useQueryClient();
+  const idAyuda = useId();
+  const val = useValidacion({ testid: 'error-acta' });
   const enviar = useMutation({
     mutationFn: () => api<{ ok: boolean; mensaje: string; ronda: number }>(`/api/visitas/${id}/acta`, { metodo: 'POST', cuerpo: {} }),
     onSuccess: (r) => {
+      val.reiniciar();
       notifications.show({ color: r.ok ? 'green' : 'orange', autoClose: r.ok ? 6000 : false, message: r.mensaje });
       qc.invalidateQueries({ queryKey: ['formulario', id] });
       qc.invalidateQueries({ queryKey: ['agenda'] });
       qc.invalidateQueries({ queryKey: ['visita'] });
     },
     onError: (e) => {
-      avisarError(e, 'No se pudo enviar el acta.');
+      alFallar();
+      val.errorServidor(e, 'No se pudo enviar el acta.');
       qc.invalidateQueries({ queryKey: ['formulario', id] });
     },
   });
   // El acta se genera con lo guardado: con cambios pendientes no se envía (se perderían al cerrar la visita)
   const bloqueado = d.faltantes.length > 0 || sinGuardar;
   return (
-    <Card withBorder data-testid="actas">
+    <Card ref={val.ref} withBorder data-testid="actas">
       <Title order={5} mb="xs">
         Acta
       </Title>
+      {val.resumen}
       {d.actas.length === 0 ? (
         <Text size="sm" c="dimmed">
           Aún no se ha generado el acta.
@@ -1319,13 +1511,13 @@ function Actas({ id, d, sinGuardar }: { id: string; d: DatosFormulario; sinGuard
                       </Text>
                     )}
                   </Table.Td>
-                  <Table.Td style={{ whiteSpace: 'nowrap' }}>{a.generado ? a.generado.replace('T', ' ').substring(0, 16) : '—'}</Table.Td>
+                  <Table.Td style={{ whiteSpace: 'nowrap' }}>{fechaHora(a.generado)}</Table.Td>
                   <Table.Td>{a.destinatarios ?? '—'}</Table.Td>
                   <Table.Td>
                     {a.archivoId ? (
-                      <Anchor href={`/api/archivos/${a.archivoId}`} target="_blank" rel="noopener" size="sm">
+                      <VisorDocumento url={`/api/archivos/${a.archivoId}`} nombre="Acta">
                         Ver acta
-                      </Anchor>
+                      </VisorDocumento>
                     ) : (
                       '—'
                     )}
@@ -1342,6 +1534,7 @@ function Actas({ id, d, sinGuardar }: { id: string; d: DatosFormulario; sinGuard
             data-testid="enviar-acta"
             color="green"
             disabled={bloqueado}
+            aria-describedby={idAyuda}
             loading={enviar.isPending}
             onClick={() =>
               window.confirm('Se generará el acta, se enviará a los destinatarios y la visita quedará cerrada. ¿Continuar?') && enviar.mutate()
@@ -1349,7 +1542,7 @@ function Actas({ id, d, sinGuardar }: { id: string; d: DatosFormulario; sinGuard
           >
             Enviar acta y cerrar la visita
           </Button>
-          <Text size="xs" c="dimmed">
+          <Text size="xs" c="dimmed" id={idAyuda}>
             {sinGuardar
               ? 'Hay cambios sin guardar: guárdelos antes de enviar el acta.'
               : bloqueado

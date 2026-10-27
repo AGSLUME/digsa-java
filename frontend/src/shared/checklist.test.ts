@@ -4,8 +4,10 @@ import {
   conteo,
   cuerpoPlan,
   cumplimientoLegible,
+  erroresFechasPlan,
   esProrroga,
   faltantesPlan,
+  faltantesPlanPorCampo,
   fechaValida,
   inmediataEfectiva,
   justificacionValida,
@@ -170,10 +172,16 @@ describe('formulario del checklist', () => {
   it('formatea textos, tamaños y cumplimiento', () => {
     expect(textoONulo('  ')).toBeNull();
     expect(textoONulo(' a ')).toBe('a');
-    expect(tamanoLegible(2048)).toBe('2 KB');
-    expect(tamanoLegible(5 * 1024 * 1024)).toBe('5,0 MB');
-    expect(cumplimientoLegible('75.0')).toBe('75,0 %');
+    // Anexo 5 num. 2.4: 2 decimales con coma, sin separador de miles
+    expect(tamanoLegible(2048)).toBe('2,00 KB');
+    expect(tamanoLegible(1536)).toBe('1,50 KB');
+    expect(tamanoLegible(5 * 1024 * 1024)).toBe('5,00 MB');
+    expect(tamanoLegible(1.256 * 1024 * 1024)).toBe('1,26 MB');
+    expect(cumplimientoLegible('75.0')).toBe('75,00 %');
+    expect(cumplimientoLegible('66.666')).toBe('66,67 %');
     expect(cumplimientoLegible('null')).toBeNull();
+    expect(cumplimientoLegible('')).toBeNull();
+    expect(cumplimientoLegible('abc')).toBeNull();
   });
 });
 
@@ -200,6 +208,20 @@ describe('plan de mejoramiento 5W2H', () => {
     const completa = { causas: '', que: 'Rotular', porque: '', donde: '', inicio: '', fin: '', indicador: '', estado: 'Completado', prorroga: '' };
     expect(faltantesPlan(PLAN, '2026-10-21', { 'it:HB-02': completa })).toEqual([]);
     expect(faltantesPlan({ ...PLAN, hallazgos: [] }, null, {})).toEqual([]);
+  });
+
+  it('dice lo que falta junto a cada campo, con las mismas reglas', () => {
+    expect(Object.keys(faltantesPlanPorCampo(PLAN, null, {}))).toEqual(['fecha', 'que:it:HB-02', 'fin:it:HB-02']);
+    const completa = { causas: '', que: 'Rotular', porque: '', donde: '', inicio: '', fin: '', indicador: '', estado: 'Completado', prorroga: '' };
+    expect(faltantesPlanPorCampo(PLAN, '2026-10-21', { 'it:HB-02': completa })).toEqual({});
+    expect(faltantesPlanPorCampo({ ...PLAN, hallazgos: [] }, null, {})).toEqual({});
+  });
+
+  it('rechaza la fecha fin anterior al inicio (como el servidor)', () => {
+    const fila = { causas: '', que: 'Rotular', porque: '', donde: '', inicio: '2026-11-10', fin: '2026-11-01', indicador: '', estado: 'Pendiente', prorroga: '' };
+    expect(erroresFechasPlan(PLAN, { 'it:HB-02': fila })).toEqual({ 'fin:it:HB-02': 'La fecha fin no puede ser anterior al inicio.' });
+    expect(erroresFechasPlan(PLAN, { 'it:HB-02': { ...fila, fin: '2026-11-10' } })).toEqual({});
+    expect(erroresFechasPlan(PLAN, { 'it:HB-02': { ...fila, inicio: '' } })).toEqual({});
   });
 
   it('detecta cambios sin guardar (sin contar espacios) y arma el cuerpo con todas las filas', () => {
@@ -311,6 +333,9 @@ describe('prórroga en el seguimiento', () => {
   it('al correr la fecha fin pide la justificación y solo la envía cuando hay prórroga', () => {
     expect(faltantesPlan(SEG, null, {})).toEqual([]);
     expect(faltantesPlan(SEG, null, fila({ fin: '2026-11-30' }))).toEqual(['la justificación de la prórroga (mínimo 10 caracteres) de HB-02']);
+    expect(faltantesPlanPorCampo(SEG, null, fila({ fin: '2026-11-30' }))).toEqual({
+      'prorroga:it:HB-02': 'Justifique la prórroga (mínimo 10 caracteres).',
+    });
     expect(faltantesPlan(SEG, null, fila({ fin: '2026-11-30', prorroga: 'El proveedor entrega en diciembre' }))).toEqual([]);
     expect(faltantesPlan(SEG, null, fila({ fin: '2026-11-30', estado: 'Completado' }))).toEqual([]);
     // Solo si sigue en No cumple: una fila aún sin recalificar no pide la justificación

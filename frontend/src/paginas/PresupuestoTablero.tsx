@@ -2,8 +2,10 @@ import { Alert, Badge, Box, Card, Center, Group, Loader, ScrollArea, Select, Sim
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../shared/api';
+import { conteo } from '../shared/formato';
 import {
   anchoBarra,
+  botonQuitar,
   colorSemaforo,
   consultaTablero,
   etiquetaUmbral,
@@ -93,6 +95,7 @@ export function TableroPresupuesto({ o }: { o: OpcionesPresupuesto }) {
             placeholder={contrato ? 'Solo por vigencia' : 'Mes actual'}
             disabled={contrato}
             clearable
+            clearButtonProps={botonQuitar('el corte')}
             data={d?.cortes ?? []}
             value={f.corte || d?.corte || null}
             onChange={(v) => setF({ ...f, corte: v ?? '' })}
@@ -102,6 +105,7 @@ export function TableroPresupuesto({ o }: { o: OpcionesPresupuesto }) {
             label="Fuerza"
             placeholder="Todas"
             clearable
+            clearButtonProps={botonQuitar('la fuerza')}
             data={o.fuerzas.map((x) => ({ value: x.codigo, label: x.nombre }))}
             value={f.fuerza || null}
             onChange={(v) => setF({ ...f, fuerza: v ?? '' })}
@@ -110,6 +114,7 @@ export function TableroPresupuesto({ o }: { o: OpcionesPresupuesto }) {
             label="Modalidad"
             placeholder="Todas"
             clearable
+            clearButtonProps={botonQuitar('la modalidad')}
             data={o.modalidades.map((m) => ({ value: m.codigo, label: m.nombre }))}
             value={f.modalidad || null}
             onChange={(v) => setF({ ...f, modalidad: v ?? '' })}
@@ -153,7 +158,7 @@ function TableroDatos({
         <Caja
           titulo="Presupuesto vigente"
           valor={`$ ${d.cajas.presupuestoVigente}`}
-          sub={d.cajas.adiciones === 1 ? 'Incluye 1 adición' : `Incluye ${d.cajas.adiciones} adiciones`}
+          sub={d.cajas.adiciones === 1 ? 'Incluye 1 adición' : `Incluye ${conteo(d.cajas.adiciones)} adiciones`}
           testid="caja-vigente"
         />
         <Caja
@@ -165,8 +170,8 @@ function TableroDatos({
         <Caja titulo="Saldo" valor={`$ ${d.cajas.saldo}`} color={d.cajas.saldo.startsWith('-') ? 'red' : undefined} testid="caja-saldo" />
         <Caja
           titulo="ESM sobre la proyección"
-          valor={contrato ? '—' : String(d.cajas.esmSobreProyeccion ?? 0)}
-          sub={contrato ? 'Elija una vigencia' : `de ${d.cajas.esmTotal ?? 0} ESM · proyección al corte ${d.cajas.porcentajeProyectado ?? '0,00'} %`}
+          valor={contrato ? '—' : conteo(d.cajas.esmSobreProyeccion ?? 0)}
+          sub={contrato ? 'Elija una vigencia' : `de ${conteo(d.cajas.esmTotal ?? 0)} ESM · proyección al corte ${d.cajas.porcentajeProyectado ?? '0,00'} %`}
           color={(d.cajas.esmSobreProyeccion ?? 0) > 0 ? 'orange' : undefined}
           testid="caja-proyeccion"
         />

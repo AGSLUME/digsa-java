@@ -126,3 +126,9 @@ export function dentroDe(dias: number): string {
   d.setDate(d.getDate() + dias);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+/** En Usuarios (25 por página), deja a la vista la fila del usuario buscándolo; devuelve la fila. */
+export async function filaDeUsuario(page: Page, usuario: string) {
+  await page.getByLabel('Buscar', { exact: true }).fill(usuario);
+  return page.getByTestId('usuario-' + usuario);
+}

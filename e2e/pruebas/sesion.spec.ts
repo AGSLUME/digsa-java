@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, ingresar, salir, unico } from './apoyo';
+import { ADMIN, filaDeUsuario, ingresar, salir, unico } from './apoyo';
 
 test.afterEach(async ({ page }) => salir(page));
 
@@ -24,6 +24,9 @@ test('contraseña errada: mensaje genérico', async ({ page }) => {
 test('aviso de inactividad con cuenta regresiva y «Seguir conectado»', async ({ page }) => {
   await page.clock.install();
   await ingresar(page, ...ADMIN);
+  // Cada respuesta del servidor cuenta como actividad: si una consulta del inicio responde después de adelantar el reloj, el plazo
+  // vuelve a empezar y el aviso no sale. Se adelanta con la red quieta.
+  await page.waitForLoadState('networkidle');
   // Servidor de pruebas con 1 minuto: el aviso sale a los 30 s (la mitad del plazo)
   await page.clock.fastForward(31_000);
   await expect(page.getByText('Su sesión está por cerrarse')).toBeVisible();
@@ -35,6 +38,7 @@ test('aviso de inactividad con cuenta regresiva y «Seguir conectado»', async (
 test('actividad en otra pestaña: el aviso de esta pestaña se cierra', async ({ page }) => {
   await page.clock.install();
   await ingresar(page, ...ADMIN);
+  await page.waitForLoadState('networkidle');
   await page.clock.fastForward(31_000);
   const aviso = page.getByRole('dialog', { name: 'Su sesión está por cerrarse' });
   await expect(aviso).toBeVisible();
@@ -106,7 +110,7 @@ test('contraseña inicial y cierre por el administrador: el usuario la cambia al
   await expect(p2.getByRole('button', { name: 'Salir', exact: true })).toBeVisible();
 
   await page.reload();
-  const fila = page.getByTestId('usuario-' + usuario);
+  const fila = await filaDeUsuario(page, usuario);
   await expect(fila.getByText('Sesión abierta')).toBeVisible();
   page.once('dialog', (d) => d.accept());
   await fila.getByRole('button', { name: /Cerrar la sesión de/ }).click();

@@ -2,9 +2,16 @@ import { Alert, Button, Card, Group, Loader, MultiSelect, ScrollArea, Select, Si
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, descargar, ErrorApi } from '../shared/api';
+import { api, descargar } from '../shared/api';
+import { conteo, fechaHora } from '../shared/formato';
+import { problemaRango } from '../shared/tablero';
+import { useValidacion } from '../shared/validacion';
+import { errorCorreo } from '../shared/validaciones';
 import {
+  botonQuitar,
+  celdaReporte,
   consultaReporte,
+  fechasEnTexto,
   etiquetaPunto,
   FILTROS_REPORTE,
   type FiltrosReporte,
@@ -27,10 +34,6 @@ const AGRUPACIONES = [
   { value: 'anio', label: 'Años' },
 ];
 
-function avisarError(e: unknown, defecto: string) {
-  notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : defecto });
-}
-
 /**
  * Reportes de ejecución presupuestal (Anexo 5, 2.7 a 2.12 y §4.6: las modificaciones del presupuesto se ven en los reportes): ver en
  * pantalla, descargar en Excel, CSV, PDF o TXT con el encabezado (periodo, establecimiento y filtros) y enviar por correo.
@@ -45,6 +48,7 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
   const [f, setF] = useState<FiltrosReporte>({ ...FILTROS_REPORTE, vigencia: abierta ? String(abierta.id) : '' });
   const [consultada, setConsultada] = useState<string | null>(null);
   const [para, setPara] = useState('');
+  const v = useValidacion({ etiquetas: { hasta: 'Hasta', para: 'Enviar por correo a' }, testid: 'reporte-error' });
   const consulta = consultaReporte(tipo, f);
   const reporte = useQuery({
     queryKey: ['presupuesto', 'reporte', tipo, consultada],
@@ -62,24 +66,35 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
           punto: f.punto ? Number(f.punto) : null,
         },
       }),
-    onSuccess: (r) => notifications.show({ color: 'green', message: r.mensaje }),
-    onError: (e) => avisarError(e, 'No se pudo enviar el reporte.'),
+    onSuccess: (r) => {
+      v.reiniciar();
+      notifications.show({ color: 'green', message: r.mensaje });
+    },
+    onError: (e) => v.errorServidor(e, 'No se pudo enviar el reporte.'),
   });
+  const vigencia = o.vigencias.find((x) => String(x.id) === f.vigencia);
+  const conCorte = tipo === 'ejecucion' && vigencia !== undefined;
+  const conFechas = tipo === 'movimientos' || tipo === 'alertas';
+  // «Desde» posterior a «Hasta» (solo en los reportes con fechas): se marca y no se consulta hasta corregirlo
+  const rango = conFechas ? problemaRango(f.desde, f.hasta) : null;
   const bajar = async (formato: string) => {
+    // Se descarga lo consultado (sus filtros ya eran válidos); el rango solo se revisa si aún no se ha consultado
+    if (!consultada && !v.validar({ hasta: rango })) return;
     try {
       const filtros = consultada ?? consulta;
       await descargar(`/api/presupuesto/reportes/${tipo}/exportar?formato=${formato}${filtros ? '&' + filtros : ''}`);
     } catch (e) {
-      avisarError(e, 'No se pudo descargar el reporte.');
+      v.errorServidor(e, 'No se pudo descargar el reporte.');
     }
   };
-  const vigencia = o.vigencias.find((v) => String(v.id) === f.vigencia);
-  const conCorte = tipo === 'ejecucion' && vigencia !== undefined;
-  const conFechas = tipo === 'movimientos' || tipo === 'alertas';
+  const enviarPor = (formato: string) => {
+    const correo = para.trim();
+    if (v.validar({ hasta: rango, para: errorCorreo(correo, 'Escriba un correo válido (nombre@dominio.co).', 'Escriba el correo del destinatario.') })) enviar.mutate(formato);
+  };
 
   return (
     <Stack>
-      <Card withBorder>
+      <Card withBorder ref={v.ref}>
         <Stack>
           <Select
             label="Reporte"
@@ -97,7 +112,8 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
               label="Vigencia"
               placeholder={tipo === 'mensual' ? 'Elija la vigencia' : 'Todo el contrato'}
               clearable={tipo !== 'mensual'}
-              data={o.vigencias.map((v) => ({ value: String(v.id), label: String(v.anio) }))}
+              clearButtonProps={botonQuitar('la vigencia')}
+              data={o.vigencias.map((x) => ({ value: String(x.id), label: String(x.anio) }))}
               value={f.vigencia || null}
               onChange={(v) => setF({ ...f, vigencia: v ?? '', corte: '' })}
               data-testid="reporte-vigencia"
@@ -107,6 +123,7 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
                 label="Corte"
                 placeholder="Mes actual"
                 clearable
+                clearButtonProps={botonQuitar('el corte')}
                 data={o.vigencias.length && vigencia ? mesesVigencia(vigencia.inicio, vigencia.fin) : []}
                 value={f.corte || null}
                 onChange={(v) => setF({ ...f, corte: v ?? '' })}
@@ -125,6 +142,7 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
               label="Fuerzas"
               placeholder={f.fuerzas.length ? '' : 'Todas'}
               clearable
+              clearButtonProps={botonQuitar('las fuerzas')}
               data={o.fuerzas.map((x) => ({ value: x.codigo, label: x.nombre }))}
               value={f.fuerzas}
               onChange={(v) => setF({ ...f, fuerzas: v })}
@@ -133,6 +151,7 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
               label="Establecimiento"
               placeholder="Todos"
               clearable
+              clearButtonProps={botonQuitar('el establecimiento')}
               searchable
               data={o.puntos
                 .filter((p) => !f.fuerzas.length || f.fuerzas.includes(p.fuerza) || p.fuerza === 'NA')
@@ -145,6 +164,7 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
                 label="Modalidades"
                 placeholder={f.modalidades.length ? '' : 'Todas'}
                 clearable
+                clearButtonProps={botonQuitar('las modalidades')}
                 data={o.modalidades.map((m) => ({ value: m.codigo, label: m.nombre }))}
                 value={f.modalidades}
                 onChange={(v) => setF({ ...f, modalidades: v })}
@@ -155,16 +175,34 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
                 label="Tipo de movimiento"
                 placeholder="Todos"
                 clearable
+                clearButtonProps={botonQuitar('el tipo de movimiento')}
                 data={o.tipos.map((t) => ({ value: t.codigo, label: t.nombre }))}
                 value={f.tipoMovimiento || null}
                 onChange={(v) => setF({ ...f, tipoMovimiento: v ?? '' })}
               />
             )}
             {conFechas && <TextInput label="Desde" type="date" value={f.desde} onChange={(e) => setF({ ...f, desde: e.currentTarget.value })} />}
-            {conFechas && <TextInput label="Hasta" type="date" value={f.hasta} onChange={(e) => setF({ ...f, hasta: e.currentTarget.value })} />}
+            {conFechas && (
+              <TextInput
+                label="Hasta"
+                type="date"
+                value={f.hasta}
+                onChange={(e) => {
+                  setF({ ...f, hasta: e.currentTarget.value });
+                  v.limpiar('hasta');
+                }}
+                error={v.error('hasta') ?? rango ?? undefined}
+              />
+            )}
           </SimpleGrid>
           <Group wrap="wrap" gap="xs">
-            <Button onClick={() => setConsultada(consulta)} loading={reporte.isFetching} data-testid="reporte-ver">
+            <Button
+              onClick={() => {
+                if (v.validar({ hasta: rango })) setConsultada(consulta);
+              }}
+              loading={reporte.isFetching}
+              data-testid="reporte-ver"
+            >
               Ver reporte
             </Button>
             {FORMATOS.map((x) => (
@@ -177,17 +215,23 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
             <TextInput
               label="Enviar por correo a"
               placeholder="nombre@dominio"
+              type="email"
               value={para}
-              onChange={(e) => setPara(e.currentTarget.value)}
+              onChange={(e) => {
+                setPara(e.currentTarget.value);
+                v.limpiar('para');
+              }}
+              error={v.error('para')}
               style={{ flex: '1 1 220px' }}
             />
-            <Button variant="light" disabled={!para.includes('@')} loading={enviar.isPending} onClick={() => enviar.mutate('xlsx')}>
+            <Button variant="light" loading={enviar.isPending} onClick={() => enviarPor('xlsx')}>
               Enviar Excel
             </Button>
-            <Button variant="light" disabled={!para.includes('@')} loading={enviar.isPending} onClick={() => enviar.mutate('pdf')}>
+            <Button variant="light" loading={enviar.isPending} onClick={() => enviarPor('pdf')}>
               Enviar PDF
             </Button>
           </Group>
+          {v.resumen}
         </Stack>
       </Card>
       {reporte.isLoading && <Loader />}
@@ -196,14 +240,14 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
         <Card withBorder data-testid="reporte-resultado">
           <Title order={5}>{reporte.data.titulo}</Title>
           <Text size="xs" c="dimmed">
-            Generado {reporte.data.generado} por {reporte.data.usuario} ·{' '}
+            Generado {fechaHora(reporte.data.generado)} por {reporte.data.usuario} ·{' '}
             {Object.entries(reporte.data.filtros)
-              .map(([k, v]) => `${k}: ${v}`)
+              .map(([k, x]) => `${k}: ${fechasEnTexto(x ?? '')}`)
               .join(' · ')}
           </Text>
           <Text size="xs" c="dimmed" mb="xs">
-            {reporte.data.total} registro(s)
-            {reporte.data.total > reporte.data.filas.length ? `; en pantalla los primeros ${reporte.data.filas.length}, la descarga trae todos` : ''}
+            {conteo(reporte.data.total)} registro(s)
+            {reporte.data.total > reporte.data.filas.length ? `; en pantalla los primeros ${conteo(reporte.data.filas.length)}, la descarga trae todos` : ''}
           </Text>
           <ScrollArea type="auto">
             <Table striped withTableBorder fz="xs" miw={Math.max(600, reporte.data.columnas.length * 110)} data-testid="reporte-tabla">
@@ -219,7 +263,7 @@ export function ReportesPresupuesto({ o }: { o: OpcionesPresupuesto }) {
                   <Table.Tr key={i}>
                     {fila.map((c, j) => (
                       <Table.Td key={j} style={{ whiteSpace: 'nowrap' }}>
-                        {c === null ? '' : String(c)}
+                        {celdaReporte(c)}
                       </Table.Td>
                     ))}
                   </Table.Tr>

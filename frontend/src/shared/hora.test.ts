@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { horaValida, leerHora, separarFechaHora, unirFechaHora } from './hora';
+import { horaValida, leerHora, MENSAJE_HORA, separarFechaHora, unirFechaHora, unirFechaHoraPorCampo } from './hora';
 
 describe('hora militar', () => {
   it('lee la hora en 24 h con o sin dos puntos y la deja con dos dígitos', () => {
@@ -44,5 +44,15 @@ describe('hora militar', () => {
     expect(unirFechaHora('2026-11-03', '', 'Fin real').error).toBe('Fin real: falta la hora.');
     expect(unirFechaHora('', '08:00', 'Fin real').error).toBe('Fin real: falta la fecha.');
     expect(unirFechaHora('2026-11-03', '8:00 pm', 'Fin real').error).toMatch(/^Fin real: escriba la hora en formato de 24 horas/);
+  });
+
+  it('dice en qué campo está el error de la fecha y hora', () => {
+    const campos = { fecha: 'inicioFecha', hora: 'inicioHora' };
+    expect(unirFechaHoraPorCampo('2026-11-03', '930', campos)).toEqual({ valor: '2026-11-03T09:30', errores: {} });
+    expect(unirFechaHoraPorCampo('', '', campos)).toEqual({ valor: '', errores: {} });
+    expect(Object.keys(unirFechaHoraPorCampo('2026-11-03', '', campos).errores)).toEqual(['inicioHora']);
+    expect(Object.keys(unirFechaHoraPorCampo('', '08:00', campos).errores)).toEqual(['inicioFecha']);
+    expect(unirFechaHoraPorCampo('2026-11-03', '25:00', campos).errores).toEqual({ inicioHora: MENSAJE_HORA });
+    expect(unirFechaHoraPorCampo('', 'ab', campos).errores).toEqual({ inicioHora: MENSAJE_HORA });
   });
 });

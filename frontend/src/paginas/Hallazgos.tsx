@@ -21,8 +21,9 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { api, ErrorApi, marcarActividad } from '../shared/api';
+import { api, marcarActividad } from '../shared/api';
 import { rutaSoportesOpl, soportesOplDeVisita, veSoportesOpl } from '../shared/exportacion';
+import { conteo, fecha as fechaPantalla, fechaHora, hoyBogota } from '../shared/formato';
 import { NOMBRE_PLAN } from '../shared/opl';
 import {
   COLOR_OPL,
@@ -35,6 +36,8 @@ import {
   type VisitaConHallazgos,
 } from '../shared/seguimiento';
 import { puedeEntrar, useSesion } from '../shared/sesion';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { useValidacion } from '../shared/validacion';
 
 /**
  * «Prestadores con hallazgos» (decisiones 6.8 y 36): por prestador, la última visita cerrada con hallazgos de cada cadena de
@@ -53,11 +56,16 @@ export function Hallazgos() {
 
   return (
     <Stack>
-      <Title order={3}>Prestadores con hallazgos</Title>
-      <Text size="sm" c="dimmed">
-        Última visita cerrada con hallazgos de cada prestador, con el estado del plan de mejoramiento, la respuesta del operador logístico y la visita
-        de seguimiento.
-      </Text>
+      <EncabezadoPagina
+        titulo="Prestadores con hallazgos"
+        fuente="Anexo 5 · 4.5"
+        descripcion={
+          <>
+            Última visita cerrada con hallazgos de cada prestador, con el estado del plan de mejoramiento, la respuesta del operador logístico y la visita
+            de seguimiento.
+          </>
+        }
+      />
       <TextInput
         label="Buscar"
         placeholder="Prestador, unidad, fuerza o número de visita"
@@ -133,13 +141,13 @@ function Visita({ v }: { v: VisitaConHallazgos }) {
         </Badge>
       </Group>
       <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs" mt="xs">
-        <Dato titulo="Fecha">{v.fecha}</Dato>
+        <Dato titulo="Fecha">{fechaPantalla(v.fecha)}</Dato>
         <Dato titulo="Auditor líder">{v.auditor}</Dato>
-        <Dato titulo="Acciones abiertas">{v.abiertas}</Dato>
+        <Dato titulo="Acciones abiertas">{conteo(v.abiertas)}</Dato>
         <Dato titulo="Plan del OPL">
           {v.planEstado ? NOMBRE_PLAN[v.planEstado] : '—'}
           {v.planFirmado ? ' · firmado' : ''}
-          {v.vencePlan ? ` · vence ${v.vencePlan}` : ''}
+          {v.vencePlan ? ` · vence ${fechaHora(v.vencePlan)}` : ''}
         </Dato>
       </SimpleGrid>
       <Box mt="xs" data-testid="siguiente">
@@ -156,7 +164,7 @@ function Visita({ v }: { v: VisitaConHallazgos }) {
               ) : (
                 v.siguiente.numero
               )}{' '}
-              el {v.siguiente.fecha} ({v.siguiente.estado})
+              el {fechaPantalla(v.siguiente.fecha)} ({v.siguiente.estado})
             </>
           ) : (
             'ninguna programada'
@@ -184,7 +192,7 @@ function Visita({ v }: { v: VisitaConHallazgos }) {
                   </Text>
                   <TextoHallazgo h={h} />
                 </Table.Td>
-                <Table.Td style={{ whiteSpace: 'nowrap' }}>{h.fin ?? '—'}</Table.Td>
+                <Table.Td style={{ whiteSpace: 'nowrap' }}>{fechaPantalla(h.fin)}</Table.Td>
                 <Table.Td>{h.estadoPlan ?? '—'}</Table.Td>
                 <Table.Td>
                   <RespuestaDelOpl h={h} />
@@ -202,7 +210,7 @@ function Visita({ v }: { v: VisitaConHallazgos }) {
             </Text>
             <TextoHallazgo h={h} />
             <SimpleGrid cols={2} spacing="xs" mt={4}>
-              <Dato titulo="Fin del plan">{h.fin ?? '—'}</Dato>
+              <Dato titulo="Fin del plan">{fechaPantalla(h.fin)}</Dato>
               <Dato titulo="Estado del plan">{h.estadoPlan ?? '—'}</Dato>
             </SimpleGrid>
             <Text size="xs" c="dimmed" mt={4}>
@@ -251,24 +259,19 @@ function Visita({ v }: { v: VisitaConHallazgos }) {
   );
 }
 
-/** Hoy en Bogotá (el servidor valida con esa fecha), no en la zona del equipo. */
-function hoy(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Bogota',
-  }).format(new Date());
-}
-
 /** El coordinador programa el seguimiento de una visita cerrada con acciones abiertas que no lo tiene (situación «sin programar»). */
 function ProgramarSeguimiento({ v, alTerminar }: { v: VisitaConHallazgos; alTerminar: () => void }) {
   const qc = useQueryClient();
+  // Hoy en Bogotá (el servidor valida con esa fecha), no en la zona del equipo
+  const hoy = hoyBogota();
   // Como el servidor: solo las acciones abiertas (ni levantadas ni Completado o Cancelado)
   const proxima = v.hallazgos
     .filter((h) => h.estadoOpl !== 'levantado' && !['Completado', 'Cancelado'].includes(h.estadoPlan ?? 'Pendiente'))
     .map((h) => h.fin)
-    .filter((f): f is string => !!f && f >= hoy())
+    .filter((f): f is string => !!f && f >= hoy)
     .sort()[0];
-  const [fecha, setFecha] = useState(proxima ?? hoy());
-  const [error, setError] = useState<string | null>(null);
+  const [fecha, setFecha] = useState(proxima ?? hoy);
+  const validacion = useValidacion({ etiquetas: { fecha: 'Fecha del seguimiento' }, testid: 'error-programar' });
   const guardar = useMutation({
     mutationFn: () =>
       api<{ mensaje: string }>(`/api/visitas/${v.visitaId}/seguimiento`, {
@@ -280,21 +283,29 @@ function ProgramarSeguimiento({ v, alTerminar }: { v: VisitaConHallazgos; alTerm
         autoClose: 10000,
         message: r.mensaje || 'Seguimiento programado.',
       });
+      validacion.reiniciar();
       qc.invalidateQueries({ queryKey: ['hallazgos'] });
       qc.invalidateQueries({ queryKey: ['agenda'] });
       alTerminar();
     },
     onError: (e) => {
-      setError(e instanceof ErrorApi ? e.message : 'No se pudo programar el seguimiento.');
+      validacion.errorServidor(e, 'No se pudo programar el seguimiento.');
       qc.invalidateQueries({ queryKey: ['hallazgos'] });
     },
   });
   return (
     <form
+      ref={validacion.ref}
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        setError(null);
-        if (fecha) guardar.mutate();
+        // Las reglas del servidor (ServicioSeguimiento.programarManual): fecha válida y no anterior a hoy
+        const error = !/^\d{4}-\d{2}-\d{2}$/.test(fecha)
+          ? 'Elija la fecha del seguimiento.'
+          : fecha < hoy
+            ? 'La fecha del seguimiento no puede ser anterior a hoy.'
+            : null;
+        if (validacion.validar({ fecha: error })) guardar.mutate();
       }}
     >
       <Stack>
@@ -302,26 +313,26 @@ function ProgramarSeguimiento({ v, alTerminar }: { v: VisitaConHallazgos; alTerm
           La visita {v.numero} tiene {v.abiertas} acción(es) abierta(s) del plan y no tiene visita de seguimiento. Se programa con el mismo punto,
           hora y equipo, y se notifica como las demás.
         </Text>
-        {error && (
-          <Alert color="red" data-testid="error-programar">
-            {error}
-          </Alert>
-        )}
+        {validacion.resumen}
         <TextInput
           label="Fecha del seguimiento"
           name="fecha"
           type="date"
           required
-          min={hoy()}
+          min={hoy}
           description={proxima ? 'Propuesta: la fecha fin más próxima de las acciones abiertas.' : undefined}
           value={fecha}
-          onChange={(e) => setFecha(e.currentTarget.value)}
+          error={validacion.error('fecha')}
+          onChange={(e) => {
+            setFecha(e.currentTarget.value);
+            validacion.limpiar('fecha');
+          }}
         />
         <Group justify="flex-end">
           <Button variant="default" onClick={alTerminar}>
             Volver
           </Button>
-          <Button type="submit" loading={guardar.isPending} disabled={!fecha}>
+          <Button type="submit" loading={guardar.isPending}>
             Programar seguimiento
           </Button>
         </Group>

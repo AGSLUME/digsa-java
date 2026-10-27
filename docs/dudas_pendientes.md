@@ -850,3 +850,77 @@ Hecho: pantalla «Mapas de visitas» (`MAPAS`, mismos perfiles y alcance que el 
 | AV.3 | **Población de la cobertura** | Puntos activos del alcance, con los filtros de fuerza y unidad, **sin suministro ni satélite** (decisión 16.1). Fechas, tipo y auditor filtran las visitas que cuentan. Sin fechas, el periodo es todo el contrato |
 | AV.4 | **Datos personales** | Los mapas no envían el líder ni el equipo. El filtro por auditor sigue siendo solo de la coordinación (como en el dashboard) |
 | AV.5 | **Opciones de filtro** | `/api/mapas/opciones` devuelve las mismas opciones del dashboard con el permiso de `MAPAS`, porque un rol puede tener los mapas sin el dashboard |
+
+## Interfaz (sesión de interfaz, rama `interfaz`, 2026-10-23)
+
+Auditoría U0 en `docs/auditoria_interfaz_U0.md`. Numeración propia (UI-n) para no chocar con las de las sesiones paralelas.
+
+| N.º | Duda | Qué se hizo mientras tanto |
+|---|---|---|
+| UI-1 | **Opera (Anexo 5 num. 1.18, L318):** no está instalado en el equipo de desarrollo, así que no se puede probar como canal de Playwright. Opera usa el motor Chromium (Blink), el mismo de Chrome y Edge | Se documenta la equivalencia de motor. Recomendado: instalar Opera en el equipo de pruebas (o en el de la prueba en sitio) y correr la suite con `DIGSA_E2E_CANALES=opera` si Playwright lo admite, o un recorrido manual grabado |
+| UI-2 | **«Dos decimales» en conteos (2.4):** ¿un conteo (número de visitas, hallazgos, registros) se muestra «12» o «12,00»? | Recomendado: montos, porcentajes, puntajes, promedios y tiempos siempre con 2 decimales («72,00»); conteos enteros sin decimales («12»), sin separador de miles en ningún caso. La utilidad de formato separa `cifra()` de `entero()` para poder cambiarlo en un solo lugar |
+| UI-3 | **Formato de fecha en pantalla:** hoy las pantallas muestran `2026-10-23` (ISO); el mockup aprobado usa `23/10/2026` | Recomendado: `dd/mm/aaaa` y `dd/mm/aaaa HH:mm` en pantalla (como el mockup), ISO solo en archivos exportados. Las e2e que leen fechas ISO en pantalla se actualizan en el mismo commit |
+| UI-4 | **Tipografía del mockup (IBM Plex Sans y Mono):** el mockup la carga de Google Fonts; la aplicación no debe depender de un CDN externo (alojamiento en Colombia, prueba grabada sin cortes) | Recomendado: alojar los archivos `woff2` en la aplicación con el paquete `@fontsource/ibm-plex-sans` y `@fontsource/ibm-plex-mono` (versión exacta, licencia SIL OFL 1.1, solo latín 400/500/600). Si no se aprueba, se queda la fuente del sistema con los demás tokens del mockup |
+| UI-5 | **Condición 12 (L1008), «cambios de pantalla»:** evidencias, actas anteriores y el escrito de la solicitud se abren hoy en otra pestaña (`target="_blank"`) | Recomendado: visor dentro de la aplicación (modal con el PDF o la imagen) y un enlace de descarga; ninguna acción de la prueba abre otra pestaña |
+| UI-6 | **Errores del servidor junto al campo:** el 422 trae solo `{"mensaje"}` sin el nombre del campo (`ManejadorErrores`), así que la interfaz no sabe a qué campo pertenece | Mientras tanto: las validaciones del cliente marcan el campo y el error del servidor va al resumen persistente del formulario (con `role="alert"`). Recomendado a la sesión 1: agregar `campo` opcional al cuerpo del 422 (compatible hacia atrás) |
+| UI-7 | **Grupos del menú:** el servidor manda 3 grupos (Visitas, Presupuesto, Configuración); el mockup tiene 4 (General, Auditoría, Información, Administración) con ícono y numeral | Se mapean en el frontend por `ruta` (grupo visible, ícono y numeral), sin tocar `Pantallas.java` ni los títulos que usan las e2e |
+| UI-8 | **Aviso sonoro (2.4):** ¿activado por omisión? | Recomendado: activado por omisión, corto y suave, con interruptor en la cabecera recordado en el navegador. Nunca es el único aviso: siempre va con el visual |
+| UI-9 | **Nombre de la aplicación:** «Suite DIGSA» en la cabecera, el ingreso y la pestaña; el mockup usa «Interventoría Integral DIGSA» con el subtítulo «Sistema de información de interventoría · cuentas médicas» | Recomendado: el del mockup. Ninguna e2e usa el texto |
+| UI-10 | **Tablas en celular:** ¿basta el desplazamiento horizontal dentro de la tabla o todas deben pasar a tarjetas? | Tarjetas en las pantallas que se usan en campo o en la prueba (OPL, agenda, calendario, seguimiento, solicitudes, usuarios, logs, detalle de visita, presupuesto, dashboard); las de administración (catálogos, maestros) mantienen el desplazamiento interno |
+| UI-11 | **Campos de fecha:** el `type="date"` nativo (20 campos) se muestra según la configuración regional del navegador (en un equipo en inglés, mm/dd/aaaa) | Se mantiene el nativo (no acepta letras, lo que pide el ítem 12, y las e2e lo usan); se fija `lang="es-CO"` en la página. Cambiar a `DateInput` de Mantine queda como opción si el Comité lo pide |
+| UI-12 | **Solicitudes, 3.7:** «Agendar» y «Anular» se muestran con `coordinador` de la respuesta, pero el servidor exige la pantalla *agenda*; un rol adicional sin *agenda* recibe 403 | Se ocultan también cuando falta la pantalla *agenda* (no cambia permisos: alinea la interfaz con el servidor) |
+
+### Decisiones de la sesión 1 sobre UI-1 a UI-12 (2026-10-23)
+
+| N.º | Decisión | Qué se aplica |
+|---|---|---|
+| UI-1 | Va al Excel para TI | Se documenta que Opera usa el motor Chromium; si aparece instalado se agrega como canal |
+| UI-2 | Va al Excel para el usuario | Mientras tanto: montos, porcentajes y puntajes con 2 decimales y coma; conteos enteros; nunca separador de miles. Centralizado en `shared/formato.ts` (una línea para cambiarlo) |
+| UI-3 | Aprobada | `dd/mm/aaaa` en pantalla; ISO en archivos. Las e2e se ajustan en el mismo commit |
+| UI-4 | Aprobada | `@fontsource/ibm-plex-sans` y `@fontsource/ibm-plex-mono`, versión exacta, OFL 1.1, solo latín 400/500/600, sin CDN |
+| UI-5 | Aprobada | Visor en modal más enlace de descarga (condición 12, L1008) |
+| UI-6 | Se hace en la rama `interfaz` | `campo` opcional y compatible en `ManejadorErrores`, con prueba JUnit; sin cambiar mensajes ni códigos |
+| UI-7 | Aprobada | Mapeo de grupos, íconos y numerales en el frontend, sin tocar `Pantallas.java` |
+| UI-8 | Aprobada | Sonido activado por omisión, interruptor en la cabecera recordado por navegador (con try/catch), siempre junto al aviso visual |
+| UI-9 | Aprobada | «Interventoría Integral DIGSA» en la cabecera; el título del documento queda «Suite DIGSA · <pantalla>» |
+| UI-10, UI-11, UI-12 | Aprobadas como se propusieron | — |
+
+Condiciones: antes de cada commit, suite e2e completa en Chromium, Firefox, WebKit, Chrome y Edge; revisar los `getByRole('heading')` al poner `h1`; el texto de los errores del servidor que buscan las e2e sigue visible donde lo buscan; la división por rutas espera a la integración de reportes y analítica.
+
+### U1 · Sistema visual (2026-10-23)
+
+| N.º | Pendiente o hallazgo | Qué se hizo |
+|---|---|---|
+| UI-13 | **Niveles de encabezado:** con el h1 por página, los subtítulos de sección siguen en `Title order={4|5}` (saltan h2 y h3). Revisión de a11y: P2 | Pasa a U4 (`order={2} size="h5"` sin cambio visual), pantalla por pantalla |
+| UI-14 | La cabecera abre con un h4 «Suite DIGSA» antes del h1 de la página | Pasa a U3 (cabecera nueva, decisión UI-9) |
+| UI-15 | **E2E `sesion.spec` en Edge:** el aviso de inactividad no salía porque la consulta del tablero de presupuesto del inicio respondía después de adelantar el reloj y reiniciaba el plazo (carrera de la prueba, visible porque U1 carga fuentes) | La prueba espera la red quieta antes de `clock.fastForward` (2 pruebas). Pasa en los 5 motores |
+| UI-16 | **E2E intermitente en Firefox:** «contraseña inicial y cierre por el administrador» a veces no ve el aviso «Usuario creado…» en 10 s (el servidor tarda; el aviso aparece después) | Sin cambio: pasa sola (2/2) y en la corrida completa. Mismo tipo que 28.15 |
+| UI-17 | El frontend no tiene ESLint (`react-hooks`, `jsx-a11y`) | Sin cambio (sería dependencia nueva); se propone a la sesión 1 |
+
+### U2 · Formato y alertas de validación (2026-10-23)
+
+| N.º | Duda o pendiente | Qué se hizo mientras tanto |
+|---|---|---|
+| UI-18 | **Reportes (sesión de reportes) aún fuera del estándar 2.4:** «Enviar a» sin validar y con el botón deshabilitado sin explicación, errores de envío y descarga en toasts, Desde/Hasta sin validar, `celda()` con 1 decimal (`toFixed(1)`). Revisión de a11y: P1 | No se tocó (`Reportes.tsx` es de otra sesión). Al integrar: `useValidacion` + `cifra()` de `shared/formato.ts`; la prueba de formato lo excluye hasta entonces |
+| UI-19 | Latencias en milisegundos con 2 decimales («42,40 ms»): se aplicó la regla de cifras a los tiempos | Si se prefieren enteros para los ms, es una línea en `shared/alertas.ts` |
+| UI-20 | Seguimiento: «Iniciada» muestra solo la hora (el servidor manda `LocalTime`); una visita iniciada otro día no dice la fecha | Sin cambio (requiere el servidor) |
+| UI-21 | Propuesta y Usuarios deducen el campo del error por el texto del mensaje del servidor (frágil). El 422 de validación ya trae `campo` (UI-6), pero los `ErrorNegocio` no | Se propone a la sesión 1 agregar `campo` a los `datos` de los `ErrorNegocio` de campo |
+| UI-22 | Validaciones del cliente que se dejaron al servidor porque una e2e espera el mensaje del servidor: teléfono no móvil en Usuarios (alertas.spec:104) y nombre de alerta de 3 a 80 (alertas.spec:35) | El mensaje del servidor queda persistente en el resumen y el campo marcado |
+| UI-23 | Filtros con rango invertido: Dashboard y Reportes de presupuesto bloquean ver y descargar (como ya hacía el Dashboard); Logs no, porque el servidor intercambia las fechas | Sin cambio de reglas del servidor |
+| UI-24 | Botones que siguen deshabilitados porque las e2e comprueban `toBeDisabled` (registrar novedad, aplicar carga, guardar pesos, cerrar incidencia, enviar acta, firmar plan OPL, código OPL): explican el motivo con texto enlazado (`aria-describedby`), pero no avisan con sonido al intentar | Propuesta: pasar a `aria-disabled` + validación al pulsar, ajustando esas e2e, en U4 |
+| UI-25 | **E2E intermitentes con el equipo cargado** (otras sesiones corren sus e2e a la vez): en Firefox, crear un usuario o un rol a veces tarda más de 10 s en mostrar el aviso; en WebKit, el envío de logs por correo | Las 5 aserciones de creación de usuario o rol pasan a 30 s (como `riesgo-tablero.spec`); todas pasan solas |
+| UI-26 | Plan 5W2H: después de un guardado parcial que funcionó, los campos que faltan para el acta quedan en rojo (antes del primer intento se muestran en gris) | Se deja así: es lo que falta para enviar el acta |
+| UI-27 | P3 de a11y: (a) con solo la firma faltante el foco iba al botón «Borrar» del panel y no al lienzo (`PanelFirma` pone `tabIndex=-1`, que `primerCampoConError` excluía); (b) el `Checkbox.Group` de Roles adicionales usa `error` sin `conTexto` (hoy el servidor no lo marca) | (a) corregido en U2: un campo marcado con `tabindex=-1` se enfoca él mismo (prueba en `validacion.test.tsx`). (b) en U3 |
+| UI-29 | **E2E colgada en `presupuesto.spec.ts:46`** (dos corridas de U2): la prueba buscaba un año de vigencia libre con un `while` sobre 2030–2099; la base local de las e2e (`.local/pgdata`) conserva las vigencias de cada corrida y ya tenía los 70 años ocupados, así que el ciclo no terminaba y bloqueaba el proceso de Node (ni el timeout de Playwright saltaba). No era de U2 | `anioLibre()` recorre 2030–2100 una sola vez y, si no queda año, falla con el motivo (5 sitios del spec). La base vieja quedó en `.local/pgdata.bak-20261027`. Las sesiones con base local persistente tienen el mismo límite (81 años) |
+| UI-30 | **Hora como campo de texto (ítem 12 de la prueba en sitio):** el riesgo es que el evaluador pida escribir una hora inválida y lo vea como campo libre | `CampoHora24` pasa a dos listas nativas (hora 00 a 23, minutos 00 a 59, más «--»): no se puede escribir ni elegir una hora fuera de rango y funciona igual con teclado, lector de pantalla y celular. Al elegir la hora sin minutos quedan en 00; minutos sin hora no avisan una hora (el formulario dice «falta la hora»). Nombres accesibles «<etiqueta>: hora» y «<etiqueta>: minutos»; las e2e usan `elegirHora()` |
+| UI-28 | Revisión de U2 (react-reviewer, sin P1): P3 que se dejan para después: el foco que el resumen toma al fallar el cierre de una alerta o incidencia se lo devuelve el `Modal` al botón de la fila (`returnFocus`); el soporte de la novedad de presupuesto se marca en rojo desde la primera letra (debe ser al salir del campo) | Pasan a U4 (Alertas, Riesgo y Presupuesto). Corregidos en U2: `hora()` convierte a Bogotá los instantes con zona; la descarga de reportes de presupuesto valida lo consultado; el interruptor de sonido se sincroniza entre pestañas y el audio se prepara también con `touchend` y `click` (tabletas) |
+
+
+### U3 · Navegación y responsive (2026-10-27)
+
+| N.º | Duda o pendiente | Qué se hizo |
+|---|---|---|
+| UI-31 | **Visor de documentos (UI-5) y la política de seguridad:** la API no se puede enmarcar (`frame-ancestors 'none'`, `X-Frame-Options: DENY`) y `frame-src` solo admitía el captcha | El visor pide el archivo con la sesión de la página y lo muestra desde un `blob:` (imagen o PDF; lo demás solo se descarga). Se agregó `blob:` a `frame-src` en `ConfiguracionSeguridad`; `script-src`, `object-src` y `worker-src` quedan igual. Condiciones de la integradora (riesgo de XSS almacenado: un `blob:` hereda el origen de la aplicación): (1) lista blanca del cliente, solo `application/pdf`, `image/png` e `image/jpeg`, y el blob se crea con ese tipo y no con el de la respuesta; HTML, SVG, HEIC, video y lo demás se descargan como `application/octet-stream`; (2) **el iframe del PDF va sin `sandbox`**: Chrome y Edge (los instalados en el equipo) no dibujan un PDF en un iframe con sandbox, ni con un solo permiso (`allow-scripts`, `allow-same-origin` o `allow-downloads`; probado con capturas el 2026-10-27), y la única combinación que lo dibuja (`allow-scripts allow-same-origin`) anula el sandbox. La protección es el tipo forzado: el navegador lo abre con su visor de PDF, nunca como HTML. Las imágenes van en `<img>`, que no ejecuta scripts; (3) solo cambia `frame-src`; (4) `VisorDocumento.test.tsx` comprueba que un `.html` o un `.svg` no se pinta (ni iframe ni imagen, solo «Descargar»). Ninguna acción abre otra pestaña (e2e en `solicitudes.spec`) |
+| UI-32 | **Pestañas de Presupuesto en celular:** el plan decía «selector compacto», pero `presupuesto.spec` usa las pestañas a 360 px y el teclado las recorre con flechas | Se mantienen las pestañas con desplazamiento horizontal dentro de su barra (la página no se desborda). Un selector compacto queda como opción si el Comité lo pide |
+| UI-33 | **Tablas en tarjetas:** en lugar de duplicar el marcado (tabla y tarjetas, con `data-testid` repetidos), `TablaAdaptable` apila la misma tabla por CSS por debajo de 48em, con el nombre de la columna sobre cada valor y roles explícitos | Aplicado a OPL, agenda y calendario (`TablaVisitas`), seguimiento, solicitudes, usuarios, logs, detalle de visita, presupuesto (líneas e historial), ejecución y dashboard. Catálogos y Maestros siguen con desplazamiento interno (UI-10) |
+| UI-34 | **Inicio:** las tarjetas de módulos del «Panel de interventoría» son botones y no enlaces, para que el menú lateral conserve los únicos enlaces con el nombre de cada pantalla (las e2e los buscan por nombre) | — |

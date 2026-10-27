@@ -2,7 +2,10 @@ import { Alert, Badge, Button, Checkbox, Group, Modal, ScrollArea, Select, Stack
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
-import { api, ErrorApi } from '../shared/api';
+import { api } from '../shared/api';
+import { conteo } from '../shared/formato';
+import { useValidacion } from '../shared/validacion';
+import { conTexto } from '../shared/validaciones';
 
 interface PantallaElegible {
   codigo: string;
@@ -40,6 +43,8 @@ interface Formulario {
 
 const VACIO: Formulario = { id: 0, nombre: '', descripcion: '', baseId: '', pantallas: [] };
 
+const ETIQUETAS = { nombre: 'Nombre del rol', descripcion: 'Descripción', baseId: 'Perfil base', pantallas: 'Pantallas del rol' };
+
 /**
  * Roles adicionales parametrizables (Anexo 5, 1.12): el administrador crea un rol con un perfil base (fija el alcance de los datos y las
  * reglas) y escoge cuáles pantallas de ese perfil ve. El perfil base no se cambia después: cambiaría el alcance de quienes ya lo tienen.
@@ -48,7 +53,9 @@ export function RolesAdicionales({ abierto, alCerrar }: { abierto: boolean; alCe
   const qc = useQueryClient();
   const catalogo = useQuery({ queryKey: ['roles-adicionales'], queryFn: () => api<Catalogo>('/api/usuarios/roles'), enabled: abierto });
   const [form, setForm] = useState<Formulario | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const v = useValidacion({ etiquetas: ETIQUETAS, testid: 'error-rol' });
+  /** Error al activar o inactivar un rol: queda a la vista hasta la siguiente acción. */
+  const vEstado = useValidacion({ testid: 'error-estado-rol' });
 
   const refrescar = () => {
     qc.invalidateQueries({ queryKey: ['roles-adicionales'] });
@@ -63,19 +70,21 @@ export function RolesAdicionales({ abierto, alCerrar }: { abierto: boolean; alCe
       }),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
+      v.reiniciar();
       setForm(null);
       refrescar();
     },
-    onError: (e) => setError(e instanceof ErrorApi ? e.message : 'No se pudo guardar el rol.'),
+    onError: (e) => v.errorServidor(e, 'No se pudo guardar el rol.'),
   });
 
   const estado = useMutation({
     mutationFn: (r: Rol) => api<{ mensaje: string }>(`/api/usuarios/roles/${r.id}/estado`, { metodo: 'PUT', cuerpo: { activo: !r.activo } }),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
+      vEstado.reiniciar();
       refrescar();
     },
-    onError: (e) => notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo cambiar el estado.' }),
+    onError: (e) => vEstado.errorServidor(e, 'No se pudo cambiar el estado.'),
   });
 
   const bases = catalogo.data?.bases ?? [];
@@ -86,15 +95,20 @@ export function RolesAdicionales({ abierto, alCerrar }: { abierto: boolean; alCe
 
   const cerrar = () => {
     setForm(null);
-    setError(null);
+    v.reiniciar();
+    vEstado.reiniciar();
     alCerrar();
   };
 
   const enviar = (e: FormEvent) => {
     e.preventDefault();
     if (!form) return;
-    setError(null);
-    guardar.mutate(form);
+    const ok = v.validar({
+      nombre: form.nombre.trim() ? null : 'Escriba el nombre del rol.',
+      baseId: form.baseId ? null : 'Elija el perfil base.',
+      pantallas: form.baseId && form.pantallas.length === 0 ? 'Marque al menos una pantalla.' : null,
+    });
+    if (ok) guardar.mutate(form);
   };
 
   return (
@@ -105,10 +119,11 @@ export function RolesAdicionales({ abierto, alCerrar }: { abierto: boolean; alCe
           marcadas. Se asignan en el formulario de cada usuario.
         </Text>
         {catalogo.error && <Alert color="red">{catalogo.error.message}</Alert>}
+        {vEstado.resumen}
         <Group justify="flex-end">
           <Button
             onClick={() => {
-              setError(null);
+              v.reiniciar();
               setForm({ ...VACIO });
             }}
           >
@@ -158,7 +173,7 @@ export function RolesAdicionales({ abierto, alCerrar }: { abierto: boolean; alCe
                       ))}
                     </Group>
                   </Table.Td>
-                  <Table.Td>{r.usuarios}</Table.Td>
+                  <Table.Td>{conteo(r.usuarios)}</Table.Td>
                   <Table.Td>
                     <Group gap={4} wrap="nowrap">
                       <Button
@@ -166,7 +181,7 @@ export function RolesAdicionales({ abierto, alCerrar }: { abierto: boolean; alCe
                         variant="light"
                         aria-label={'Editar el rol ' + r.nombre}
                         onClick={() => {
-                          setError(null);
+                          v.reiniciar();
                           setForm({ id: r.id, nombre: r.nombre, descripcion: r.descripcion ?? '', baseId: String(r.baseId), pantallas: r.pantallas });
                         }}
                       >
@@ -198,26 +213,30 @@ export function RolesAdicionales({ abierto, alCerrar }: { abierto: boolean; alCe
         </ScrollArea>
 
         {form && (
-          <form onSubmit={enviar} data-testid="formulario-rol">
+          <form ref={v.ref} onSubmit={enviar} noValidate data-testid="formulario-rol">
             <Stack>
               <Text fw={600}>{form.id ? 'Editar rol' : 'Nuevo rol'}</Text>
-              {error && (
-                <Alert color="red" data-testid="error-rol">
-                  {error}
-                </Alert>
-              )}
+              {v.resumen}
               <TextInput
                 label="Nombre del rol"
                 required
                 maxLength={60}
                 value={form.nombre}
-                onChange={(e) => setForm({ ...form, nombre: e.currentTarget.value })}
+                error={v.error('nombre')}
+                onChange={(e) => {
+                  setForm({ ...form, nombre: e.currentTarget.value });
+                  v.limpiar('nombre');
+                }}
               />
               <TextInput
                 label="Descripción"
                 maxLength={200}
                 value={form.descripcion}
-                onChange={(e) => setForm({ ...form, descripcion: e.currentTarget.value })}
+                error={v.error('descripcion')}
+                onChange={(e) => {
+                  setForm({ ...form, descripcion: e.currentTarget.value });
+                  v.limpiar('descripcion');
+                }}
               />
               <Select
                 label="Perfil base"
@@ -226,10 +245,24 @@ export function RolesAdicionales({ abierto, alCerrar }: { abierto: boolean; alCe
                 disabled={form.id > 0}
                 data={bases.map((b) => ({ value: String(b.id), label: b.nombre }))}
                 value={form.baseId || null}
-                onChange={(v) => setForm({ ...form, baseId: v ?? '', pantallas: [] })}
+                error={v.error('baseId')}
+                onChange={(x) => {
+                  setForm({ ...form, baseId: x ?? '', pantallas: [] });
+                  v.limpiar('baseId');
+                  v.limpiar('pantallas');
+                }}
               />
               {form.baseId && (
-                <Checkbox.Group label="Pantallas del rol" required value={form.pantallas} onChange={(v) => setForm({ ...form, pantallas: v })}>
+                <Checkbox.Group
+                  label="Pantallas del rol"
+                  required
+                  value={form.pantallas}
+                  error={conTexto(v.error('pantallas'))}
+                  onChange={(x) => {
+                    setForm({ ...form, pantallas: x });
+                    v.limpiar('pantallas');
+                  }}
+                >
                   <Stack gap={6} mt={6}>
                     {elegibles.map((p) => (
                       <Checkbox key={p.codigo} value={p.codigo} label={p.titulo} />
@@ -238,10 +271,17 @@ export function RolesAdicionales({ abierto, alCerrar }: { abierto: boolean; alCe
                 </Checkbox.Group>
               )}
               <Group justify="flex-end">
-                <Button variant="default" onClick={() => setForm(null)}>
+                <Button
+                  variant="default"
+                  onClick={() => {
+                    v.reiniciar();
+                    setForm(null);
+                  }}
+                >
                   Cancelar
                 </Button>
-                <Button type="submit" loading={guardar.isPending} disabled={form.pantallas.length === 0}>
+                {/* Habilitado: si falta marcar pantallas, al pulsar se dice junto a la lista */}
+                <Button type="submit" loading={guardar.isPending}>
                   Guardar rol
                 </Button>
               </Group>

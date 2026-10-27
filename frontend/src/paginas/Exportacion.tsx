@@ -1,19 +1,20 @@
 import { Alert, Badge, Button, Center, Group, List, Loader, Paper, SimpleGrid, Stack, Text, Title } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { api, ErrorApi, marcarActividad } from '../shared/api';
+import { api, marcarActividad } from '../shared/api';
 import {
   COLOR_ESTADO,
   enCurso,
   estadoVisible,
   intervaloSondeo,
   NOMBRE_ESTADO,
-  numero,
   rutaDescarga,
   tamanoLegible,
   type Exportacion as Pedido,
 } from '../shared/exportacion';
-import { fechaHora } from '../shared/seguimiento';
+import { conteo, fechaHora } from '../shared/formato';
+import { useValidacion } from '../shared/validacion';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 
 const CLAVE = ['exportacion'];
 
@@ -24,6 +25,7 @@ const CLAVE = ['exportacion'];
  */
 export function Exportacion() {
   const qc = useQueryClient();
+  const v = useValidacion({ testid: 'error-generar-exportacion' });
   const lista = useQuery({
     queryKey: CLAVE,
     queryFn: () => api<Pedido[]>('/api/exportacion'),
@@ -32,14 +34,16 @@ export function Exportacion() {
   });
   const generar = useMutation({
     mutationFn: () => api<Pedido>('/api/exportacion', { metodo: 'POST' }),
+    onSuccess: () => v.reiniciar(),
+    onError: (e) => v.errorServidor(e, 'No se pudo pedir la exportación.'),
     onSettled: () => qc.invalidateQueries({ queryKey: CLAVE }),
   });
   const pedidos = lista.data ?? [];
   const hayEnCurso = pedidos.some(enCurso);
 
   return (
-    <Stack>
-      <Title order={3}>Exportación de datos</Title>
+    <Stack ref={v.ref}>
+      <EncabezadoPagina titulo="Exportación de datos" fuente="Anexo 5 · 1.15" />
       <Text size="sm">Descarga todos los datos de la aplicación en un archivo ZIP con:</Text>
       <List size="sm" spacing={4}>
         <List.Item>
@@ -70,7 +74,7 @@ export function Exportacion() {
           </Text>
         )}
       </Group>
-      {generar.error && <Alert color="red">{generar.error instanceof ErrorApi ? generar.error.message : 'No se pudo pedir la exportación.'}</Alert>}
+      {v.resumen}
 
       <Title order={4} mt="md">
         Sus exportaciones
@@ -120,15 +124,15 @@ function Fila({ p }: { p: Pedido }) {
           <Dato titulo="Terminada">{fechaHora(p.terminado)}</Dato>
           <Dato titulo="Tamaño">{tamanoLegible(p.tamano)}</Dato>
           <Dato titulo="Tablas · filas">
-            {numero(p.tablas)} · {numero(p.filas)}
+            {conteo(p.tablas)} · {conteo(p.filas)}
           </Dato>
-          <Dato titulo="Soportes">{numero(p.soportes)}</Dato>
+          <Dato titulo="Soportes">{conteo(p.soportes)}</Dato>
           <Dato titulo="Vence">{fechaHora(p.vence)}</Dato>
         </SimpleGrid>
       )}
       {estado === 'lista' && ((p.huellasDistintas ?? 0) > 0 || (p.noEncontrados ?? 0) > 0) && (
         <Text size="sm" c="orange" mt="xs">
-          {numero(p.huellasDistintas ?? 0)} soporte(s) con huella distinta y {numero(p.noEncontrados ?? 0)} no encontrado(s) en el almacén: vea el
+          {conteo(p.huellasDistintas ?? 0)} soporte(s) con huella distinta y {conteo(p.noEncontrados ?? 0)} no encontrado(s) en el almacén: vea el
           índice y el LEEME del ZIP.
         </Text>
       )}

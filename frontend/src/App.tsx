@@ -1,4 +1,4 @@
-import { Center, Loader, Stack, Text, Title } from '@mantine/core';
+import { Center, Loader, Text } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { lazy, Suspense, useCallback, useEffect } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
@@ -11,6 +11,7 @@ import { DefinirClave, OlvideClave } from './paginas/Claves';
 import { Dashboard } from './paginas/Dashboard';
 import { Exportacion } from './paginas/Exportacion';
 import { Hallazgos } from './paginas/Hallazgos';
+import { Inicio } from './paginas/Inicio';
 import { Ingreso } from './paginas/Ingreso';
 import { Logs } from './paginas/Logs';
 import { Reportes } from './paginas/Reportes';
@@ -23,7 +24,6 @@ import { OplResponder } from './paginas/OplResponder';
 import { Prorrogas } from './paginas/Prorrogas';
 // --- Presupuesto (rama presupuesto) ---
 import { Presupuesto } from './paginas/Presupuesto';
-import { ResumenPresupuestoInicio } from './paginas/PresupuestoTablero';
 // --- fin presupuesto ---
 import { Propuesta } from './paginas/Propuesta';
 import { Seguimiento } from './paginas/Seguimiento';
@@ -35,19 +35,6 @@ import { ProveedorSesion, puedeEntrar, useSesion, type DatosSesion } from './sha
 
 // Los mapas (límites departamentales, ~60 kB) se cargan al abrir la pantalla
 const Mapas = lazy(() => import('./paginas/Mapas').then((m) => ({ default: m.Mapas })));
-
-function Inicio() {
-  const s = useSesion();
-  return (
-    <Stack>
-      <Title order={3}>Bienvenido, {s.nombre}</Title>
-      <Text c="dimmed">Perfiles: {s.perfiles.join(', ')}</Text>
-      {/* --- Presupuesto (rama presupuesto; mockup: «Ejecución presupuestal nacional» en el inicio) --- */}
-      {puedeEntrar(s, 'presupuesto') && <ResumenPresupuestoInicio />}
-      {/* --- fin presupuesto --- */}
-    </Stack>
-  );
-}
 
 function Protegida({ ruta, children }: { ruta: string; children: JSX.Element }) {
   const s = useSesion();

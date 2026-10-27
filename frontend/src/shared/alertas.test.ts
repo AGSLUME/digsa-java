@@ -21,13 +21,16 @@ describe('latencia legible', () => {
     expect(latenciaLegible(Number.NaN)).toBe('—');
   });
   it('milisegundos bajo 100 ms', () => {
-    expect(latenciaLegible(0)).toBe('0 ms');
-    expect(latenciaLegible(42.4)).toBe('42 ms');
+    expect(latenciaLegible(0)).toBe('0,00 ms');
+    expect(latenciaLegible(42.4)).toBe('42,40 ms');
   });
-  it('segundos con coma decimal', () => {
-    expect(latenciaLegible(500)).toBe('0,5 s');
-    expect(latenciaLegible(1250)).toBe('1,3 s');
-    expect(latenciaLegible(59_000)).toBe('59,0 s');
+  it('segundos con 2 decimales y coma decimal', () => {
+    expect(latenciaLegible(500)).toBe('0,50 s');
+    expect(latenciaLegible(1250)).toBe('1,25 s');
+    expect(latenciaLegible(1255)).toBe('1,26 s');
+    expect(latenciaLegible(59_000)).toBe('59,00 s');
+    expect(latenciaLegible(59_994)).toBe('59,99 s');
+    expect(latenciaLegible(59_996)).toBe('1 min');
   });
   it('minutos y horas', () => {
     expect(latenciaLegible(60_000)).toBe('1 min');

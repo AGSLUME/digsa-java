@@ -3,6 +3,8 @@
  * (qué botones mostrar por ciclo, opciones de líder y de otros, cuerpo del ajuste de una fila).
  */
 
+import { fecha } from './formato';
+
 /** Otros auditores además del líder (Reparto.MAX_OTROS). */
 export const MAX_OTROS = 5;
 
@@ -114,7 +116,7 @@ export const NOMBRE_ESTADO: Record<EstadoPropuesta, string> = {
 };
 
 export function etiquetaAnio(a: AnioContrato): string {
-  return `Año de contrato ${a.anio} (${a.desde} – ${a.hasta})`;
+  return `Año de contrato ${a.anio} (${fecha(a.desde)} – ${fecha(a.hasta)})`;
 }
 
 export interface BotonesCiclo {
@@ -143,7 +145,7 @@ export function botonesCiclo(c: CicloPropuesta): BotonesCiclo {
 /** Periodo del ciclo para la tarjeta. */
 export function periodoCiclo(c: CicloPropuesta): string {
   if (!c.desde || !c.limite) return '—';
-  return `${c.desde} a ${c.limite}`;
+  return `${fecha(c.desde)} a ${fecha(c.limite)}`;
 }
 
 /** Edición de una fila en la pantalla (los ids van como texto, como los usan los Select de Mantine). */

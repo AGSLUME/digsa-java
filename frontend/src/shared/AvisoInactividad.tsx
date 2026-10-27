@@ -2,6 +2,7 @@ import { Button, Group, Modal, Text } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import { api, CLAVE_ACTIVIDAD, CLAVE_MOTIVO, ErrorApi, marcarActividad } from './api';
 import { estadoAviso, mmss, ultimaActividadDelServidor } from './inactividad';
+import { publicarRestantes } from './relojSesion';
 
 /**
  * Aviso de cierre por inactividad con cuenta regresiva, «Salir» y «Seguir conectado». La última actividad se comparte entre
@@ -55,6 +56,7 @@ export function AvisoInactividad({ minutos, alSalir }: { minutos: number; alSali
         // sin almacenamiento compartido
       }
       const e = estadoAviso(ultima, Date.now(), vigentes);
+      publicarRestantes(e.restantes); // cuenta regresiva de la cabecera
       if (e.vencida || Date.now() - sincronizado.current >= 60_000) {
         if (verificando.current) return;
         verificando.current = true;
@@ -85,7 +87,10 @@ export function AvisoInactividad({ minutos, alSalir }: { minutos: number; alSali
       }
       setRestantes(e.mostrar ? e.restantes : null);
     }, 1000);
-    return () => clearInterval(t);
+    return () => {
+      clearInterval(t);
+      publicarRestantes(null);
+    };
   }, [vigentes, alSalir]);
 
   const seguir = async () => {

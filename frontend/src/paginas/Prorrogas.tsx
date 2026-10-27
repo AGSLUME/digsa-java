@@ -1,28 +1,10 @@
-import {
-  Alert,
-  Anchor,
-  Badge,
-  Box,
-  Button,
-  Card,
-  Center,
-  Group,
-  Loader,
-  Modal,
-  ScrollArea,
-  Select,
-  SimpleGrid,
-  Stack,
-  Table,
-  Text,
-  Textarea,
-  Title,
-} from '@mantine/core';
+import { Alert, Anchor, Badge, Box, Button, Card, Center, Group, Loader, Modal, ScrollArea, Select, SimpleGrid, Stack, Table, Text, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, ErrorApi } from '../shared/api';
+import { api } from '../shared/api';
+import { fecha } from '../shared/formato';
 import {
   COLOR_PRORROGA,
   errorMotivo,
@@ -34,6 +16,8 @@ import {
   type Prorroga,
 } from '../shared/seguimiento';
 import { puedeEntrar, useSesion } from '../shared/sesion';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { useValidacion } from '../shared/validacion';
 
 const ESTADOS = [
   { value: 'solicitada', label: 'Solicitadas' },
@@ -41,14 +25,6 @@ const ESTADOS = [
   { value: 'rechazada', label: 'Rechazadas' },
   { value: 'todas', label: 'Todas' },
 ];
-
-function avisarError(e: unknown, texto: string) {
-  notifications.show({
-    color: 'red',
-    autoClose: 10000,
-    message: e instanceof ErrorApi ? e.message : texto,
-  });
-}
 
 /**
  * «Prórrogas del plan» (decisión 12.1, con la resolución recomendada): las prórrogas que pidió el auditor en el acta del seguimiento.
@@ -64,6 +40,8 @@ export function Prorrogas() {
     queryFn: () => api<Prorroga[]>(`/api/prorrogas?estado=${encodeURIComponent(estado)}`),
   });
   const verVisita = puedeEntrar(s, 'agenda');
+  // Error al aprobar: persistente encima de la lista (antes, aviso que se cerraba solo)
+  const v = useValidacion({ testid: 'error-prorrogas' });
   const aprobar = useMutation({
     mutationFn: (p: Prorroga) =>
       api<{ mensaje: string }>(`/api/prorrogas/${p.id}/decision`, {
@@ -71,23 +49,29 @@ export function Prorrogas() {
       }),
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
+      v.reiniciar();
       qc.invalidateQueries({ queryKey: ['prorrogas'] });
     },
     onError: (e) => {
-      avisarError(e, 'No se pudo aprobar la prórroga.');
+      v.errorServidor(e, 'No se pudo aprobar la prórroga.');
       qc.invalidateQueries({ queryKey: ['prorrogas'] });
     },
   });
   const filas = lista.data ?? [];
 
   return (
-    <Stack>
-      <Title order={3}>Prórrogas del plan</Title>
-      <Text size="sm" c="dimmed">
-        En el seguimiento, una acción que sigue abierta y cuya fecha fin pasa a ser posterior a la anterior es una prórroga: el auditor la justifica
-        en el acta y queda solicitada. Pasa a aprobada cuando la aprueban la coordinación y la DIGSA; cualquiera de las dos puede rechazarla con el
-        motivo.
-      </Text>
+    <Stack ref={v.ref}>
+      <EncabezadoPagina
+        titulo="Prórrogas del plan"
+        fuente="Anexo 5 · 4.5"
+        descripcion={
+          <>
+            En el seguimiento, una acción que sigue abierta y cuya fecha fin pasa a ser posterior a la anterior es una prórroga: el auditor la justifica
+            en el acta y queda solicitada. Pasa a aprobada cuando la aprueban la coordinación y la DIGSA; cualquiera de las dos puede rechazarla con el
+            motivo.
+          </>
+        }
+      />
       <Select
         label="Estado"
         w={220}
@@ -98,6 +82,7 @@ export function Prorrogas() {
         data-testid="filtro-prorrogas"
       />
       {lista.error && <Alert color="red">{lista.error.message}</Alert>}
+      {v.resumen}
       {lista.isLoading ? (
         <Center py="xl">
           <Loader />
@@ -120,7 +105,7 @@ export function Prorrogas() {
                     {p.punto} · origen {p.origenNumero}
                   </Text>
                   <Text size="sm">
-                    Fin: {p.finAnterior} → {p.finNuevo}
+                    Fin: {fecha(p.finAnterior)} → {fecha(p.finNuevo)}
                   </Text>
                   <Text size="sm" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                     {p.justificacion}
@@ -151,7 +136,7 @@ export function Prorrogas() {
                         mih={44}
                         disabled={aprobar.isPending}
                         loading={aprobar.isPending && aprobar.variables?.id === p.id}
-                        onClick={() => window.confirm(`¿Aprobar la prórroga de ${p.codigo} hasta el ${p.finNuevo}?`) && aprobar.mutate(p)}
+                        onClick={() => window.confirm(`¿Aprobar la prórroga de ${p.codigo} hasta el ${fecha(p.finNuevo)}?`) && aprobar.mutate(p)}
                       >
                         Aprobar
                       </Button>
@@ -200,13 +185,13 @@ export function Prorrogas() {
                         Origen: {p.origenNumero}
                       </Text>
                       <Text size="xs" c="dimmed">
-                        Seguimiento del {p.fechaSeguimiento}
+                        Seguimiento del {fecha(p.fechaSeguimiento)}
                       </Text>
                     </Table.Td>
                     <Table.Td>{p.punto}</Table.Td>
                     <Table.Td style={{ whiteSpace: 'nowrap' }}>{p.codigo}</Table.Td>
-                    <Table.Td style={{ whiteSpace: 'nowrap' }}>{p.finAnterior}</Table.Td>
-                    <Table.Td style={{ whiteSpace: 'nowrap' }}>{p.finNuevo}</Table.Td>
+                    <Table.Td style={{ whiteSpace: 'nowrap' }}>{fecha(p.finAnterior)}</Table.Td>
+                    <Table.Td style={{ whiteSpace: 'nowrap' }}>{fecha(p.finNuevo)}</Table.Td>
                     <Table.Td maw={320}>
                       <Text
                         size="sm"
@@ -241,7 +226,7 @@ export function Prorrogas() {
                             aria-label={`Aprobar la prórroga de ${p.codigo} en la visita ${p.numero}`}
                             loading={aprobar.isPending && aprobar.variables?.id === p.id}
                             disabled={aprobar.isPending}
-                            onClick={() => window.confirm(`¿Aprobar la prórroga de ${p.codigo} hasta el ${p.finNuevo}?`) && aprobar.mutate(p)}
+                            onClick={() => window.confirm(`¿Aprobar la prórroga de ${p.codigo} hasta el ${fecha(p.finNuevo)}?`) && aprobar.mutate(p)}
                           >
                             Aprobar
                           </Button>
@@ -303,7 +288,7 @@ function Decision({ decision, nombre, fecha }: { decision: DecisionProrroga | nu
 function Rechazar({ prorroga, alTerminar }: { prorroga: Prorroga; alTerminar: () => void }) {
   const qc = useQueryClient();
   const [motivo, setMotivo] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const v = useValidacion({ etiquetas: { motivo: 'Motivo del rechazo' }, testid: 'error-rechazo' });
   const rechazar = useMutation({
     mutationFn: () =>
       api<{ mensaje: string }>(`/api/prorrogas/${prorroga.id}/decision`, {
@@ -315,29 +300,26 @@ function Rechazar({ prorroga, alTerminar }: { prorroga: Prorroga; alTerminar: ()
       alTerminar();
     },
     onError: (e) => {
-      setError(e instanceof ErrorApi ? e.message : 'No se pudo rechazar la prórroga.');
+      v.errorServidor(e, 'No se pudo rechazar la prórroga.');
       qc.invalidateQueries({ queryKey: ['prorrogas'] });
     },
   });
   return (
     <form
+      ref={v.ref}
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        const falta = errorMotivo(motivo);
-        setError(falta);
-        if (!falta) rechazar.mutate();
+        // El mensaje de errorMotivo queda junto al campo
+        if (v.validar({ motivo: errorMotivo(motivo) })) rechazar.mutate();
       }}
     >
       <Stack>
         <Text size="sm">
-          Visita {prorroga.numero} · {prorroga.punto}: la fecha fin pasaría del {prorroga.finAnterior} al {prorroga.finNuevo}. Si se rechaza y cambia
+          Visita {prorroga.numero} · {prorroga.punto}: la fecha fin pasaría del {fecha(prorroga.finAnterior)} al {fecha(prorroga.finNuevo)}. Si se rechaza y cambia
           la fecha del seguimiento, el coordinador lo reprograma.
         </Text>
-        {error && (
-          <Alert color="red" data-testid="error-rechazo">
-            {error}
-          </Alert>
-        )}
+        {v.resumen}
         <Textarea
           label="Motivo del rechazo"
           name="motivo"
@@ -347,7 +329,11 @@ function Rechazar({ prorroga, alTerminar }: { prorroga: Prorroga; alTerminar: ()
           maxLength={MOTIVO_MAX}
           description="De 10 a 800 caracteres."
           value={motivo}
-          onChange={(e) => setMotivo(e.currentTarget.value)}
+          error={v.error('motivo')}
+          onChange={(e) => {
+            setMotivo(e.currentTarget.value);
+            v.limpiar('motivo');
+          }}
         />
         <Group justify="flex-end">
           <Button variant="default" onClick={alTerminar}>

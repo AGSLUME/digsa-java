@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { ADMIN, api, dentroDe, ingresar, ingresarConClaveInicial, salir, unico } from './apoyo';
+import { elegirHora } from './apoyo-acta';
 
 // Anexo 5, prueba 4 (catálogos en vivo) y prueba 11 (visita con componentes elegidos, cada uno asignado a un auditor que ve solo lo suyo,
 // estados, calendario y seguimiento en tiempo real).
@@ -98,11 +99,8 @@ test('prueba 11: visita con componentes elegidos y C13 asignado al regente, que 
   await dialogo.getByRole('textbox', { name: 'Punto' }).fill(nombrePunto);
   await page.getByRole('option', { name: new RegExp(nombrePunto) }).click();
   await dialogo.locator('input[type="date"]').first().fill(dentroDe(20));
-  // Hora militar (D4): campo propio en 24 h, sin a. m./p. m.; «1545» queda 15:45 al salir del campo
-  const hora = dialogo.getByRole('textbox', { name: 'Hora', exact: true });
-  await hora.fill('1545');
-  await hora.blur();
-  await expect(hora).toHaveValue('15:45');
+  // Hora militar (D4; ítem 12): dos listas en 24 h, sin a. m./p. m. y sin escribir
+  await elegirHora(dialogo, 'Hora', '15:45');
   await dialogo.getByRole('textbox', { name: 'Auditor líder' }).fill(auditores.qf!.usuario);
   await page.getByRole('option', { name: new RegExp(auditores.qf!.usuario) }).click();
   await dialogo.getByRole('textbox', { name: 'Otros auditores' }).fill(auditores.reg!.usuario);
@@ -131,14 +129,16 @@ test('prueba 11: visita con componentes elegidos y C13 asignado al regente, que 
   expect(numero).not.toBe('');
   await expect(page.getByTestId('asignacion')).toContainText('C13');
   await expect(detalle).toContainText('15:45');
-  // La reprogramación usa el mismo campo: trae la hora en 24 h y rechaza una hora fuera de rango
+  // La reprogramación usa el mismo campo: trae la hora en 24 h y solo ofrece 00 a 23 y 00 a 59 (una hora fuera de rango no se puede elegir)
   await page.getByRole('button', { name: 'Reprogramar' }).click();
   const reprogramar = page.getByRole('dialog');
-  const horaNueva = reprogramar.getByRole('textbox', { name: 'Hora', exact: true });
-  await expect(horaNueva).toHaveValue('15:45');
-  await horaNueva.fill('25:00');
-  await horaNueva.blur();
-  await expect(reprogramar.getByText('Escriba la hora en formato de 24 horas (HH:MM), de 00:00 a 23:59.')).toBeVisible();
+  const horas = reprogramar.getByRole('combobox', { name: 'Hora: hora', exact: true });
+  const minutos = reprogramar.getByRole('combobox', { name: 'Hora: minutos', exact: true });
+  await expect(horas).toHaveValue('15');
+  await expect(minutos).toHaveValue('45');
+  const opciones = async (l: typeof horas) => l.locator('option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).filter(Boolean));
+  expect(await opciones(horas)).toEqual(Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')));
+  expect(await opciones(minutos)).toEqual(Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')));
   await reprogramar.getByRole('button', { name: 'Volver' }).click();
   await expect(reprogramar).toHaveCount(0);
 

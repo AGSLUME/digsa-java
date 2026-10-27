@@ -22,7 +22,9 @@ test('celular (360 px): ninguna pantalla del menú desborda a lo ancho', async (
       await page.getByRole('button', { name: 'Menú' }).click();
       await modulos.getByRole('link', { name: p.titulo, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/${p.ruta}$`));
-      await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+      // La pantalla terminó de descargarse (sin la espera de la división por rutas); los encabezados los revisa el recorrido de capturas
+      await expect(page.getByRole('main').getByRole('status', { name: 'Cargando la pantalla' })).toHaveCount(0);
+      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => undefined);
       await sinDesplazamientoHorizontal(page);
     });
   }

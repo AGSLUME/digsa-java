@@ -141,5 +141,16 @@ La operación del servidor (instalación, respaldo, restauración, actualizació
 | `DIGSA_SMTP_HOST`, `DIGSA_SMTP_PUERTO`, `DIGSA_SMTP_USUARIO`, `DIGSA_SMTP_CLAVE`, `DIGSA_CORREO_REMITENTE` | Correo SMTP |
 | `DIGSA_TURNSTILE_SITIO`, `DIGSA_TURNSTILE_SECRETA` | Captcha Cloudflare Turnstile. Sin clave secreta nadie ingresa, salvo en local |
 | `DIGSA_CORREO_REPORTES` | Correo por defecto para enviar reportes (prueba en sitio: el del comité) |
+| `digsa.reportes.*` (opcionales) | Módulo de reportes: `filas-pantalla` (5000), `adjunto-max-mb` (10), `verificaciones-por-minuto` (30), `plazo-ver-ms` (180000) y `plazo-exportar-ms` (600000) de 2.7, que solo avisan; `tope-tecnico-ms` (3600000) y `tope-tecnico-ver-ms` (600000), que sí cortan; `espera-sincrona-ms` (15000), `concurrencia` (4), `en-curso-por-usuario` (2), `limpieza-ms` (60000) |
+
+**Módulo de reportes** (`docs/especificaciones/reportes`):
+- `backend/app/.../reportes` tiene solo el contrato `ProveedorReporte`: cada módulo aporta así sus reportes (`contrato-proveedor.md`).
+- `motorreportes` tiene el motor, el catálogo, los filtros, los formatos en flujo, la huella con su código de verificación, el
+  registro `reportes_generados` y la verificación.
+- La pantalla «Reportes» tiene las pestañas «Descargas del día» (cada archivo se vuelve a bajar hasta las 23:59 de Bogotá, solo
+  quien lo pidió), «Verificar reporte» (por archivo o por código) y «Tiempos» (solo el Administrador: p50, p95 y máximo por reporte).
+- Prueba de volumen, fuera del ciclo rápido (1,5 M visitas por defecto; deja los tiempos en `backend/app/target/volumen-reportes.txt`):
+  `cd backend && ./mvnw test -Dtest=VolumenReportesApiTest -Ddigsa.volumen=true -Dsurefire.failIfNoSpecifiedTests=false` (opcional `-Ddigsa.volumen.filas=N`). Resultados
+  en `docs/dudas_pendientes.md`, sección «Reportes», R5.
 
 El primer administrador se crea solo por línea de comandos (`--digsa.crear-admin.correo=… --digsa.crear-admin.nombre=…`). No hay contraseñas en el repositorio. Los demás usuarios de la carga inicial entran con `--digsa.carga.*` (`docs/guia_carga_maestros.md`) y reciben el enlace para definir su contraseña.

@@ -1,6 +1,6 @@
 import { Center, Loader, Text } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect } from 'react';
+import { lazy, Suspense, useCallback, useEffect } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Agenda } from './paginas/Agenda';
 import { Alertas } from './paginas/Alertas';
@@ -32,6 +32,9 @@ import { VisitaDetalle } from './paginas/VisitaDetalle';
 import { alCerrarseLaSesion, api, ErrorApi } from './shared/api';
 import { Plantilla } from './shared/Plantilla';
 import { ProveedorSesion, puedeEntrar, useSesion, type DatosSesion } from './shared/sesion';
+
+// Los mapas (límites departamentales, ~60 kB) se cargan al abrir la pantalla
+const Mapas = lazy(() => import('./paginas/Mapas').then((m) => ({ default: m.Mapas })));
 
 function Protegida({ ruta, children }: { ruta: string; children: JSX.Element }) {
   const s = useSesion();
@@ -108,6 +111,7 @@ export function App() {
           <Route path="/reportes" element={<Protegida ruta="reportes"><Reportes /></Protegida>} />
           <Route path="/riesgo" element={<Protegida ruta="riesgo"><Riesgo /></Protegida>} />
           <Route path="/dashboard" element={<Protegida ruta="dashboard"><Dashboard /></Protegida>} />
+          <Route path="/mapas" element={<Protegida ruta="mapas"><Suspense fallback={<Center py="xl"><Loader /></Center>}><Mapas /></Suspense></Protegida>} />
           <Route path="/solicitudes" element={<Protegida ruta="solicitudes"><Solicitudes /></Protegida>} />
           <Route path="/prorrogas" element={<Protegida ruta="prorrogas"><Prorrogas /></Protegida>} />
           <Route path="/hallazgos" element={<Protegida ruta="hallazgos"><Hallazgos /></Protegida>} />

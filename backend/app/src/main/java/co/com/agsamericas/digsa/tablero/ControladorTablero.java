@@ -5,6 +5,7 @@ import co.com.agsamericas.digsa.plataforma.Accion;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Bitacora.Declarada;
 import co.com.agsamericas.digsa.reglas.Riesgo;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpHeaders;
@@ -119,12 +120,14 @@ public class ControladorTablero {
         return descarga(a);
     }
 
-    /** Las mismas opciones de filtro del dashboard: un rol puede tener los mapas sin el dashboard. */
+    /** Las mismas opciones de filtro del dashboard (un rol puede tener los mapas sin el dashboard) y las capitales del mapa político. */
     @GetMapping("/api/mapas/opciones")
     @PreAuthorize("@permisos.pantalla('MAPAS')")
     @Accion(modulo = "mapas", accion = "opciones", operacion = Declarada.SIN_REGISTRO)
     public Map<String, Object> opcionesMapas() {
-        return dashboard.opciones(UsuarioSesion.alcanceActual());
+        Map<String, Object> r = new LinkedHashMap<>(dashboard.opciones(UsuarioSesion.alcanceActual()));
+        r.put("capitales", mapas.capitales());
+        return r;
     }
 
     @GetMapping("/api/mapas/visitas")

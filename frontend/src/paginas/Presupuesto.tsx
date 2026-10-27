@@ -59,6 +59,7 @@ import {
   type TipoNovedad,
 } from '../shared/presupuesto';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 /** Errores por fila o por línea que devuelve el servidor (422 con «errores»). */
 function erroresDe(e: unknown): string[] {
@@ -275,60 +276,62 @@ function Lineas({ o, alVerHistorial }: { o: OpcionesPresupuesto; alVerHistorial:
       {lineas.isLoading && <Loader />}
       {lineas.data && lineas.data.length === 0 && <Text c="dimmed">No hay líneas con presupuesto para estos filtros.</Text>}
       {lineas.data && lineas.data.length > 0 && (
-        <ScrollArea type="auto" style={{ opacity: lineas.isPlaceholderData ? 0.6 : 1 }}>
-          <Table striped withTableBorder miw={900} data-testid="tabla-lineas">
-            <Table.Thead>
-              <Table.Tr>
-                {!f.vigencia && <Table.Th>Vigencia</Table.Th>}
-                <Table.Th>ESM</Table.Th>
-                <Table.Th>Modalidad</Table.Th>
-                <Table.Th>Fuerza</Table.Th>
-                <Table.Th ta="right">Asignado</Table.Th>
-                <Table.Th ta="right">Facturado</Table.Th>
-                <Table.Th ta="right">Reconocido</Table.Th>
-                <Table.Th ta="right">Saldo</Table.Th>
-                <Table.Th ta="right">% ejecución</Table.Th>
-                <Table.Th />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {lineas.data.map((l) => (
-                <Table.Tr key={l.id} data-testid={`linea-${l.id}`}>
-                  {!f.vigencia && <Table.Td>{l.vigencia}</Table.Td>}
-                  <Table.Td>{etiquetaPunto(l)}</Table.Td>
-                  <Table.Td>{l.modalidadNombre}</Table.Td>
-                  <Table.Td>{l.fuerza}</Table.Td>
-                  <Table.Td ta="right" ff="monospace" data-testid="asignado">
-                    {l.asignado}
-                  </Table.Td>
-                  <Table.Td ta="right" ff="monospace">
-                    {l.facturado}
-                  </Table.Td>
-                  <Table.Td ta="right" ff="monospace">
-                    {l.reconocido}
-                  </Table.Td>
-                  <Table.Td ta="right" ff="monospace" c={l.saldo.startsWith('-') ? 'red' : undefined}>
-                    {l.saldo}
-                  </Table.Td>
-                  <Table.Td ta="right">
-                    <Badge color={colorSemaforo(l.semaforo)} variant="light">
-                      {l.porcentaje === null ? 'sin asignado' : `${l.porcentaje} %`}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>
-                    <Button
-                      size="compact-xs"
-                      variant="subtle"
-                      onClick={() => alVerHistorial({ vigencia: f.vigencia, punto: String(l.puntoId), modalidad: l.modalidad })}
-                    >
-                      Historial
-                    </Button>
-                  </Table.Td>
+        <div style={{ opacity: lineas.isPlaceholderData ? 0.6 : 1 }}>
+          <TablaAdaptable>
+            <Table striped withTableBorder miw={900} data-testid="tabla-lineas">
+              <Table.Thead>
+                <Table.Tr>
+                  {!f.vigencia && <Table.Th>Vigencia</Table.Th>}
+                  <Table.Th>ESM</Table.Th>
+                  <Table.Th>Modalidad</Table.Th>
+                  <Table.Th>Fuerza</Table.Th>
+                  <Table.Th ta="right">Asignado</Table.Th>
+                  <Table.Th ta="right">Facturado</Table.Th>
+                  <Table.Th ta="right">Reconocido</Table.Th>
+                  <Table.Th ta="right">Saldo</Table.Th>
+                  <Table.Th ta="right">% ejecución</Table.Th>
+                  <Table.Th />
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
+              </Table.Thead>
+              <Table.Tbody>
+                {lineas.data.map((l) => (
+                  <Table.Tr key={l.id} data-testid={`linea-${l.id}`}>
+                    {!f.vigencia && <Table.Td>{l.vigencia}</Table.Td>}
+                    <Table.Td>{etiquetaPunto(l)}</Table.Td>
+                    <Table.Td>{l.modalidadNombre}</Table.Td>
+                    <Table.Td>{l.fuerza}</Table.Td>
+                    <Table.Td ta="right" ff="monospace" data-testid="asignado">
+                      {l.asignado}
+                    </Table.Td>
+                    <Table.Td ta="right" ff="monospace">
+                      {l.facturado}
+                    </Table.Td>
+                    <Table.Td ta="right" ff="monospace">
+                      {l.reconocido}
+                    </Table.Td>
+                    <Table.Td ta="right" ff="monospace" c={l.saldo.startsWith('-') ? 'red' : undefined}>
+                      {l.saldo}
+                    </Table.Td>
+                    <Table.Td ta="right">
+                      <Badge color={colorSemaforo(l.semaforo)} variant="light">
+                        {l.porcentaje === null ? 'sin asignado' : `${l.porcentaje} %`}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Button
+                        size="compact-xs"
+                        variant="subtle"
+                        onClick={() => alVerHistorial({ vigencia: f.vigencia, punto: String(l.puntoId), modalidad: l.modalidad })}
+                      >
+                        Historial
+                      </Button>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </TablaAdaptable>
+        </div>
       )}
     </Stack>
   );
@@ -667,38 +670,40 @@ function Historial({ o, filtros, setFiltros }: { o: OpcionesPresupuesto; filtros
               {m.observacion}
             </Text>
           )}
-          <ScrollArea type="auto" mt="xs">
-            <Table withTableBorder miw={640} fz="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>ESM</Table.Th>
-                  <Table.Th>Modalidad</Table.Th>
-                  <Table.Th ta="right">Valor</Table.Th>
-                  <Table.Th ta="right">Asignado antes</Table.Th>
-                  <Table.Th ta="right">Asignado después</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {m.lineas.map((l) => (
-                  <Table.Tr key={l.lineaId}>
-                    <Table.Td>
-                      {l.esm} ({l.fuerza})
-                    </Table.Td>
-                    <Table.Td>{l.modalidad}</Table.Td>
-                    <Table.Td ta="right" ff="monospace">
-                      {l.valor}
-                    </Table.Td>
-                    <Table.Td ta="right" ff="monospace">
-                      {l.antes}
-                    </Table.Td>
-                    <Table.Td ta="right" ff="monospace">
-                      {l.despues}
-                    </Table.Td>
+          <Box mt="xs">
+            <TablaAdaptable>
+              <Table withTableBorder miw={640} fz="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>ESM</Table.Th>
+                    <Table.Th>Modalidad</Table.Th>
+                    <Table.Th ta="right">Valor</Table.Th>
+                    <Table.Th ta="right">Asignado antes</Table.Th>
+                    <Table.Th ta="right">Asignado después</Table.Th>
                   </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea>
+                </Table.Thead>
+                <Table.Tbody>
+                  {m.lineas.map((l) => (
+                    <Table.Tr key={l.lineaId}>
+                      <Table.Td>
+                        {l.esm} ({l.fuerza})
+                      </Table.Td>
+                      <Table.Td>{l.modalidad}</Table.Td>
+                      <Table.Td ta="right" ff="monospace">
+                        {l.valor}
+                      </Table.Td>
+                      <Table.Td ta="right" ff="monospace">
+                        {l.antes}
+                      </Table.Td>
+                      <Table.Td ta="right" ff="monospace">
+                        {l.despues}
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </TablaAdaptable>
+          </Box>
           <Text size="xs" c="dimmed" mt={4}>
             Neto: {m.neto}
           </Text>

@@ -53,6 +53,15 @@ test('Sanidad solicita una visita a necesidad con su escrito; el coordinador la 
   await page.goto('/solicitudes');
   const fila = page.getByTestId('tabla-solicitudes').getByRole('row', { name: new RegExp(nombrePunto) });
 
+  // El escrito se ve dentro de la aplicación, sin abrir otra pestaña (condición 12, L1008; decisión UI-5)
+  const pestanas = page.context().pages().length;
+  await fila.getByRole('button', { name: 'Escrito' }).click();
+  const visor = page.getByRole('dialog', { name: 'Escrito de la solicitud' });
+  await expect(visor.getByRole('link', { name: 'Descargar' })).toBeVisible();
+  expect(page.context().pages()).toHaveLength(pestanas);
+  await page.keyboard.press('Escape');
+  await expect(visor).toHaveCount(0);
+
   await fila.getByRole('button', { name: 'Agendar' }).click();
   const f = page.getByRole('dialog');
   await expect(f.getByTestId('form-visita')).toBeVisible();

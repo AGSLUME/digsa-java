@@ -40,6 +40,7 @@ import {
   type ResultadoCarga,
   type VersionEjecucion,
 } from '../shared/presupuesto';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 const VACIO: FormEjecucion = { vigenciaId: '', puntoId: '', modalidad: '', fuerza: '', periodo: '', facturado: '', reconocido: '', referencia: '' };
 
@@ -339,7 +340,7 @@ function Versiones({ o }: { o: OpcionesPresupuesto }) {
             <Text size="sm" c="dimmed" data-testid="ejecucion-total">
               {conteo(versiones.data.total)} registro(s)
             </Text>
-            <ScrollArea type="auto">
+            <TablaAdaptable>
               <Table striped withTableBorder miw={860} fz="sm" data-testid="tabla-ejecucion">
                 <Table.Thead>
                   <Table.Tr>
@@ -377,7 +378,7 @@ function Versiones({ o }: { o: OpcionesPresupuesto }) {
                   ))}
                 </Table.Tbody>
               </Table>
-            </ScrollArea>
+            </TablaAdaptable>
             {versiones.data.total > versiones.data.porPagina && (
               <Pagination
                 total={Math.ceil(versiones.data.total / versiones.data.porPagina)}

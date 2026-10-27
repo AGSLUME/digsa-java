@@ -1,4 +1,4 @@
-import { Alert, Box, Button, Card, Center, Group, Loader, ScrollArea, Select, SimpleGrid, Stack, Table, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Box, Button, Card, Center, Group, Loader, Select, SimpleGrid, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { api, descargar } from '../shared/api';
@@ -21,6 +21,7 @@ import {
 } from '../shared/tablero';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 import { useValidacion } from '../shared/validacion';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 function Tarjeta({
   titulo,
@@ -340,7 +341,7 @@ function TablaResultados({
       <Title order={5} mt="md" mb="xs">
         {titulo}
       </Title>
-      <ScrollArea type="auto">
+      <TablaAdaptable>
         <Table striped miw={520} data-testid={testid}>
           <Table.Thead>
             <Table.Tr>
@@ -368,7 +369,7 @@ function TablaResultados({
             ))}
           </Table.Tbody>
         </Table>
-      </ScrollArea>
+      </TablaAdaptable>
     </>
   );
 }

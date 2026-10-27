@@ -1,4 +1,4 @@
-import { Alert, Anchor, Badge, Button, Center, Loader, ScrollArea, Stack, Table, Text } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Center, Loader, Stack, Table, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../shared/api';
@@ -6,6 +6,7 @@ import { conteo, fechaHora } from '../shared/formato';
 import { COLOR_FASE, NOMBRE_FASE, NOMBRE_PLAN, type VisitaOpl } from '../shared/opl';
 import { RespuestaOpl } from '../shared/RespuestaOpl';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 /**
  * «Respuesta a hallazgos» de los perfiles OPL nacional (todo el país) y OPL regional (su regional): visitas cerradas con el enlace del
@@ -27,7 +28,7 @@ export function Opl() {
           <Loader />
         </Center>
       ) : (
-        <ScrollArea type="auto">
+        <TablaAdaptable>
           <Table striped highlightOnHover miw={1040} data-testid="tabla-opl">
             <Table.Thead>
               <Table.Tr>
@@ -80,7 +81,7 @@ export function Opl() {
               ))}
             </Table.Tbody>
           </Table>
-        </ScrollArea>
+        </TablaAdaptable>
       )}
     </Stack>
   );

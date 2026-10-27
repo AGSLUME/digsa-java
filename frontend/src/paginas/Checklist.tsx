@@ -76,6 +76,7 @@ import { puedeEntrar, useSesion } from '../shared/sesion';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 import { useValidacion } from '../shared/validacion';
 import { errorCorreo } from '../shared/validaciones';
+import { VisorDocumento } from '../shared/VisorDocumento';
 
 interface Mensaje {
   mensaje: string;
@@ -880,9 +881,9 @@ function HallazgoDeAntes({
           {archivos.map((a) => (
             <List.Item key={a.id}>
               <Group gap={6} wrap="wrap">
-                <Anchor href={`/api/visitas/${id}/anteriores/${a.id}`} target="_blank" rel="noopener" size="sm" style={{ wordBreak: 'break-all' }}>
+                <VisorDocumento url={`/api/visitas/${id}/anteriores/${a.id}`} nombre={a.nombre}>
                   {a.nombre}
-                </Anchor>
+                </VisorDocumento>
                 <Text size="xs" c="dimmed">
                   {tamanoLegible(a.tamano)}
                 </Text>
@@ -940,9 +941,9 @@ function Evidencias({
           {archivos.map((a) => (
             <List.Item key={a.id}>
               <Group gap={6} wrap="wrap">
-                <Anchor href={`/api/archivos/${a.id}`} target="_blank" rel="noopener" size="sm" style={{ wordBreak: 'break-all' }}>
+                <VisorDocumento url={`/api/archivos/${a.id}`} nombre={a.nombre}>
                   {a.nombre}
-                </Anchor>
+                </VisorDocumento>
                 <Text size="xs" c="dimmed">
                   {tamanoLegible(a.tamano)}
                   {a.subidoPor ? ' · ' + a.subidoPor : ''}
@@ -1514,9 +1515,9 @@ function Actas({ id, d, sinGuardar, alFallar }: { id: string; d: DatosFormulario
                   <Table.Td>{a.destinatarios ?? '—'}</Table.Td>
                   <Table.Td>
                     {a.archivoId ? (
-                      <Anchor href={`/api/archivos/${a.archivoId}`} target="_blank" rel="noopener" size="sm">
+                      <VisorDocumento url={`/api/archivos/${a.archivoId}`} nombre="Acta">
                         Ver acta
-                      </Anchor>
+                      </VisorDocumento>
                     ) : (
                       '—'
                     )}

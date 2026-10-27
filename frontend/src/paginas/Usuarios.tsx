@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Checkbox, Group, Modal, NumberInput, PasswordInput, ScrollArea, Select, SimpleGrid, Stack, Switch, Table, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Checkbox, Group, Modal, NumberInput, PasswordInput, Select, SimpleGrid, Stack, Switch, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useRef, useState, type FormEvent } from 'react';
@@ -10,6 +10,7 @@ import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 import { fechaHora } from '../shared/formato';
 import { Paginacion, useIrAFila, usePaginacion } from '../shared/paginacion';
 import { useValidacion } from '../shared/validacion';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 interface Perfil {
   id: number;
@@ -294,7 +295,7 @@ export function Usuarios() {
           pag.setPagina(1);
         }}
       />
-      <ScrollArea type="auto">
+      <TablaAdaptable>
         <Table striped highlightOnHover miw={760}>
           <Table.Thead>
             <Table.Tr>
@@ -440,7 +441,7 @@ export function Usuarios() {
             ))}
           </Table.Tbody>
         </Table>
-      </ScrollArea>
+      </TablaAdaptable>
       <Paginacion total={filtrados.length} pagina={pag.pagina} paginas={pag.paginas} alCambiar={pag.setPagina} nombre="usuarios" />
 
       <Modal opened={form !== null} onClose={cerrarFormulario} title={form?.id ? 'Editar usuario' : 'Nuevo usuario'} size="lg">

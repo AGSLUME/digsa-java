@@ -5,6 +5,7 @@ import { useState, type FormEvent } from 'react';
 import { api } from '../shared/api';
 import { conteo } from '../shared/formato';
 import { useValidacion } from '../shared/validacion';
+import { conTexto } from '../shared/validaciones';
 
 interface PantallaElegible {
   codigo: string;
@@ -256,7 +257,7 @@ export function RolesAdicionales({ abierto, alCerrar }: { abierto: boolean; alCe
                   label="Pantallas del rol"
                   required
                   value={form.pantallas}
-                  error={v.error('pantallas')}
+                  error={conTexto(v.error('pantallas'))}
                   onChange={(x) => {
                     setForm({ ...form, pantallas: x });
                     v.limpiar('pantallas');

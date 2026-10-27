@@ -1,4 +1,4 @@
-import { Alert, Anchor, Badge, Button, Card, FileInput, Group, Loader, Modal, ScrollArea, Select, Stack, Table, Text, TextInput, Textarea } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Card, FileInput, Group, Loader, Modal, Select, Stack, Table, Text, TextInput, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
@@ -11,6 +11,8 @@ import { fecha as fechaPantalla, hoyBogota, sumarDias } from '../shared/formato'
 import { puedeEntrar, useSesion } from '../shared/sesion';
 import { useValidacion } from '../shared/validacion';
 import { DIAS_ATRAS_SOLICITUD, erroresSolicitud } from '../shared/validaciones';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
+import { VisorDocumento } from '../shared/VisorDocumento';
 
 interface Solicitud {
   id: number;
@@ -100,7 +102,7 @@ export function Solicitudes() {
         value={estado}
         onChange={setEstado}
       />
-      <ScrollArea type="auto">
+      <TablaAdaptable>
         <Table striped miw={900} data-testid="tabla-solicitudes">
           <Table.Thead>
             <Table.Tr>
@@ -165,9 +167,9 @@ export function Solicitudes() {
                 <Table.Td>
                   <Group gap={4} wrap="nowrap">
                     {s.tieneArchivo && (
-                      <Anchor href={`/api/solicitudes/${s.id}/escrito`} target="_blank" rel="noopener noreferrer" size="sm">
+                      <VisorDocumento url={`/api/solicitudes/${s.id}/escrito`} nombre="Escrito de la solicitud">
                         Escrito
-                      </Anchor>
+                      </VisorDocumento>
                     )}
                     {gestiona && s.estado === 'pendiente' && (
                       <>
@@ -185,7 +187,7 @@ export function Solicitudes() {
             ))}
           </Table.Tbody>
         </Table>
-      </ScrollArea>
+      </TablaAdaptable>
 
       <Modal opened={nueva} onClose={() => setNueva(false)} title="Nueva solicitud de visita a necesidad" size="lg">
         {nueva && (

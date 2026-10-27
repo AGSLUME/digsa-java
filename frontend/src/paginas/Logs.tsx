@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Group, Modal, ScrollArea, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Group, Modal, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { notifications } from '@mantine/notifications';
 import { useMediaQuery } from '@mantine/hooks';
@@ -10,6 +10,7 @@ import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 import { conteo, fechaHora, hoyBogota, sumarDias } from '../shared/formato';
 import { useValidacion } from '../shared/validacion';
 import { errorCorreo } from '../shared/validaciones';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 interface Fila {
   id: number;
@@ -254,7 +255,7 @@ export function Logs() {
       {vDescarga.resumen}
       {lista.error && <Alert color="red">{lista.error.message}</Alert>}
       {opciones.error && <Alert color="red">No se pudieron cargar los filtros: {opciones.error.message}</Alert>}
-      <ScrollArea type="auto">
+      <TablaAdaptable>
         <Table striped miw={860} data-testid="tabla-logs">
           <Table.Thead>
             <Table.Tr>
@@ -289,7 +290,7 @@ export function Logs() {
             ))}
           </Table.Tbody>
         </Table>
-      </ScrollArea>
+      </TablaAdaptable>
       {filas.length === 0 && !lista.isLoading && <Text c="dimmed">No hay registros con estos filtros.</Text>}
       {lista.hasNextPage && (
         <Button variant="default" onClick={() => lista.fetchNextPage()} loading={lista.isFetchingNextPage}>
@@ -302,7 +303,7 @@ export function Logs() {
             <Text size="sm">
               {fechaHora(detalle.fecha, { segundos: true })} · {detalle.usuario ?? '—'} · {detalle.tipo}
             </Text>
-            <ScrollArea type="auto">
+            <TablaAdaptable>
               <Table striped miw={480} data-testid="tabla-cambios">
                 <Table.Thead>
                   <Table.Tr>
@@ -331,7 +332,7 @@ export function Logs() {
                   ))}
                 </Table.Tbody>
               </Table>
-            </ScrollArea>
+            </TablaAdaptable>
           </Stack>
         )}
       </Modal>

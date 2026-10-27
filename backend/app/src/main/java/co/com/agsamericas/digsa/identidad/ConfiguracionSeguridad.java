@@ -34,11 +34,14 @@ import org.springframework.session.web.http.DefaultCookieSerializer;
 @EnableMethodSecurity
 public class ConfiguracionSeguridad {
 
-    /** Content-Security-Policy: nada de terceros salvo el captcha de Cloudflare Turnstile. */
+    /**
+     * Content-Security-Policy: nada de terceros salvo el captcha de Cloudflare Turnstile. {@code blob:} en frame-src es el visor de
+     * documentos dentro de la aplicación (PDF de evidencias, actas y escritos ya descargados por la propia página; decisión UI-5).
+     */
     static final String CSP = String.join("; ",
             "default-src 'self'",
             "script-src 'self' https://challenges.cloudflare.com",
-            "frame-src https://challenges.cloudflare.com",
+            "frame-src https://challenges.cloudflare.com blob:",
             "connect-src 'self'",
             "img-src 'self' data: blob:",
             "style-src 'self' 'unsafe-inline'",

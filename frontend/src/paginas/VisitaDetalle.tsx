@@ -11,7 +11,6 @@ import {
   Loader,
   Modal,
   MultiSelect,
-  ScrollArea,
   Select,
   SimpleGrid,
   Stack,
@@ -44,6 +43,7 @@ import {
   type OplDeVisita,
 } from '../shared/opl';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 export type OrigenVisita = 'agenda' | 'mis-visitas' | 'calendario';
 
@@ -284,7 +284,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
           <Title order={5} mb="xs">
             {origen === 'mis-visitas' ? 'Mis partes del checklist' : 'Asignación'}
           </Title>
-          <ScrollArea type="auto">
+          <TablaAdaptable>
             <Table miw={puede('mover') ? 640 : 420}>
               <Table.Thead>
                 <Table.Tr>
@@ -340,7 +340,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
                 ))}
               </Table.Tbody>
             </Table>
-          </ScrollArea>
+          </TablaAdaptable>
           {v.reparto.length === 0 && (
             <Text size="sm" c="dimmed">
               Sin partes asignadas.
@@ -356,7 +356,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
           <Title order={5} mb="xs">
             Historial
           </Title>
-          <ScrollArea type="auto">
+          <TablaAdaptable>
             <Table miw={620} data-testid="historial-visita">
               <Table.Thead>
                 <Table.Tr>
@@ -377,7 +377,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
                 ))}
               </Table.Tbody>
             </Table>
-          </ScrollArea>
+          </TablaAdaptable>
         </Card>
       )}
 
@@ -391,7 +391,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
               Aún no se ha enviado ninguna notificación.
             </Text>
           ) : (
-            <ScrollArea type="auto">
+            <TablaAdaptable>
               <Table miw={720} data-testid="notificaciones-visita">
                 <Table.Thead>
                   <Table.Tr>
@@ -425,7 +425,7 @@ export function VisitaDetalle({ origen }: { origen: OrigenVisita }) {
                   ))}
                 </Table.Tbody>
               </Table>
-            </ScrollArea>
+            </TablaAdaptable>
           )}
         </Card>
       )}

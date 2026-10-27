@@ -1,6 +1,7 @@
-import { Anchor, Badge, Group, ScrollArea, Stack, Table, Text, Tooltip } from '@mantine/core';
+import { Anchor, Badge, Group, Stack, Table, Text, Tooltip } from '@mantine/core';
 import { colorEstado, colorNivel, horaCorta, type FilaVisita } from './agenda';
 import { conteo, fecha } from './formato';
+import { TablaAdaptable } from './TablaAdaptable';
 
 const TEXTO_NIVEL: Record<string, string> = { ok: 'En plazo', info: 'Información', advertencia: 'Advertencia', peligro: 'Atención' };
 
@@ -17,7 +18,7 @@ export function TablaVisitas({
   testid: string;
 }) {
   return (
-    <ScrollArea type="auto">
+    <TablaAdaptable>
       <Table striped highlightOnHover miw={conAlertas ? 960 : 840} data-testid={testid}>
         <Table.Thead>
           <Table.Tr>
@@ -103,6 +104,6 @@ export function TablaVisitas({
           ))}
         </Table.Tbody>
       </Table>
-    </ScrollArea>
+    </TablaAdaptable>
   );
 }

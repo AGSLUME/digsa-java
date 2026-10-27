@@ -1,10 +1,11 @@
-import { Alert, Anchor, Badge, Center, Loader, ScrollArea, Stack, Table, Text } from '@mantine/core';
+import { Alert, Anchor, Badge, Center, Loader, Stack, Table, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { colorEstado, horaCorta } from '../shared/agenda';
 import { api } from '../shared/api';
 import { conteo, fecha, hora } from '../shared/formato';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 interface VisitaSeguimiento {
   id: number;
@@ -54,7 +55,7 @@ export function Seguimiento() {
       )}
       {datos.data && visitas.length === 0 && <Text c="dimmed">No hay visitas hoy ni en ejecución.</Text>}
       {visitas.length > 0 && (
-        <ScrollArea type="auto">
+        <TablaAdaptable>
           <Table miw={820} data-testid="tabla-seguimiento">
             <Table.Thead>
               <Table.Tr>
@@ -96,7 +97,7 @@ export function Seguimiento() {
               ))}
             </Table.Tbody>
           </Table>
-        </ScrollArea>
+        </TablaAdaptable>
       )}
     </Stack>
   );

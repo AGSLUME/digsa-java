@@ -51,8 +51,10 @@ test('cambiar mi contraseña: con la actual errada avisa; con la correcta sigue 
   await expect(dialogo).toHaveCount(0);
   await p.getByRole('link', { name: 'Mis visitas' }).click();
   await expect(p.getByRole('button', { name: 'Salir', exact: true })).toBeVisible();
-  await p.getByRole('button', { name: 'Salir', exact: true }).click();
-  await expect(p.getByRole('button', { name: 'Ingresar', exact: true })).toBeVisible(); // «Salir» termina de volver al ingreso
+  // «Salir» vuelve al ingreso y recarga la página: se espera la carga de la recarga, o el goto del siguiente ingreso choca con ella
+  // (WebKit con el equipo cargado: «navigation interrupted»)
+  await Promise.all([p.waitForEvent('load'), p.getByRole('button', { name: 'Salir', exact: true }).click()]);
+  await expect(p.getByRole('button', { name: 'Ingresar', exact: true })).toBeVisible();
 
   await ingresar(p, usuario, NUEVA);
   await salir(p);

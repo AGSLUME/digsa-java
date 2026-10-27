@@ -128,12 +128,12 @@ export function Ingreso({ alIngresar }: { alIngresar: () => void }) {
           {/* Pantalla pública (sin la barra de la aplicación): el interruptor del sonido de las alertas va arriba a la derecha */}
           <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
             <Title order={1} size="h2" c="digsa.8" style={{ minWidth: 0 }}>
-              Suite DIGSA
+              Interventoría Integral DIGSA
             </Title>
             <InterruptorSonido />
           </Group>
           <Text c="dimmed" size="sm">
-            Visitas de seguimiento farmacéutico · Interventoría AGS Colombia
+            Sistema de información de interventoría · cuentas médicas
           </Text>
           {aviso && (
             <Alert color="yellow" data-testid="motivo-cierre">

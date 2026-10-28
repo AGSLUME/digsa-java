@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DatosSesion } from './sesion';
 import {
+  camposPesos,
   conConsulta,
   consultaFiltros,
   cuerpoPesos,
@@ -14,8 +15,11 @@ import {
   porcentajeBarra,
   problemaCierre,
   problemaFechas,
+  erroresIncidencia,
+  hoyIso,
   problemaIncidencia,
   problemaPesos,
+  problemaRango,
   puedeEditarPesos,
   puedeRegistrarIncidencias,
   sumaPesos,
@@ -64,6 +68,17 @@ describe('pesos y umbrales del riesgo', () => {
     expect(problemaPesos(INICIALES, FACTORES, NOMBRES, 100, 99)).toBeNull();
   });
 
+  it('dice qué campo marcar con el mismo mensaje de problemaPesos', () => {
+    expect(camposPesos(INICIALES, FACTORES, NOMBRES, 60, 30)).toBeNull();
+    expect(camposPesos({ ...INICIALES, planes: '' }, FACTORES, NOMBRES, 60, 30)).toEqual({
+      mensaje: 'El peso de «Planes vencidos» debe ser un entero entre 0 y 100.',
+      campos: ['planes'],
+    });
+    expect(camposPesos({ ...INICIALES, recurrencia: 25 }, FACTORES, NOMBRES, 60, 30)).toEqual({ mensaje: 'Los pesos deben sumar 100 (suman 105).', campos: [] });
+    expect(camposPesos(INICIALES, FACTORES, NOMBRES, '', 30)?.campos).toEqual(['alto']);
+    expect(camposPesos(INICIALES, FACTORES, NOMBRES, 30, 60)?.campos).toEqual(['alto', 'medio']);
+  });
+
   it('suma y arma el cuerpo del PUT con números', () => {
     expect(sumaPesos({ ...INICIALES, planes: '' }, FACTORES)).toBe(80);
     expect(cuerpoPesos({ ...INICIALES, planes: '20' }, FACTORES, 60, 30)).toEqual({ pesos: INICIALES, alto: 60, medio: 30 });
@@ -86,9 +101,9 @@ describe('nivel, números y barras', () => {
   });
 
   it('tono de texto con contraste: rojo .8, naranja y verde .9; tonos explícitos y otros colores se respetan', () => {
-    expect(tonoTexto('red')).toBe('red.8');
-    expect(tonoTexto('orange')).toBe('orange.9');
-    expect(tonoTexto('green')).toBe('green.9');
+    expect(tonoTexto('red')).toBe('red');
+    expect(tonoTexto('orange')).toBe('orange');
+    expect(tonoTexto('green')).toBe('green');
     expect(tonoTexto('orange.7')).toBe('orange.7');
     expect(tonoTexto('blue')).toBe('blue');
     expect(tonoTexto(undefined)).toBeUndefined();
@@ -104,6 +119,8 @@ describe('nivel, números y barras', () => {
     expect(problemaFechas(f)).toBeNull();
     expect(problemaFechas({ ...f, desde: '2026-04-01' })).toBe('La fecha «Desde» es posterior a «Hasta».');
     expect(problemaFechas({ ...f, desde: '2026-03-01' })).toBeNull();
+    expect(problemaRango('2026-04-01', '2026-03-01')).toBe('La fecha «Desde» es posterior a «Hasta».');
+    expect(problemaRango('2026-04-01', '')).toBeNull();
   });
 
   it('filtros aplicados con los nombres de fuerza, tipo y auditor', () => {
@@ -121,9 +138,10 @@ describe('nivel, números y barras', () => {
     expect(textoFiltrosAplicados(null, o)).toBe('');
   });
 
-  it('decimales con coma y 2 cifras (VCO P27)', () => {
+  it('decimales con coma y siempre 2 cifras (Anexo 5 num. 2.4)', () => {
     expect(decimal(38.333)).toBe('38,33');
-    expect(decimal(15)).toBe('15');
+    expect(decimal(15)).toBe('15,00');
+    expect(decimal(72)).toBe('72,00');
     expect(decimal(7.5)).toBe('7,50');
     expect(decimal(null)).toBe('—');
     expect(decimal(Number.NaN)).toBe('—');
@@ -179,6 +197,24 @@ describe('incidencias de la DIGSA', () => {
     expect(problemaIncidencia({ ...base, fuente: '' }, '2026-10-22')).toBeNull();
   });
 
+  it('errores campo por campo con los mismos mensajes; el primero es el de problemaIncidencia', () => {
+    expect(erroresIncidencia(base, '2026-10-22')).toEqual({});
+    const mal = { puntoId: '', fecha: '2026-10-23', descripcion: 'corta', fuente: 'f'.repeat(201) };
+    expect(erroresIncidencia(mal, '2026-10-22')).toEqual({
+      puntoId: 'Elija el ESM.',
+      fecha: 'La fecha de la incidencia no puede ser futura.',
+      descripcion: 'Describa la incidencia (de 10 a 2000 caracteres).',
+      fuente: 'La fuente tiene máximo 200 caracteres.',
+    });
+    expect(problemaIncidencia(mal, '2026-10-22')).toBe('Elija el ESM.');
+    expect(erroresIncidencia({ ...base, fecha: '' }, '2026-10-22')).toEqual({ fecha: 'La fecha no es válida.' });
+  });
+
+  it('hoy en Bogotá, no en la zona del equipo', () => {
+    expect(hoyIso(new Date('2026-10-23T03:00:00Z'))).toBe('2026-10-22');
+    expect(hoyIso(new Date('2026-10-23T15:00:00Z'))).toBe('2026-10-23');
+  });
+
   it('motivo del cierre de 10 a 800 caracteres', () => {
     expect(problemaCierre('Atendida por el OPL')).toBeNull();
     expect(problemaCierre('   corto   ')).not.toBeNull();
@@ -195,9 +231,9 @@ describe('resultados del dashboard (25.3) y tarjetas del riesgo (25.4)', () => {
   });
 
   it('nivel en texto para el lector de pantalla', () => {
-    expect(textoNivel('alto', 72)).toBe('Riesgo alto, 72 de 100');
+    expect(textoNivel('alto', 72)).toBe('Riesgo alto, 72,00 de 100');
     expect(textoNivel('medio', 41.256)).toBe('Riesgo medio, 41,26 de 100');
-    expect(textoNivel('bajo', 0)).toBe('Riesgo bajo, 0 de 100');
-    expect(textoNivel('raro', 5)).toBe('Riesgo raro, 5 de 100');
+    expect(textoNivel('bajo', 0)).toBe('Riesgo bajo, 0,00 de 100');
+    expect(textoNivel('raro', 5)).toBe('Riesgo raro, 5,00 de 100');
   });
 });

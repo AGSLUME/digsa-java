@@ -1,9 +1,12 @@
-import { Alert, Anchor, Badge, Button, Center, Loader, ScrollArea, Stack, Table, Text, Title } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Center, Loader, Stack, Table, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../shared/api';
+import { conteo, fechaHora } from '../shared/formato';
 import { COLOR_FASE, NOMBRE_FASE, NOMBRE_PLAN, type VisitaOpl } from '../shared/opl';
 import { RespuestaOpl } from '../shared/RespuestaOpl';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 /**
  * «Respuesta a hallazgos» de los perfiles OPL nacional (todo el país) y OPL regional (su regional): visitas cerradas con el enlace del
@@ -14,18 +17,18 @@ export function Opl() {
   const lista = useQuery({ queryKey: ['opl', 'lista'], queryFn: () => api<VisitaOpl[]>('/api/opl/visitas') });
   return (
     <Stack>
-      <Title order={3}>Respuesta a hallazgos</Title>
-      <Text size="sm" c="dimmed">
-        Visitas con acta enviada y hallazgos por responder: acepte u objete cada hallazgo dentro de los 3 días hábiles y remita el plan de
-        mejoramiento firmado dentro de los 5 días hábiles desde el envío del acta.
-      </Text>
+      <EncabezadoPagina
+        titulo="Respuesta a hallazgos"
+        fuente="Anexo 3"
+        descripcion="Visitas con acta enviada y hallazgos por responder: acepte u objete cada hallazgo dentro de los 3 días hábiles y remita el plan de mejoramiento firmado dentro de los 5 días hábiles desde el envío del acta."
+      />
       {lista.error && <Alert color="red">{lista.error.message}</Alert>}
       {lista.isLoading ? (
         <Center py="xl">
           <Loader />
         </Center>
       ) : (
-        <ScrollArea type="auto">
+        <TablaAdaptable>
           <Table striped highlightOnHover miw={1040} data-testid="tabla-opl">
             <Table.Thead>
               <Table.Tr>
@@ -51,10 +54,10 @@ export function Opl() {
                 <Table.Tr key={v.visitaId} data-testid={'fila-opl-' + v.visitaId}>
                   <Table.Td style={{ whiteSpace: 'nowrap' }}>{v.numero}</Table.Td>
                   <Table.Td>{v.punto}</Table.Td>
-                  <Table.Td style={{ whiteSpace: 'nowrap' }}>{v.enviado}</Table.Td>
-                  <Table.Td>{v.hallazgos}</Table.Td>
-                  <Table.Td>{v.sinRespuesta}</Table.Td>
-                  <Table.Td>{v.faltanPlan}</Table.Td>
+                  <Table.Td style={{ whiteSpace: 'nowrap' }}>{fechaHora(v.enviado)}</Table.Td>
+                  <Table.Td>{conteo(v.hallazgos)}</Table.Td>
+                  <Table.Td>{conteo(v.sinRespuesta)}</Table.Td>
+                  <Table.Td>{conteo(v.faltanPlan)}</Table.Td>
                   <Table.Td>
                     <Badge variant="light" color={v.planEstado === 'firmado' ? 'green' : 'gray'}>
                       {NOMBRE_PLAN[v.planEstado]}
@@ -64,9 +67,9 @@ export function Opl() {
                     <Badge color={COLOR_FASE[v.fase]}>{NOMBRE_FASE[v.fase]}</Badge>
                   </Table.Td>
                   <Table.Td style={{ whiteSpace: 'nowrap' }}>
-                    <Text size="xs">Objetar: {v.venceObjeciones}</Text>
+                    <Text size="xs">Objetar: {fechaHora(v.venceObjeciones)}</Text>
                     <Text size="xs" fw={700}>
-                      Plan: {v.vencePlan}
+                      Plan: {fechaHora(v.vencePlan)}
                     </Text>
                   </Table.Td>
                   <Table.Td>
@@ -78,7 +81,7 @@ export function Opl() {
               ))}
             </Table.Tbody>
           </Table>
-        </ScrollArea>
+        </TablaAdaptable>
       )}
     </Stack>
   );

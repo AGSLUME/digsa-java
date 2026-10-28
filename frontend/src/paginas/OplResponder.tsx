@@ -1,10 +1,13 @@
 import { Alert, Badge, Button, Card, Center, Container, Group, Loader, Modal, PinInput, Radio, Stack, Text, Title } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, ErrorApi } from '../shared/api';
 import { COLOR_FASE, NOMBRE_FASE, tokenDelEnlace, type EnlaceOpl } from '../shared/opl';
+import { InterruptorSonido } from '../shared/InterruptorSonido';
 import { RespuestaOpl } from '../shared/RespuestaOpl';
+import { useValidacion } from '../shared/validacion';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
 
 const BASE = '/api/opl-publico';
 const CLAVE_TOKEN = 'digsa.opl.enlace';
@@ -97,7 +100,7 @@ export function OplResponder() {
       <Card withBorder maw={520}>
         <Stack>
           <Group gap="sm">
-            <Title order={4}>
+            <Title order={2} size="h4">
               Visita {enlace.data.numero} · {enlace.data.punto}
             </Title>
             <Badge color={COLOR_FASE[enlace.data.fase]}>{NOMBRE_FASE[enlace.data.fase]}</Badge>
@@ -111,15 +114,19 @@ export function OplResponder() {
       </Card>
     );
   } else {
-    contenido = <RespuestaOpl base={BASE} rutaDetalle={`${BASE}/detalle`} alReverificar={alReverificar} />;
+    contenido = <RespuestaOpl base={BASE} rutaDetalle={`${BASE}/detalle`} alReverificar={alReverificar} orden={2} />;
   }
 
   return (
     <Container size="lg" py="md" px="md" data-testid="opl-responder">
       <Stack>
-        <Title order={2} c="digsa.8">
-          Respuesta a los hallazgos del acta
-        </Title>
+        {/* Pantalla pública (sin la barra de la aplicación): el interruptor del sonido de las alertas va arriba a la derecha */}
+        <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
+          <Title order={1} style={{ minWidth: 0 }}>
+            Respuesta a los hallazgos del acta
+          </Title>
+          <InterruptorSonido />
+        </Group>
         {sinVigencia && (
           <Alert color="red" title="Enlace sin vigencia" data-testid="enlace-sin-vigencia">
             {sinVigencia}
@@ -150,18 +157,20 @@ function PedirCodigo({ correos, alVerificar }: { correos: string[]; alVerificar:
   const [indice, setIndice] = useState<string>(correos.length === 1 ? '0' : '');
   const [enviado, setEnviado] = useState<string | null>(null);
   const [codigo, setCodigo] = useState('');
-  const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const v = useValidacion({ etiquetas: { indice: 'Enviar el código a', codigo: 'Código de verificación' }, testid: 'error-codigo' });
+  const idElegir = useId();
+  const idDigitos = useId();
 
   const pedir = async () => {
-    setError(null);
+    v.reiniciar();
     setEnviando(true);
     try {
       const r = await api<{ mensaje: string }>(`${BASE}/codigo`, { cuerpo: { indice: Number(indice) } });
       setEnviado(r.mensaje);
       setCodigo('');
     } catch (x) {
-      setError(x instanceof ErrorApi ? x.message : 'No se pudo enviar el código.');
+      v.errorServidor(x, 'No se pudo enviar el código.');
     } finally {
       setEnviando(false);
     }
@@ -169,13 +178,14 @@ function PedirCodigo({ correos, alVerificar }: { correos: string[]; alVerificar:
 
   const verificar = async (e: FormEvent) => {
     e.preventDefault();
-    setError(null);
+    if (codigo.length !== 6) return; // mismo motivo que el botón (por si el formulario se envía sin el clic)
+    v.reiniciar();
     setEnviando(true);
     try {
       await api(`${BASE}/verificar`, { cuerpo: { codigo } });
       alVerificar();
     } catch (x) {
-      setError(x instanceof ErrorApi ? x.message : 'No se pudo verificar el código.');
+      v.errorServidor(x, 'No se pudo verificar el código.');
     } finally {
       setEnviando(false);
     }
@@ -185,23 +195,39 @@ function PedirCodigo({ correos, alVerificar }: { correos: string[]; alVerificar:
     return <Alert color="red">El operador logístico no tiene correos registrados. Comuníquese con la interventoría.</Alert>;
   }
   return (
-    <Stack>
-      {error && (
-        <Alert color="red" data-testid="error-codigo">
-          {error}
-        </Alert>
-      )}
-      <Radio.Group label="Enviar el código a" value={indice} onChange={setIndice} data-testid="correos-opl">
+    <Stack ref={v.ref}>
+      {v.resumen}
+      <Radio.Group
+        label="Enviar el código a"
+        value={indice}
+        error={v.error('indice')}
+        onChange={(x) => {
+          setIndice(x);
+          v.limpiar('indice');
+        }}
+        data-testid="correos-opl"
+      >
         <Stack gap={6} mt={6}>
           {correos.map((c, i) => (
             <Radio key={i} value={String(i)} label={c} />
           ))}
         </Stack>
       </Radio.Group>
-      <Group>
-        <Button variant={enviado ? 'light' : 'filled'} disabled={indice === ''} loading={enviando} onClick={pedir}>
+      <Group gap="xs">
+        <Button
+          variant={enviado ? 'light' : 'filled'}
+          disabled={indice === ''}
+          aria-describedby={indice === '' ? idElegir : undefined}
+          loading={enviando}
+          onClick={pedir}
+        >
           {enviado ? 'Enviar otro código' : 'Enviar código'}
         </Button>
+        {indice === '' && (
+          <Text size="sm" c="dimmed" id={idElegir}>
+            Elija el correo al que se envía el código.
+          </Text>
+        )}
       </Group>
       {enviado && (
         <form onSubmit={verificar}>
@@ -214,14 +240,24 @@ function PedirCodigo({ correos, alVerificar }: { correos: string[]; alVerificar:
               type="number"
               oneTimeCode
               value={codigo}
-              onChange={setCodigo}
+              error={!!v.error('codigo')}
+              onChange={(x) => {
+                setCodigo(x);
+                v.limpiar('codigo');
+              }}
               aria-label="Código de verificación"
+              getInputProps={(i) => ({ 'aria-label': `Dígito ${i + 1} de 6 del código` })}
               data-testid="codigo-opl"
             />
-            <Group>
-              <Button type="submit" loading={enviando} disabled={codigo.length !== 6}>
+            <Group gap="xs">
+              <BotonConMotivo type="submit" loading={enviando} motivo={codigo.length !== 6 ? 'Escriba los 6 dígitos del código.' : null} idMotivo={idDigitos}>
                 Verificar código
-              </Button>
+              </BotonConMotivo>
+              {codigo.length !== 6 && (
+                <Text size="sm" c="dimmed" id={idDigitos}>
+                  Escriba los 6 dígitos del código.
+                </Text>
+              )}
             </Group>
           </Stack>
         </form>

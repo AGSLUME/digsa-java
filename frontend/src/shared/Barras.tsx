@@ -1,5 +1,6 @@
 import { Box, Button, Card, Group, Progress, Stack, Table, Text, Title } from '@mantine/core';
 import { useState } from 'react';
+import { cifra, conteo } from './formato';
 import { maximo, porcentajeBarra, type Barra } from './tablero';
 
 /**
@@ -16,7 +17,7 @@ export function BarraHorizontal({
   etiqueta: string;
   valor: number;
   maximo: number;
-  /** Texto del valor; por omisión el número. */
+  /** Texto del valor; por omisión el número (entero como conteo; con decimales, 2 decimales). */
   texto?: string;
   color?: string;
 }) {
@@ -27,7 +28,7 @@ export function BarraHorizontal({
           {etiqueta}
         </Text>
         <Text size="sm" fw={600} style={{ whiteSpace: 'nowrap' }}>
-          {texto ?? String(valor)}
+          {texto ?? (Number.isInteger(valor) ? conteo(valor) : cifra(valor))}
         </Text>
       </Group>
       <Progress value={porcentajeBarra(valor, max)} color={color} size="md" aria-hidden />
@@ -42,7 +43,7 @@ export function GraficaBarras({ titulo, barras, testid, color }: { titulo: strin
   return (
     <Card withBorder data-testid={testid}>
       <Group justify="space-between" mb="xs" wrap="wrap" gap="xs">
-        <Title order={5}>{titulo}</Title>
+        <Title order={2} size="h5">{titulo}</Title>
         <Button size="compact-xs" variant="subtle" onClick={() => setTabla((t) => !t)} aria-expanded={tabla}>
           {tabla ? 'Ver barras' : 'Ver tabla'}
         </Button>
@@ -63,7 +64,7 @@ export function GraficaBarras({ titulo, barras, testid, color }: { titulo: strin
             {barras.map((b, i) => (
               <Table.Tr key={i + ':' + b.etiqueta}>
                 <Table.Td>{b.etiqueta}</Table.Td>
-                <Table.Td ta="right">{b.valor}</Table.Td>
+                <Table.Td ta="right">{conteo(b.valor)}</Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>

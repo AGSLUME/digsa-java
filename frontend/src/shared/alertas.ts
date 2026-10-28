@@ -1,3 +1,5 @@
+import { cifra } from './formato';
+
 /**
  * Alertas (docs/especificaciones/exportacion-alertas; GMI P75 «tiempo real o cuasi real» y P77 b «críticas por correo y SMS»): el
  * catálogo de tipos que edita el administrador (GET/PUT /api/alertas/catalogo) y los eventos con la latencia evento → envío que ven el
@@ -81,12 +83,15 @@ export function nombrePerfil(p: string): string {
   return NOMBRE_PERFIL[p] ?? p;
 }
 
-/** Latencia legible en español: «—» sin dato, «40 ms» bajo 100 ms, «0,5 s» con coma decimal bajo 1 min, luego «2 min 5 s» o «1 h 3 min». */
+/**
+ * Latencia legible en español con 2 decimales (Anexo 5 num. 2.4): «—» sin dato, «40,00 ms» bajo 100 ms, «0,50 s» bajo 1 min, luego
+ * «2 min 5 s» o «1 h 3 min».
+ */
 export function latenciaLegible(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms) || ms < 0) return '—';
-  if (ms < 100) return `${Math.round(ms)} ms`;
+  if (ms < 100) return `${cifra(ms)} ms`;
   const s = ms / 1000;
-  if (s < 59.95) return `${s.toFixed(1).replace('.', ',')} s`;
+  if (s < 59.995) return `${cifra(s)} s`;
   const total = Math.round(s);
   const min = Math.floor(total / 60);
   const resto = total % 60;

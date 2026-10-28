@@ -360,7 +360,9 @@ class AlertasApiTest extends PruebaIntegracion {
         d.put("documento", "12345678");
         d.put("perfiles", List.of(2));
         d.put("telefono", "601 555 0000");
-        assertThat(adm.post("/api/usuarios", d).mensaje()).contains("móvil colombiano");
+        Respuesta malo = adm.post("/api/usuarios", d);
+        assertThat(malo.mensaje()).contains("móvil colombiano");
+        assertThat(malo.json().path("campo").asText()).isEqualTo("telefono"); // UI-21: la interfaz marca el campo sin leer el mensaje
         d.put("telefono", "");
         Respuesta c = adm.post("/api/usuarios", d);
         assertThat(c.estado()).as(c.texto()).isIn(200, 201);

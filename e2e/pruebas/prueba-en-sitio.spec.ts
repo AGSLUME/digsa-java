@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { api, ingresar, ingresarComoAdminPropio, ingresarConClaveInicial, salir, unico } from './apoyo';
+import { api, filaDeUsuario, ingresar, ingresarComoAdminPropio, ingresarConClaveInicial, salir, unico } from './apoyo';
 
 // Guion de la prueba en sitio (Anexo 5, protocolo de pruebas), ítems 2, 3 y 15, tal como lo hará el Comité:
 //  2. Crear, solo desde la interfaz y de forma simultánea en dos equipos, los usuarios Analista1, Auditor1, Auditor2, Administrador y
@@ -104,8 +104,9 @@ test('ítem 2: dos administradores crean a la vez, por la interfaz, los cinco us
     ]);
     await page.reload();
     for (const u of USUARIOS) {
-      await expect(page.getByTestId('usuario-' + u.usuario)).toContainText(u.perfil);
-      await expect(page.getByTestId('usuario-' + u.usuario)).toContainText('Contraseña inicial');
+      const fila = await filaDeUsuario(page, u.usuario);
+      await expect(fila).toContainText(u.perfil);
+      await expect(fila).toContainText('Contraseña inicial');
     }
   } finally {
     await salir(otro);

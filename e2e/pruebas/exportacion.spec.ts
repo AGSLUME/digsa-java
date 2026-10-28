@@ -28,7 +28,7 @@ test('el administrador genera la exportación completa, espera a que esté lista
   await expect(fila).toBeVisible();
   await expect(fila.getByTestId('estado')).toHaveText('Lista', { timeout: 120_000 });
   await expect(fila).toContainText(/Vence/);
-  await expect(fila).toContainText(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
+  await expect(fila).toContainText(/\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}/);
   await expect(generar).toBeEnabled();
 
   const [descarga] = await Promise.all([page.waitForEvent('download'), fila.getByRole('link', { name: 'Descargar la exportación' }).click()]);

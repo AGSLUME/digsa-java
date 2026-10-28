@@ -2,6 +2,7 @@ import {
   ActionIcon,
   Alert,
   Badge,
+  Box,
   Button,
   Card,
   Center,
@@ -24,22 +25,31 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { sonarError } from '../shared/alertaSonora';
 import { api, descargar, ErrorApi, subirArchivos } from '../shared/api';
+import { conteo, fecha, fechaHora } from '../shared/formato';
+import { problemaRango } from '../shared/tablero';
+import { primerCampoConError, useValidacion, type Validacion } from '../shared/validacion';
 import { CargaArchivo, Ejecucion, Notificaciones } from './PresupuestoEjecucion';
 import { ReportesPresupuesto } from './PresupuestoReportes';
 import { TableroPresupuesto } from './PresupuestoTablero';
 import {
   AYUDA_TIPO,
+  botonQuitar,
+  campoFila,
   colorSemaforo,
   consultaPresupuesto,
+  controlPagina,
   cuerpoNovedad,
+  erroresNovedad,
   etiquetaPunto,
   exigeFuerza,
   FILA_VACIA,
   FILTROS_PRESUPUESTO,
   formularioVacio,
   problemaNovedad,
+  type FilaNovedad,
   type FiltrosPresupuesto,
   type FormNovedad,
   type LineaPresupuesto,
@@ -48,10 +58,9 @@ import {
   type ResultadoCarga,
   type TipoNovedad,
 } from '../shared/presupuesto';
-
-function avisarError(e: unknown, defecto: string) {
-  notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : defecto });
-}
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
 
 /** Errores por fila o por línea que devuelve el servidor (422 con «errores»). */
 function erroresDe(e: unknown): string[] {
@@ -87,11 +96,16 @@ export function Presupuesto() {
 
   return (
     <Stack>
-      <Title order={3}>Presupuesto del contrato de medicamentos</Title>
-      <Text size="sm" c="dimmed">
-        Seguimiento a la ejecución por ESM, Fuerza y modalidad frente al presupuesto asignado. Toda modificación queda como un movimiento con su
-        soporte de la DIGSA, el usuario, la fecha y el asignado de antes y de después. Alcance: {o.ambito}.
-      </Text>
+      <EncabezadoPagina
+        titulo="Presupuesto del contrato de medicamentos"
+        fuente="Anexo 5 · 4.6"
+        descripcion={
+          <>
+            Seguimiento a la ejecución por ESM, Fuerza y modalidad frente al presupuesto asignado. Toda modificación queda como un movimiento con su
+            soporte de la DIGSA, el usuario, la fecha y el asignado de antes y de después. Alcance: {o.ambito}.
+          </>
+        }
+      />
       <Tabs value={pestana} onChange={setPestana} keepMounted={false}>
         <ScrollArea type="auto" offsetScrollbars>
           <Tabs.List style={{ flexWrap: 'nowrap' }}>
@@ -182,6 +196,7 @@ function FiltrosLinea({
         label="Vigencia"
         placeholder="Todas (contrato)"
         clearable
+        clearButtonProps={botonQuitar('la vigencia')}
         data={o.vigencias.map((v) => ({ value: String(v.id), label: `${v.anio}${v.estado === 'cerrada' ? ' (cerrada)' : ''}` }))}
         value={f.vigencia || null}
         onChange={(v) => set({ ...f, vigencia: v ?? '' })}
@@ -191,6 +206,7 @@ function FiltrosLinea({
         label="Fuerza"
         placeholder="Todas"
         clearable
+        clearButtonProps={botonQuitar('la fuerza')}
         data={o.fuerzas.map((x) => ({ value: x.codigo, label: x.nombre }))}
         value={f.fuerza || null}
         onChange={(v) => set({ ...f, fuerza: v ?? '', punto: '' })}
@@ -199,6 +215,7 @@ function FiltrosLinea({
         label="ESM"
         placeholder="Todos"
         clearable
+        clearButtonProps={botonQuitar('el ESM')}
         searchable
         data={puntos}
         value={f.punto || null}
@@ -209,6 +226,7 @@ function FiltrosLinea({
         label="Modalidad"
         placeholder="Todas"
         clearable
+        clearButtonProps={botonQuitar('la modalidad')}
         data={o.modalidades.map((m) => ({ value: m.codigo, label: m.nombre }))}
         value={f.modalidad || null}
         onChange={(v) => set({ ...f, modalidad: v ?? '' })}
@@ -219,13 +237,20 @@ function FiltrosLinea({
             label="Tipo de movimiento"
             placeholder="Todos"
             clearable
+            clearButtonProps={botonQuitar('el tipo de movimiento')}
             data={o.tipos.map((t) => ({ value: t.codigo, label: t.nombre }))}
             value={f.tipo || null}
             onChange={(v) => set({ ...f, tipo: v ?? '' })}
             data-testid="filtro-tipo"
           />
           <TextInput label="Desde" type="date" value={f.desde} onChange={(e) => set({ ...f, desde: e.currentTarget.value })} />
-          <TextInput label="Hasta" type="date" value={f.hasta} onChange={(e) => set({ ...f, hasta: e.currentTarget.value })} />
+          <TextInput
+            label="Hasta"
+            type="date"
+            value={f.hasta}
+            onChange={(e) => set({ ...f, hasta: e.currentTarget.value })}
+            error={problemaRango(f.desde, f.hasta) ?? undefined}
+          />
         </>
       )}
     </SimpleGrid>
@@ -252,60 +277,62 @@ function Lineas({ o, alVerHistorial }: { o: OpcionesPresupuesto; alVerHistorial:
       {lineas.isLoading && <Loader />}
       {lineas.data && lineas.data.length === 0 && <Text c="dimmed">No hay líneas con presupuesto para estos filtros.</Text>}
       {lineas.data && lineas.data.length > 0 && (
-        <ScrollArea type="auto" style={{ opacity: lineas.isPlaceholderData ? 0.6 : 1 }}>
-          <Table striped withTableBorder miw={900} data-testid="tabla-lineas">
-            <Table.Thead>
-              <Table.Tr>
-                {!f.vigencia && <Table.Th>Vigencia</Table.Th>}
-                <Table.Th>ESM</Table.Th>
-                <Table.Th>Modalidad</Table.Th>
-                <Table.Th>Fuerza</Table.Th>
-                <Table.Th ta="right">Asignado</Table.Th>
-                <Table.Th ta="right">Facturado</Table.Th>
-                <Table.Th ta="right">Reconocido</Table.Th>
-                <Table.Th ta="right">Saldo</Table.Th>
-                <Table.Th ta="right">% ejecución</Table.Th>
-                <Table.Th />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {lineas.data.map((l) => (
-                <Table.Tr key={l.id} data-testid={`linea-${l.id}`}>
-                  {!f.vigencia && <Table.Td>{l.vigencia}</Table.Td>}
-                  <Table.Td>{etiquetaPunto(l)}</Table.Td>
-                  <Table.Td>{l.modalidadNombre}</Table.Td>
-                  <Table.Td>{l.fuerza}</Table.Td>
-                  <Table.Td ta="right" ff="monospace" data-testid="asignado">
-                    {l.asignado}
-                  </Table.Td>
-                  <Table.Td ta="right" ff="monospace">
-                    {l.facturado}
-                  </Table.Td>
-                  <Table.Td ta="right" ff="monospace">
-                    {l.reconocido}
-                  </Table.Td>
-                  <Table.Td ta="right" ff="monospace" c={l.saldo.startsWith('-') ? 'red' : undefined}>
-                    {l.saldo}
-                  </Table.Td>
-                  <Table.Td ta="right">
-                    <Badge color={colorSemaforo(l.semaforo)} variant="light">
-                      {l.porcentaje === null ? 'sin asignado' : `${l.porcentaje} %`}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>
-                    <Button
-                      size="compact-xs"
-                      variant="subtle"
-                      onClick={() => alVerHistorial({ vigencia: f.vigencia, punto: String(l.puntoId), modalidad: l.modalidad })}
-                    >
-                      Historial
-                    </Button>
-                  </Table.Td>
+        <div style={{ opacity: lineas.isPlaceholderData ? 0.6 : 1 }}>
+          <TablaAdaptable>
+            <Table striped withTableBorder miw={900} data-testid="tabla-lineas">
+              <Table.Thead>
+                <Table.Tr>
+                  {!f.vigencia && <Table.Th>Vigencia</Table.Th>}
+                  <Table.Th>ESM</Table.Th>
+                  <Table.Th>Modalidad</Table.Th>
+                  <Table.Th>Fuerza</Table.Th>
+                  <Table.Th ta="right">Asignado</Table.Th>
+                  <Table.Th ta="right">Facturado</Table.Th>
+                  <Table.Th ta="right">Reconocido</Table.Th>
+                  <Table.Th ta="right">Saldo</Table.Th>
+                  <Table.Th ta="right">% ejecución</Table.Th>
+                  <Table.Th />
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
+              </Table.Thead>
+              <Table.Tbody>
+                {lineas.data.map((l) => (
+                  <Table.Tr key={l.id} data-testid={`linea-${l.id}`}>
+                    {!f.vigencia && <Table.Td>{l.vigencia}</Table.Td>}
+                    <Table.Td>{etiquetaPunto(l)}</Table.Td>
+                    <Table.Td>{l.modalidadNombre}</Table.Td>
+                    <Table.Td>{l.fuerza}</Table.Td>
+                    <Table.Td ta="right" ff="monospace" data-testid="asignado">
+                      {l.asignado}
+                    </Table.Td>
+                    <Table.Td ta="right" ff="monospace">
+                      {l.facturado}
+                    </Table.Td>
+                    <Table.Td ta="right" ff="monospace">
+                      {l.reconocido}
+                    </Table.Td>
+                    <Table.Td ta="right" ff="monospace" c={l.saldo.startsWith('-') ? 'red' : undefined}>
+                      {l.saldo}
+                    </Table.Td>
+                    <Table.Td ta="right">
+                      <Badge color={colorSemaforo(l.semaforo)} variant="light">
+                        {l.porcentaje === null ? 'sin asignado' : `${l.porcentaje} %`}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Button
+                        size="compact-xs"
+                        variant="subtle"
+                        onClick={() => alVerHistorial({ vigencia: f.vigencia, punto: String(l.puntoId), modalidad: l.modalidad })}
+                      >
+                        Historial
+                      </Button>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </TablaAdaptable>
+        </div>
       )}
     </Stack>
   );
@@ -319,10 +346,43 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
   const [f, setF] = useState<FormNovedad>(formularioVacio('rebalanceo', abiertas.length ? String(abiertas.at(-1)!.id) : ''));
   const [archivo, setArchivo] = useState<File | null>(null);
   const [errores, setErrores] = useState<string[]>([]);
+  const erroresRef = useRef<HTMLDivElement>(null);
+  // El foco va a la lista de motivos cuando ya está en pantalla (después del render que la muestra)
+  const [focoErrores, setFocoErrores] = useState(0);
+  const idAyuda = useId();
+  useEffect(() => {
+    if (focoErrores > 0) erroresRef.current?.focus();
+  }, [focoErrores]);
+  const v = useValidacion({
+    etiquetas: { vigenciaId: 'Vigencia', soporte: 'Soporte de la DIGSA', archivo: 'Archivo del soporte', observacion: 'Observación', porcentaje: 'Porcentaje' },
+    testid: 'novedad-error',
+  });
   const modalidades = o.modalidades.filter((m) => m.activa).map((m) => ({ value: m.codigo, label: m.nombre }));
   const puntos = o.puntos.filter((p) => p.modalidad !== 'Satélite').map((p) => ({ value: String(p.id), label: etiquetaPunto(p) }));
   const homil = useMemo(() => new Set(o.puntos.filter((p) => exigeFuerza(p)).map((p) => String(p.id))), [o.puntos]);
   const problema = problemaNovedad(f, homil);
+  // Mismas reglas, campo por campo. El mensaje va junto al campo cuando el campo tiene algo escrito o elegido (un monto con letras, un
+  // soporte corto, una línea repetida); lo que falta por diligenciar lo dice el texto junto al botón, que sigue deshabilitado mientras
+  // haya un problema (lo comprueba presupuesto.spec.ts). Cada mensaje sale una sola vez.
+  const revision = erroresNovedad(f, homil);
+  const valorDe = (campo: string): string => {
+    const m = /^filas\.(\d+)\.(\w+)$/.exec(campo);
+    if (m) return f.filas[Number(m[1])]?.[m[2] as keyof FilaNovedad] ?? '';
+    return campo === 'filas' ? '' : String(f[campo as keyof FormNovedad] ?? '');
+  };
+  // El soporte se marca al salir del campo, no desde la primera letra (UI-28: un lector de pantalla anunciaba «inválido» en cada tecla)
+  const [soporteTocado, setSoporteTocado] = useState(false);
+  const aLaVista = (campo: string) =>
+    revision[campo] && valorDe(campo).trim() && (campo !== 'soporte' || soporteTocado) ? revision[campo] : undefined;
+  const error = (campo: string) => aLaVista(campo) ?? v.error(campo);
+  const marcados = Object.keys(revision).filter((c) => aLaVista(c)).length;
+  const pendiente = Object.entries(revision).find(([c]) => !aLaVista(c))?.[1];
+  const ayuda =
+    problema === null ? null : (pendiente ?? (marcados === 1 ? 'Revise el campo marcado.' : `Revise los ${marcados} campos marcados.`));
+  const cambiar = (cambio: Partial<FormNovedad>) => {
+    setF({ ...f, ...cambio });
+    for (const k of Object.keys(cambio)) v.limpiar(k);
+  };
 
   const enviar = useMutation({
     mutationFn: () =>
@@ -335,32 +395,43 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
       setErrores([]);
+      v.reiniciar();
+      setSoporteTocado(false);
       setF(formularioVacio(f.tipo, f.vigenciaId));
       setArchivo(null);
       void qc.invalidateQueries({ queryKey: ['presupuesto'] });
     },
     onError: (e) => {
-      setErrores(erroresDe(e));
-      avisarError(e, 'No se pudo registrar la novedad.');
+      // Los motivos por línea del 422 quedan en su aviso persistente (y el mensaje del servidor es su misma lista: no se repite)
+      const lista = erroresDe(e);
+      setErrores(lista);
+      if (lista.length > 0) {
+        v.reiniciar();
+        sonarError();
+        setFocoErrores((n) => n + 1);
+      } else {
+        v.errorServidor(e, 'No se pudo registrar la novedad.');
+      }
     },
   });
 
   const cambiarTipo = (t: TipoNovedad) => setF({ ...formularioVacio(t, f.vigenciaId), soporte: f.soporte, observacion: f.observacion });
-  const fila = (i: number, cambio: Partial<typeof FILA_VACIA>) => setF({ ...f, filas: f.filas.map((x, j) => (j === i ? { ...x, ...cambio } : x)) });
+  const fila = (i: number, cambio: Partial<FilaNovedad>) => setF({ ...f, filas: f.filas.map((x, j) => (j === i ? { ...x, ...cambio } : x)) });
   const etiquetaFila = (i: number) => (f.tipo === 'rebalanceo' ? (i === 0 ? 'Origen' : 'Destino') : `Línea ${i + 1}`);
   const conSigno = f.tipo === 'reajuste' || f.tipo === 'recomposicion';
 
   return (
-    <Card withBorder>
+    <Card withBorder ref={v.ref}>
       <Stack>
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
           <Select
             label="Vigencia"
-            data={abiertas.map((v) => ({ value: String(v.id), label: String(v.anio) }))}
+            data={abiertas.map((x) => ({ value: String(x.id), label: String(x.anio) }))}
             value={f.vigenciaId || null}
-            onChange={(v) => setF({ ...f, vigenciaId: v ?? '' })}
+            onChange={(x) => cambiar({ vigenciaId: x ?? '' })}
             allowDeselect={false}
             required
+            error={error('vigenciaId')}
             data-testid="novedad-vigencia"
           />
           <Select
@@ -387,14 +458,17 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
           <SimpleGrid cols={{ base: 1, sm: 3 }}>
             <TextInput
               label="Porcentaje"
-              placeholder="5,00 o -3,5"
+              placeholder="5,00 o -3,50"
+              inputMode="decimal"
               value={f.porcentaje}
-              onChange={(e) => setF({ ...f, porcentaje: e.currentTarget.value })}
+              onChange={(e) => cambiar({ porcentaje: e.currentTarget.value })}
+              error={error('porcentaje')}
             />
             <Select
               label="Fuerza"
               placeholder="Todo el país"
               clearable
+              clearButtonProps={botonQuitar('la fuerza')}
               data={o.fuerzas.map((x) => ({ value: x.codigo, label: x.nombre }))}
               value={f.ambitoFuerza || null}
               onChange={(v) => setF({ ...f, ambitoFuerza: v ?? '' })}
@@ -403,6 +477,7 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
               label="Modalidad"
               placeholder="Todas"
               clearable
+              clearButtonProps={botonQuitar('la modalidad')}
               data={modalidades}
               value={f.ambitoModalidad || null}
               onChange={(v) => setF({ ...f, ambitoModalidad: v ?? '' })}
@@ -435,6 +510,7 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
                     data={puntos}
                     value={x.puntoId || null}
                     onChange={(v) => fila(i, { puntoId: v ?? '', fuerza: '' })}
+                    error={error(campoFila(i, 'puntoId'))}
                     data-testid="novedad-esm"
                   />
                   <Select
@@ -442,6 +518,7 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
                     data={modalidades}
                     value={x.modalidad || null}
                     onChange={(v) => fila(i, { modalidad: v ?? '' })}
+                    error={error(campoFila(i, 'modalidad'))}
                     data-testid="novedad-modalidad"
                   />
                   {exigeFuerza(punto) && (
@@ -450,6 +527,7 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
                       data={o.fuerzas.map((y) => ({ value: y.codigo, label: y.codigo }))}
                       value={x.fuerza || null}
                       onChange={(v) => fila(i, { fuerza: v ?? '' })}
+                      error={error(campoFila(i, 'fuerza'))}
                     />
                   )}
                   <TextInput
@@ -458,6 +536,7 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
                     inputMode="decimal"
                     value={x.valor}
                     onChange={(e) => fila(i, { valor: e.currentTarget.value })}
+                    error={error(campoFila(i, 'valor'))}
                     data-testid="novedad-valor"
                   />
                 </SimpleGrid>
@@ -475,36 +554,68 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
           placeholder="Oficio [número] del [fecha]"
           required
           value={f.soporte}
-          onChange={(e) => setF({ ...f, soporte: e.currentTarget.value })}
+          onChange={(e) => cambiar({ soporte: e.currentTarget.value })}
+          error={error('soporte')}
+          onBlur={() => setSoporteTocado(true)}
           data-testid="novedad-soporte"
         />
         <FileInput
           label="Archivo del soporte (PDF o imagen, opcional)"
           accept="application/pdf,image/jpeg,image/png"
           clearable
+          clearButtonProps={botonQuitar('el archivo del soporte')}
           value={archivo}
-          onChange={setArchivo}
+          onChange={(a) => {
+            setArchivo(a);
+            v.limpiar('archivo');
+          }}
+          error={v.error('archivo')}
         />
         <Textarea
           label="Observación (opcional)"
-          autosize
-          minRows={2}
+          rows={2}
+          resize="vertical"
           value={f.observacion}
-          onChange={(e) => setF({ ...f, observacion: e.currentTarget.value })}
+          onChange={(e) => cambiar({ observacion: e.currentTarget.value })}
+          error={error('observacion')}
         />
         {errores.length > 0 && (
-          <Alert color="red" data-testid="novedad-errores">
+          <Alert ref={erroresRef} tabIndex={-1} color="red" title="La novedad no se registró" data-testid="novedad-errores">
             {errores.map((e) => (
               <div key={e}>{e}</div>
             ))}
           </Alert>
         )}
+        {v.resumen}
         <Group>
-          <Button onClick={() => enviar.mutate()} disabled={problema !== null} loading={enviar.isPending} data-testid="novedad-registrar">
+          <BotonConMotivo
+            onClick={() => {
+              setErrores([]);
+              v.reiniciar();
+              enviar.mutate();
+            }}
+            motivo={problema}
+            idMotivo={idAyuda}
+            alBloquear={() => {
+              // El soporte escrito sin salir del campo también queda marcado; el foco va al primer campo marcado o, si no hay, al motivo
+              setSoporteTocado(true);
+              requestAnimationFrame(() => {
+                const campo = v.ref.current ? primerCampoConError(v.ref.current) : null;
+                const ayuda = document.getElementById(idAyuda);
+                if (!campo) ayuda?.setAttribute('tabindex', '-1');
+                ayuda?.setAttribute('data-motivo', '');
+                (campo ?? ayuda)?.focus();
+              });
+              return true;
+            }}
+            aria-describedby={idAyuda}
+            loading={enviar.isPending}
+            data-testid="novedad-registrar"
+          >
             Registrar novedad
-          </Button>
-          <Text size="sm" c={problema ? 'dimmed' : 'green'}>
-            {problema ?? 'Queda reflejada en el historial y en los reportes.'}
+          </BotonConMotivo>
+          <Text size="sm" c={problema ? 'dimmed' : 'green'} id={idAyuda}>
+            {ayuda ?? 'Queda reflejada en el historial y en los reportes.'}
           </Text>
         </Group>
       </Stack>
@@ -516,6 +627,7 @@ function Novedad({ o }: { o: OpcionesPresupuesto }) {
 
 function Historial({ o, filtros, setFiltros }: { o: OpcionesPresupuesto; filtros: FiltrosPresupuesto; setFiltros: (f: FiltrosPresupuesto) => void }) {
   const [pagina, setPagina] = useState(1);
+  const v = useValidacion({ testid: 'historial-error' });
   const consulta = consultaPresupuesto(filtros, { pagina });
   const movs = useQuery({
     queryKey: ['presupuesto', 'movimientos', consulta],
@@ -523,10 +635,11 @@ function Historial({ o, filtros, setFiltros }: { o: OpcionesPresupuesto; filtros
     placeholderData: keepPreviousData,
   });
   const bajarSoporte = async (id: number) => {
+    v.reiniciar();
     try {
       await descargar(`/api/presupuesto/soportes/${id}`);
     } catch (e) {
-      avisarError(e, 'No se pudo descargar el soporte.');
+      v.errorServidor(e, 'No se pudo descargar el soporte.');
     }
   };
   return (
@@ -542,11 +655,12 @@ function Historial({ o, filtros, setFiltros }: { o: OpcionesPresupuesto; filtros
           }}
         />
       </Card>
+      {v.resumen}
       {movs.error && <Alert color="red">{movs.error.message}</Alert>}
       {movs.isLoading && <Loader />}
       {movs.data && (
         <Text size="sm" c="dimmed" data-testid="historial-total">
-          {movs.data.total} movimiento(s)
+          {conteo(movs.data.total)} movimiento(s)
         </Text>
       )}
       {movs.data?.items.map((m) => (
@@ -558,7 +672,7 @@ function Historial({ o, filtros, setFiltros }: { o: OpcionesPresupuesto; filtros
               {m.porcentaje && <Text size="sm">({m.porcentaje} %)</Text>}
             </Group>
             <Text size="xs" c="dimmed">
-              {m.fecha} · {m.usuario} · movimiento {m.id}
+              {fechaHora(m.fecha)} · {m.usuario} · movimiento {m.id}
               {m.loteId ? ` · lote ${m.loteId}` : ''}
             </Text>
           </Group>
@@ -575,45 +689,53 @@ function Historial({ o, filtros, setFiltros }: { o: OpcionesPresupuesto; filtros
               {m.observacion}
             </Text>
           )}
-          <ScrollArea type="auto" mt="xs">
-            <Table withTableBorder miw={640} fz="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>ESM</Table.Th>
-                  <Table.Th>Modalidad</Table.Th>
-                  <Table.Th ta="right">Valor</Table.Th>
-                  <Table.Th ta="right">Asignado antes</Table.Th>
-                  <Table.Th ta="right">Asignado después</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {m.lineas.map((l) => (
-                  <Table.Tr key={l.lineaId}>
-                    <Table.Td>
-                      {l.esm} ({l.fuerza})
-                    </Table.Td>
-                    <Table.Td>{l.modalidad}</Table.Td>
-                    <Table.Td ta="right" ff="monospace">
-                      {l.valor}
-                    </Table.Td>
-                    <Table.Td ta="right" ff="monospace">
-                      {l.antes}
-                    </Table.Td>
-                    <Table.Td ta="right" ff="monospace">
-                      {l.despues}
-                    </Table.Td>
+          <Box mt="xs">
+            <TablaAdaptable>
+              <Table withTableBorder miw={640} fz="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>ESM</Table.Th>
+                    <Table.Th>Modalidad</Table.Th>
+                    <Table.Th ta="right">Valor</Table.Th>
+                    <Table.Th ta="right">Asignado antes</Table.Th>
+                    <Table.Th ta="right">Asignado después</Table.Th>
                   </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea>
+                </Table.Thead>
+                <Table.Tbody>
+                  {m.lineas.map((l) => (
+                    <Table.Tr key={l.lineaId}>
+                      <Table.Td>
+                        {l.esm} ({l.fuerza})
+                      </Table.Td>
+                      <Table.Td>{l.modalidad}</Table.Td>
+                      <Table.Td ta="right" ff="monospace">
+                        {l.valor}
+                      </Table.Td>
+                      <Table.Td ta="right" ff="monospace">
+                        {l.antes}
+                      </Table.Td>
+                      <Table.Td ta="right" ff="monospace">
+                        {l.despues}
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </TablaAdaptable>
+          </Box>
           <Text size="xs" c="dimmed" mt={4}>
             Neto: {m.neto}
           </Text>
         </Card>
       ))}
       {movs.data && movs.data.total > movs.data.porPagina && (
-        <Pagination total={Math.ceil(movs.data.total / movs.data.porPagina)} value={pagina} onChange={setPagina} size="sm" />
+        <Pagination
+          total={Math.ceil(movs.data.total / movs.data.porPagina)}
+          value={pagina}
+          onChange={setPagina}
+          size="sm"
+          getControlProps={controlPagina}
+        />
       )}
     </Stack>
   );
@@ -628,34 +750,38 @@ function Cargas() {
   const [fuente, setFuente] = useState('digsa');
   const [resultado, setResultado] = useState<ResultadoCarga | null>(null);
   const [errores, setErrores] = useState<string[]>([]);
+  const v = useValidacion({ etiquetas: { archivo: 'Archivo', soporte: 'Soporte de la DIGSA' }, testid: 'carga-error' });
+  const idEspera = useId();
 
   const simular = useMutation({
     mutationFn: () => subirArchivos<ResultadoCarga>('/api/presupuesto/asignacion/simular', {}, [archivo!], 'archivo'),
     onSuccess: (r) => {
+      v.reiniciar();
       setResultado(r);
       setErrores((r.errores ?? []).map((e) => `Fila ${e.fila}: ${e.motivo}`));
     },
-    onError: (e) => avisarError(e, 'No se pudo revisar el archivo.'),
+    onError: (e) => v.errorServidor(e, 'No se pudo revisar el archivo.'),
   });
   const aplicar = useMutation({
     mutationFn: () => subirArchivos<ResultadoCarga>('/api/presupuesto/asignacion/aplicar', { soporte, fuente }, [archivo!], 'archivo'),
     onSuccess: (r) => {
       notifications.show({ color: r.yaAplicado ? 'yellow' : 'green', message: r.mensaje });
+      v.reiniciar();
       setResultado(r);
       setErrores([]);
       void qc.invalidateQueries({ queryKey: ['presupuesto'] });
     },
     onError: (e) => {
       setErrores(erroresDe(e));
-      avisarError(e, 'No se pudo aplicar la carga.');
+      v.errorServidor(e, 'No se pudo aplicar la carga.');
     },
   });
   const listo = resultado !== null && !resultado.yaAplicado && (resultado.errores ?? []).length === 0 && (resultado.validas ?? 0) > 0;
 
   return (
-    <Card withBorder>
+    <Card withBorder ref={v.ref}>
       <Stack>
-        <Title order={5}>Asignación inicial por archivo</Title>
+        <Title order={2} size="h5">Asignación inicial por archivo</Title>
         <Text size="sm" c="dimmed">
           CSV separado por «;» en UTF-8 o Excel (.xlsx) con las columnas vigencia;fuerza;esm;modalidad;valor. El ESM va por sigla o por nombre; la
           fuerza se puede dejar vacía salvo en HOMIL (fuerza de adscripción). Primero se simula: si una sola fila tiene error, no se aplica nada.
@@ -668,8 +794,11 @@ function Cargas() {
             setArchivo(a);
             setResultado(null);
             setErrores([]);
+            v.reiniciar();
           }}
           clearable
+          clearButtonProps={botonQuitar('el archivo')}
+          error={v.error('archivo')}
           data-testid="carga-archivo"
         />
         <Group>
@@ -706,7 +835,11 @@ function Cargas() {
             label="Soporte de la DIGSA"
             placeholder="Oficio DIGSA [número] del [fecha]"
             value={soporte}
-            onChange={(e) => setSoporte(e.currentTarget.value)}
+            onChange={(e) => {
+              setSoporte(e.currentTarget.value);
+              v.limpiar('soporte');
+            }}
+            error={v.error('soporte')}
             data-testid="carga-soporte"
           />
           <Stack gap={4}>
@@ -723,15 +856,24 @@ function Cargas() {
             />
           </Stack>
         </SimpleGrid>
+        {v.resumen}
         <Group>
-          <Button
-            disabled={!listo || soporte.trim().length < 5}
+          <BotonConMotivo
+            motivo={listo ? null : 'Simule primero un archivo sin errores.'}
+            idMotivo={idEspera}
             loading={aplicar.isPending}
-            onClick={() => aplicar.mutate()}
+            onClick={() => {
+              if (v.validar({ soporte: soporte.trim().length < 5 ? 'Escriba el soporte de la DIGSA (mínimo 5 caracteres).' : null })) aplicar.mutate();
+            }}
             data-testid="carga-aplicar"
           >
             Aplicar carga
-          </Button>
+          </BotonConMotivo>
+          {!listo && (
+            <Text size="sm" c="dimmed" id={idEspera}>
+              {resultado?.yaAplicado ? 'Este archivo ya se aplicó.' : 'Para aplicar, simule primero un archivo sin errores.'}
+            </Text>
+          )}
         </Group>
       </Stack>
     </Card>
@@ -747,15 +889,21 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
   const [inicio, setInicio] = useState('');
   const [fin, setFin] = useState('');
   const [valores, setValores] = useState<Record<string, string>>(Object.fromEntries(o.parametros.map((p) => [p.clave, p.valor])));
+  const vVigencia = useValidacion({ etiquetas: { anio: 'Año', inicio: 'Inicio', fin: 'Fin' }, testid: 'vigencia-error' });
+  const vModalidad = useValidacion({ testid: 'modalidad-error' });
+  const vParametro = useValidacion({ etiquetas: Object.fromEntries(o.parametros.map((p) => [p.clave, p.descripcion])), testid: 'parametro-error' });
+  const vSatelite = useValidacion({ testid: 'centralizador-error' });
 
-  const ejecutar = async (promesa: Promise<{ mensaje: string }>, defecto: string): Promise<boolean> => {
+  /** Ejecuta un cambio: el aviso de éxito es pasajero; el error queda persistente en el resumen de la sección (v). */
+  const ejecutar = async (promesa: () => Promise<{ mensaje: string }>, v: Validacion, defecto: string): Promise<boolean> => {
+    v.reiniciar();
     try {
-      const r = await promesa;
+      const r = await promesa();
       notifications.show({ color: 'green', message: r.mensaje });
       refrescar();
       return true;
     } catch (e) {
-      avisarError(e, defecto);
+      v.errorServidor(e, defecto);
       return false;
     }
   };
@@ -766,8 +914,8 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
 
   return (
     <Stack>
-      <Card withBorder>
-        <Title order={5}>Vigencias</Title>
+      <Card withBorder ref={vVigencia.ref}>
+        <Title order={2} size="h5">Vigencias</Title>
         <Text size="sm" c="dimmed">
           Una vigencia por año fiscal; puede empezar o terminar a mitad de año. Una vigencia cerrada no admite novedades ni ejecución.
         </Text>
@@ -775,7 +923,7 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
           {o.vigencias.map((v) => (
             <Group key={v.id} justify="space-between" wrap="wrap">
               <Text size="sm">
-                {v.anio}: {v.inicio} a {v.fin}
+                {v.anio}: {fecha(v.inicio)} a {fecha(v.fin)}
               </Text>
               <Button
                 size="compact-xs"
@@ -783,7 +931,8 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
                 color={v.estado === 'abierta' ? 'red' : 'green'}
                 onClick={() =>
                   void ejecutar(
-                    api(`/api/presupuesto/vigencias/${v.id}`, { metodo: 'PUT', cuerpo: { estado: v.estado === 'abierta' ? 'cerrada' : 'abierta' } }),
+                    () => api(`/api/presupuesto/vigencias/${v.id}`, { metodo: 'PUT', cuerpo: { estado: v.estado === 'abierta' ? 'cerrada' : 'abierta' } }),
+                    vVigencia,
                     'No se pudo cambiar la vigencia.',
                   )
                 }
@@ -793,19 +942,54 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
             </Group>
           ))}
         </Stack>
+        {vVigencia.resumen && <Box mt="sm">{vVigencia.resumen}</Box>}
         <SimpleGrid cols={{ base: 1, sm: 4 }} mt="sm">
-          <TextInput label="Año" inputMode="numeric" value={anio} onChange={(e) => setAnio(e.currentTarget.value)} data-testid="vigencia-anio" />
-          <TextInput label="Inicio (opcional)" type="date" value={inicio} onChange={(e) => setInicio(e.currentTarget.value)} />
-          <TextInput label="Fin (opcional)" type="date" value={fin} onChange={(e) => setFin(e.currentTarget.value)} />
+          <TextInput
+            label="Año"
+            inputMode="numeric"
+            value={anio}
+            onChange={(e) => {
+              setAnio(e.currentTarget.value);
+              vVigencia.limpiar('anio');
+            }}
+            error={vVigencia.error('anio')}
+            data-testid="vigencia-anio"
+          />
+          <TextInput
+            label="Inicio (opcional)"
+            type="date"
+            value={inicio}
+            onChange={(e) => {
+              setInicio(e.currentTarget.value);
+              vVigencia.limpiar('inicio');
+              vVigencia.limpiar('fin');
+            }}
+            error={vVigencia.error('inicio')}
+          />
+          <TextInput
+            label="Fin (opcional)"
+            type="date"
+            value={fin}
+            onChange={(e) => {
+              setFin(e.currentTarget.value);
+              vVigencia.limpiar('fin');
+            }}
+            error={vVigencia.error('fin')}
+          />
           <Button
             mt={{ base: 0, sm: 24 }}
-            disabled={!/^\d{4}$/.test(anio)}
-            onClick={() =>
+            onClick={() => {
+              const errores = {
+                anio: /^\d{4}$/.test(anio) ? null : 'Escriba el año con 4 dígitos.',
+                fin: inicio && fin && inicio > fin ? 'El fin no puede ser anterior al inicio.' : null,
+              };
+              if (!vVigencia.validar(errores)) return;
               void ejecutar(
-                api('/api/presupuesto/vigencias', { cuerpo: { anio: Number(anio), inicio: inicio || null, fin: fin || null } }),
+                () => api('/api/presupuesto/vigencias', { cuerpo: { anio: Number(anio), inicio: inicio || null, fin: fin || null } }),
+                vVigencia,
                 'No se pudo crear la vigencia.',
-              ).then((ok) => ok && setAnio(''))
-            }
+              ).then((ok) => ok && setAnio(''));
+            }}
             data-testid="vigencia-crear"
           >
             Crear vigencia
@@ -814,47 +998,63 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
       </Card>
 
       <Card withBorder>
-        <Title order={5}>Modalidades de facturación</Title>
+        <Title order={2} size="h5">Modalidades de facturación</Title>
         <Text size="sm" c="dimmed">
           Las tres del Anexo 5 §4.6 están activas; las demás del anexo del OPL se activan si la DIGSA las presupuesta aparte.
         </Text>
+        {vModalidad.resumen && <Box mt="sm">{vModalidad.resumen}</Box>}
         <Stack gap={4} mt="sm">
           {o.modalidades.map((m) => (
             <Switch
               key={m.codigo}
               label={m.nombre}
               checked={m.activa}
-              onChange={(e) =>
+              onChange={(e) => {
+                const activa = e.currentTarget.checked;
                 void ejecutar(
-                  api(`/api/presupuesto/modalidades/${m.codigo}`, { metodo: 'PUT', cuerpo: { activa: e.currentTarget.checked } }),
+                  () => api(`/api/presupuesto/modalidades/${m.codigo}`, { metodo: 'PUT', cuerpo: { activa } }),
+                  vModalidad,
                   'No se pudo cambiar la modalidad.',
-                )
-              }
+                );
+              }}
             />
           ))}
         </Stack>
       </Card>
 
-      <Card withBorder>
-        <Title order={5}>Parámetros</Title>
+      <Card withBorder ref={vParametro.ref}>
+        <Title order={2} size="h5">Parámetros</Title>
+        {vParametro.resumen && <Box mt="sm">{vParametro.resumen}</Box>}
         <Stack gap="xs" mt="sm">
           {o.parametros.map((p) => (
             <Group key={p.clave} align="flex-end" wrap="wrap">
               <TextInput
                 label={p.descripcion}
                 value={valores[p.clave] ?? ''}
-                onChange={(e) => setValores({ ...valores, [p.clave]: e.currentTarget.value })}
+                onChange={(e) => {
+                  setValores({ ...valores, [p.clave]: e.currentTarget.value });
+                  vParametro.limpiar(p.clave);
+                }}
+                error={vParametro.error(p.clave)}
                 style={{ flex: '1 1 260px' }}
               />
               <Button
                 variant="light"
                 disabled={(valores[p.clave] ?? '') === p.valor}
-                onClick={() =>
-                  void ejecutar(
-                    api(`/api/presupuesto/parametros/${p.clave}`, { metodo: 'PUT', cuerpo: { valor: valores[p.clave] } }),
-                    'No se pudo guardar el parámetro.',
-                  )
-                }
+                onClick={async () => {
+                  vParametro.reiniciar();
+                  try {
+                    const r = await api<{ mensaje: string }>(`/api/presupuesto/parametros/${p.clave}`, {
+                      metodo: 'PUT',
+                      cuerpo: { valor: valores[p.clave] },
+                    });
+                    notifications.show({ color: 'green', message: r.mensaje });
+                    refrescar();
+                  } catch (e) {
+                    // El servidor rechaza el valor de este parámetro: el mensaje va junto a su campo
+                    vParametro.validar({ [p.clave]: e instanceof ErrorApi ? e.message : 'No se pudo guardar el parámetro.' });
+                  }
+                }}
               >
                 Guardar
               </Button>
@@ -864,10 +1064,11 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
       </Card>
 
       <Card withBorder>
-        <Title order={5}>Satélites y su ESM centralizador</Title>
+        <Title order={2} size="h5">Satélites y su ESM centralizador</Title>
         <Text size="sm" c="dimmed">
           Los satélites dependen presupuestalmente de un ESM centralizador (anexo del OPL §27.2): su ejecución se suma a la línea del centralizador.
         </Text>
+        {vSatelite.resumen && <Box mt="sm">{vSatelite.resumen}</Box>}
         <Stack gap="xs" mt="sm">
           {satelites.length === 0 && <Text size="sm">No hay satélites en su alcance.</Text>}
           {satelites.map((s) => (
@@ -876,12 +1077,14 @@ function Configuracion({ o }: { o: OpcionesPresupuesto }) {
               label={etiquetaPunto(s)}
               placeholder="Sin centralizador"
               clearable
+              clearButtonProps={botonQuitar(`el centralizador de ${etiquetaPunto(s)}`)}
               searchable
               data={centralizadores}
               value={s.centralizadorId ? String(s.centralizadorId) : null}
               onChange={(v) =>
                 void ejecutar(
-                  api(`/api/presupuesto/puntos/${s.id}/centralizador`, { metodo: 'PUT', cuerpo: { centralizadorId: v ? Number(v) : null } }),
+                  () => api(`/api/presupuesto/puntos/${s.id}/centralizador`, { metodo: 'PUT', cuerpo: { centralizadorId: v ? Number(v) : null } }),
+                  vSatelite,
                   'No se pudo guardar el centralizador.',
                 )
               }

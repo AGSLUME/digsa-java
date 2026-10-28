@@ -1,6 +1,7 @@
 import {
   Alert,
   Badge,
+  Box,
   Button,
   Card,
   Center,
@@ -8,6 +9,8 @@ import {
   Loader,
   Modal,
   NumberInput,
+  type NumberInputHandlers,
+  type NumberInputProps,
   ScrollArea,
   Select,
   SimpleGrid,
@@ -17,24 +20,27 @@ import {
   Textarea,
   TextInput,
   Title,
+  UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { api, descargar, ErrorApi } from '../shared/api';
 import { BarraHorizontal } from '../shared/Barras';
+import { cifra, fecha } from '../shared/formato';
 import { useSesion } from '../shared/sesion';
+import { useValidacion } from '../shared/validacion';
 import {
+  camposPesos,
   conConsulta,
   cuerpoPesos,
   decimal,
+  erroresIncidencia,
   EXPLICACION_FACTOR,
   FORMATOS_DESCARGA,
   hoyIso,
   nivelRiesgo,
   problemaCierre,
-  problemaIncidencia,
-  problemaPesos,
   puedeEditarPesos,
   puedeRegistrarIncidencias,
   sumaPesos,
@@ -45,23 +51,10 @@ import {
   type Incidencia,
   type TableroRiesgo,
 } from '../shared/tablero';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
+import { Kpi } from '../shared/Kpi';
 
-function avisarError(e: unknown, defecto: string) {
-  notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : defecto });
-}
-
-function Caja({ titulo, valor, color, testid }: { titulo: string; valor: string | number; color?: string; testid?: string }) {
-  return (
-    <Card withBorder padding="sm" data-testid={testid}>
-      <Text size="xs" c="dimmed">
-        {titulo}
-      </Text>
-      <Text size="xl" fw={700} c={tonoTexto(color)}>
-        {valor}
-      </Text>
-    </Card>
-  );
-}
 
 /**
  * «Dashboard de riesgo» (docs/especificaciones/riesgo-tablero): puntaje explicable por ESM de dispensación, agregados por país y
@@ -69,6 +62,7 @@ function Caja({ titulo, valor, color, testid }: { titulo: string; valor: string 
  */
 export function Riesgo() {
   const sesion = useSesion();
+  const descarga = useValidacion({ testid: 'error-descarga-riesgo' });
   const [fuerza, setFuerza] = useState('');
   const consulta = fuerza ? `fuerza=${encodeURIComponent(fuerza)}` : '';
   // La clave incluye el filtro: una respuesta vieja nunca se pinta sobre la del filtro actual
@@ -79,10 +73,11 @@ export function Riesgo() {
   });
 
   const bajar = async (formato: string) => {
+    descarga.reiniciar();
     try {
       await descargar(conConsulta('/api/riesgo/exportar', `formato=${formato}${consulta ? '&' + consulta : ''}`));
     } catch (e) {
-      avisarError(e, 'No se pudo descargar el dashboard de riesgo.');
+      descarga.errorServidor(e, 'No se pudo descargar el dashboard de riesgo.');
     }
   };
 
@@ -99,12 +94,11 @@ export function Riesgo() {
 
   return (
     <Stack>
-      <Title order={3}>Dashboard de riesgo</Title>
-      <Text size="sm" c="dimmed">
-        Puntaje de 0 a 100 por ESM de dispensación, calculado con la última visita completa cerrada, los hallazgos recurrentes, la intervención
-        inmediata, los planes vencidos y las incidencias reportadas por la DIGSA. Los días sin visita se muestran como dato: la prioridad por
-        antigüedad la da la agenda.
-      </Text>
+      <EncabezadoPagina
+        titulo="Dashboard de riesgo"
+        fuente="Anexo 3 · Anexo 5 · 4.5"
+        descripcion="Puntaje de 0 a 100 por ESM de dispensación, calculado con la última visita completa cerrada, los hallazgos recurrentes, la intervención inmediata, los planes vencidos y las incidencias reportadas por la DIGSA. Los días sin visita se muestran como dato: la prioridad por antigüedad la da la agenda."
+      />
       <Alert color="yellow" variant="light" data-testid="estado-pesos">
         Pesos y umbrales: {t.estadoPesos}
       </Alert>
@@ -115,6 +109,7 @@ export function Riesgo() {
             label="Fuerza"
             placeholder="Todas"
             clearable
+            clearButtonProps={{ 'aria-label': 'Quitar el filtro de fuerza' }}
             data={t.fuerzas}
             value={fuerza || null}
             onChange={(v) => setFuerza(v ?? '')}
@@ -135,6 +130,7 @@ export function Riesgo() {
             </Button>
           ))}
         </Group>
+        {descarga.resumen && <Box mt="sm">{descarga.resumen}</Box>}
       </Card>
       {tablero.error && <Alert color="red">{tablero.error.message}</Alert>}
 
@@ -153,15 +149,15 @@ function Pais({ t }: { t: TableroRiesgo }) {
   const p = t.pais;
   return (
     <Stack gap="sm">
-      <Title order={4}>País</Title>
+      <Title order={2} size="h4">País</Title>
       <SimpleGrid cols={{ base: 2, sm: 4 }} data-testid="riesgo-pais">
-        <Caja titulo="ESM evaluados" valor={p.esm} />
-        <Caja titulo="Puntaje promedio" valor={decimal(p.promedio)} />
-        <Caja titulo={`Riesgo alto (≥ ${t.umbrales.alto})`} valor={p.niveles.alto} color="red" />
-        <Caja titulo={`Riesgo medio (≥ ${t.umbrales.medio}) / bajo`} valor={`${p.niveles.medio} / ${p.niveles.bajo}`} color="orange" />
+        <Kpi titulo="ESM evaluados" valor={p.esm} />
+        <Kpi titulo="Puntaje promedio" valor={decimal(p.promedio)} />
+        <Kpi titulo={`Riesgo alto (≥ ${t.umbrales.alto})`} valor={p.niveles.alto} color="red" />
+        <Kpi titulo={`Riesgo medio (≥ ${t.umbrales.medio}) / bajo`} valor={`${p.niveles.medio} / ${p.niveles.bajo}`} color="orange" />
       </SimpleGrid>
       <Card withBorder>
-        <Title order={5} mb="xs">
+        <Title order={3} size="h5" mb="xs">
           Promedio de cada factor
         </Title>
         <Stack gap="xs">
@@ -183,7 +179,7 @@ function Pais({ t }: { t: TableroRiesgo }) {
 function PorFuerza({ t }: { t: TableroRiesgo }) {
   return (
     <Card withBorder>
-      <Title order={4} mb="xs">
+      <Title order={2} size="h4" mb="xs">
         Por fuerza
       </Title>
       {t.porFuerza.length === 0 ? (
@@ -196,7 +192,7 @@ function PorFuerza({ t }: { t: TableroRiesgo }) {
             {t.porFuerza.map((f) => (
               <Card key={f.fuerza} withBorder padding="sm" data-testid={'tarjeta-fuerza-' + f.fuerza}>
                 <Group justify="space-between" gap="xs" wrap="wrap">
-                  <Title order={5}>{f.fuerza}</Title>
+                  <Title order={3} size="h5">{f.fuerza}</Title>
                   <Text size="sm" fw={600}>
                     Promedio {decimal(f.agregado.promedio)}
                   </Text>
@@ -258,7 +254,7 @@ function textoDatos(d: FilaRiesgo['datos']): string[] {
 function TablaEsm({ t }: { t: TableroRiesgo }) {
   return (
     <Card withBorder>
-      <Title order={4} mb="xs">
+      <Title order={2} size="h4" mb="xs">
         Puntaje por ESM
       </Title>
       <TarjetasEsm t={t} />
@@ -296,14 +292,14 @@ function TablaEsm({ t }: { t: TableroRiesgo }) {
                       </Text>
                     )}
                     {e.sinResumen && (
-                      <Text size="xs" c="red.8" fw={600} data-testid={'sin-resumen-' + e.puntoId}>
+                      <Text size="xs" c="red" fw={600} data-testid={'sin-resumen-' + e.puntoId}>
                         Visita sin resumen: incumplimiento no medido
                       </Text>
                     )}
                   </Table.Td>
                   <Table.Td>{e.fuerza}</Table.Td>
                   <Table.Td ta="right">
-                    <Text fw={700}>{e.total}</Text>
+                    <Text fw={700}>{cifra(e.total)}</Text>
                   </Table.Td>
                   <Table.Td>
                     <Badge color={n.insignia} variant="filled" autoContrast>
@@ -331,7 +327,7 @@ function TablaEsm({ t }: { t: TableroRiesgo }) {
                       </Text>
                     ))}
                   </Table.Td>
-                  <Table.Td>{e.ultimaCerrada ?? 'Sin visita cerrada'}</Table.Td>
+                  <Table.Td>{e.ultimaCerrada ? fecha(e.ultimaCerrada) : 'Sin visita cerrada'}</Table.Td>
                   <Table.Td ta="right">{e.diasSinVisita ?? '—'}</Table.Td>
                 </Table.Tr>
               );
@@ -360,7 +356,7 @@ function TarjetasEsm({ t }: { t: TableroRiesgo }) {
         const n = nivelRiesgo(e.nivel);
         return (
           <Card key={e.puntoId} withBorder padding="sm" data-testid={'tarjeta-riesgo-' + e.puntoId} style={{ minWidth: 0 }}>
-            <Title order={5} style={{ overflowWrap: 'anywhere' }}>
+            <Title order={3} size="h5" style={{ overflowWrap: 'anywhere' }}>
               {e.nombre}
             </Title>
             <Text size="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
@@ -371,7 +367,7 @@ function TarjetasEsm({ t }: { t: TableroRiesgo }) {
               {textoNivel(e.nivel, e.total)}
             </Text>
             {e.sinResumen && (
-              <Text size="xs" c="red.8" fw={600}>
+              <Text size="xs" c="red" fw={600}>
                 Visita sin resumen: incumplimiento no medido
               </Text>
             )}
@@ -389,7 +385,7 @@ function TarjetasEsm({ t }: { t: TableroRiesgo }) {
             </Stack>
             <Text size="sm" mt="xs">
               {e.ultimaCerrada
-                ? `Última visita cerrada: ${e.ultimaCerrada}${e.diasSinVisita !== null ? ` · ${e.diasSinVisita} días` : ''}`
+                ? `Última visita cerrada: ${fecha(e.ultimaCerrada)}${e.diasSinVisita !== null ? ` · ${e.diasSinVisita} días` : ''}`
                 : 'Sin visita cerrada'}
             </Text>
             <Text size="xs" c="dimmed">
@@ -402,27 +398,89 @@ function TarjetasEsm({ t }: { t: TableroRiesgo }) {
   );
 }
 
+/**
+ * Campo entero con botones de subir y bajar solo para el ratón: quedan fuera del orden de tabulación y del árbol de accesibilidad (los de
+ * NumberInput no tienen nombre y la auditoría U0 los contó). Con el teclado, las flechas arriba y abajo suben y bajan el valor.
+ */
+function Entero({
+  etiqueta,
+  describidoPor,
+  ...props
+}: Omit<NumberInputProps, 'label' | 'handlersRef' | 'rightSection'> & { etiqueta: string; describidoPor?: string }) {
+  const pasos = useRef<NumberInputHandlers>(undefined);
+  const campo = useRef<HTMLInputElement>(null);
+  // Mantine pone su propio aria-describedby (vacío si el campo no tiene descripción ni texto de error, como aquí, donde el error solo
+  // marca): el enlace con el aviso de abajo se pone directo en el campo
+  useEffect(() => {
+    const el = campo.current;
+    if (!el) return;
+    if (describidoPor) el.setAttribute('aria-describedby', describidoPor);
+    else el.removeAttribute('aria-describedby');
+  }, [describidoPor, props.error]);
+  const boton = (direccion: 'Subir' | 'Bajar', simbolo: string) => (
+    <UnstyledButton
+      aria-hidden
+      tabIndex={-1}
+      disabled={props.disabled}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => (direccion === 'Subir' ? pasos.current?.increment() : pasos.current?.decrement())}
+      fz={10}
+      lh={1}
+      px={6}
+      py={2}
+      c="dimmed"
+    >
+      {simbolo}
+    </UnstyledButton>
+  );
+  return (
+    <NumberInput
+      {...props}
+      ref={campo}
+      label={etiqueta}
+      handlersRef={pasos}
+      // Por omisión la sección derecha deja pasar el puntero: los botones propios deben recibir el clic
+      rightSectionPointerEvents={props.disabled ? 'none' : 'all'}
+      rightSection={
+        <Stack gap={0}>
+          {boton('Subir', '▲')}
+          {boton('Bajar', '▼')}
+        </Stack>
+      }
+    />
+  );
+}
+
 /** Pesos por factor y umbrales de nivel: la coordinación los edita (14.1, con bitácora); los perfiles de consulta solo los ven. */
 function PanelPesos({ t, editable }: { t: TableroRiesgo; editable: boolean }) {
   const qc = useQueryClient();
+  const v = useValidacion({ testid: 'error-pesos' });
   const [pesos, setPesos] = useState<Record<string, number | string>>(() => ({ ...t.pesos }));
   const [alto, setAlto] = useState<number | string>(t.umbrales.alto);
   const [medio, setMedio] = useState<number | string>(t.umbrales.medio);
-  const problema = problemaPesos(pesos, t.factores, t.nombres, alto, medio);
+  const revision = camposPesos(pesos, t.factores, t.nombres, alto, medio);
+  const problema = revision?.mensaje ?? null;
+  // El campo que falla queda marcado; el mensaje va una sola vez, en el texto de abajo (data-testid «problema-pesos»)
+  const marcado = (campo: string) => revision?.campos.includes(campo) || undefined;
+  // El aviso vive en un contenedor fijo que anuncia sus cambios sin interrumpir; los campos marcados lo referencian
+  const idProblema = useId();
+  const idAyuda = useId();
+  const describido = (campo: string) => (marcado(campo) ? idProblema : undefined);
   const cambiado = t.factores.some((f) => Number(pesos[f]) !== t.pesos[f]) || Number(alto) !== t.umbrales.alto || Number(medio) !== t.umbrales.medio;
   const guardar = useMutation({
     mutationFn: () =>
       api<{ mensaje: string }>('/api/riesgo/pesos', { metodo: 'PUT', cuerpo: cuerpoPesos(pesos, t.factores, Number(alto), Number(medio)) }),
     onSuccess: (r) => {
+      v.reiniciar();
       notifications.show({ color: 'green', message: r.mensaje });
       void qc.invalidateQueries({ queryKey: ['riesgo'] });
     },
-    onError: (e) => avisarError(e, 'No se pudieron guardar los pesos.'),
+    onError: (e) => v.errorServidor(e, 'No se pudieron guardar los pesos.'),
   });
 
   return (
-    <Card withBorder data-testid="panel-pesos">
-      <Title order={4}>Pesos y umbrales</Title>
+    <Card withBorder data-testid="panel-pesos" ref={v.ref}>
+      <Title order={2} size="h4">Pesos y umbrales</Title>
       <Text size="sm" c="dimmed" mb="sm">
         {t.estadoPesos}. Cada factor suma hasta su peso; los pesos suman 100. Nivel alto con puntaje ≥ {t.umbrales.alto}, medio con ≥{' '}
         {t.umbrales.medio} y bajo por debajo.
@@ -432,8 +490,8 @@ function PanelPesos({ t, editable }: { t: TableroRiesgo; editable: boolean }) {
         {t.factores.map((f) => (
           <Group key={f} align="flex-start" wrap="wrap" gap="sm">
             {editable ? (
-              <NumberInput
-                label={t.nombres[f] ?? f}
+              <Entero
+                etiqueta={t.nombres[f] ?? f}
                 min={0}
                 max={100}
                 step={1}
@@ -441,7 +499,9 @@ function PanelPesos({ t, editable }: { t: TableroRiesgo; editable: boolean }) {
                 allowNegative={false}
                 w={170}
                 value={pesos[f] ?? ''}
-                onChange={(v) => setPesos((p) => ({ ...p, [f]: v }))}
+                onChange={(x) => setPesos((p) => ({ ...p, [f]: x }))}
+                error={marcado(f)}
+                describidoPor={describido(f)}
                 data-testid={'peso-' + f}
               />
             ) : (
@@ -456,13 +516,24 @@ function PanelPesos({ t, editable }: { t: TableroRiesgo; editable: boolean }) {
         ))}
         {editable && (
           <>
-            <Text size="sm" c={sumaPesos(pesos, t.factores) === 100 ? 'dimmed' : 'red.8'}>
+            <Text size="sm" c={sumaPesos(pesos, t.factores) === 100 ? 'dimmed' : 'red'}>
               Suma de los pesos: {sumaPesos(pesos, t.factores)} de 100
             </Text>
             <Group wrap="wrap">
-              <NumberInput label="Umbral alto" min={1} max={100} allowDecimal={false} allowNegative={false} w={140} value={alto} onChange={setAlto} />
-              <NumberInput
-                label="Umbral medio"
+              <Entero
+                etiqueta="Umbral alto"
+                min={1}
+                max={100}
+                allowDecimal={false}
+                allowNegative={false}
+                w={140}
+                value={alto}
+                onChange={setAlto}
+                error={marcado('alto')}
+                describidoPor={describido('alto')}
+              />
+              <Entero
+                etiqueta="Umbral medio"
                 min={1}
                 max={99}
                 allowDecimal={false}
@@ -470,17 +541,33 @@ function PanelPesos({ t, editable }: { t: TableroRiesgo; editable: boolean }) {
                 w={140}
                 value={medio}
                 onChange={setMedio}
+                error={marcado('medio')}
+                describidoPor={describido('medio')}
               />
             </Group>
-            {problema && (
-              <Text size="sm" c="red.8" data-testid="problema-pesos">
-                {problema}
-              </Text>
-            )}
+            <div id={idProblema} aria-live="polite">
+              {problema && (
+                <Text size="sm" c="red" data-testid="problema-pesos">
+                  {problema}
+                </Text>
+              )}
+            </div>
+            {v.resumen}
             <Group>
-              <Button data-testid="guardar-pesos" disabled={!!problema || !cambiado} loading={guardar.isPending} onClick={() => guardar.mutate()}>
+              <BotonConMotivo
+                data-testid="guardar-pesos"
+                motivo={problema ? problema : !cambiado ? 'Cambie un peso o un umbral para guardar.' : null}
+                idMotivo={problema ? idProblema : idAyuda}
+                loading={guardar.isPending}
+                onClick={() => guardar.mutate()}
+              >
                 Guardar pesos
-              </Button>
+              </BotonConMotivo>
+              {!problema && !cambiado && (
+                <Text size="sm" c="dimmed" id={idAyuda}>
+                  Cambie un peso o un umbral para guardar.
+                </Text>
+              )}
             </Group>
           </>
         )}
@@ -498,12 +585,30 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
   const [elegido, setForm] = useState<FormIncidencia>({ ...FORM_VACIO, fecha: hoyIso() });
   // El ESM elegido debe seguir en la lista (filtrada por fuerza): si el filtro lo oculta, el formulario queda sin ESM
   const form = esm.some((e) => String(e.puntoId) === elegido.puntoId) ? elegido : { ...elegido, puntoId: '' };
-  const [intento, setIntento] = useState(false);
   const [cerrando, setCerrando] = useState<Incidencia | null>(null);
+  // Si el cierre falla con 404, el diálogo se cierra y el foco queda en el aviso del error, no en el botón de la fila (UI-28)
+  const [sinRetorno, setSinRetorno] = useState(false);
   const [motivo, setMotivo] = useState('');
   const hoy = hoyIso();
-  const problema = problemaIncidencia(form, hoy);
   const problemaMotivo = problemaCierre(motivo);
+  const v = useValidacion({
+    etiquetas: { puntoId: 'ESM', fecha: 'Fecha', descripcion: 'Descripción', fuente: 'Fuente' },
+    testid: 'error-incidencia',
+  });
+  const vCierre = useValidacion({ etiquetas: { motivo: 'Motivo del cierre' }, testid: 'error-cierre-incidencia' });
+  const idMotivo = useId();
+  const vLista = useValidacion({ testid: 'error-incidencias' });
+  const cambiar = (cambio: Partial<FormIncidencia>) => {
+    setForm({ ...form, ...cambio });
+    for (const k of Object.keys(cambio)) v.limpiar(k);
+  };
+  const abrirCierre = (i: Incidencia) => {
+    setMotivo('');
+    vCierre.reiniciar();
+    vLista.reiniciar();
+    setSinRetorno(false);
+    setCerrando(i);
+  };
 
   const registrar = useMutation({
     mutationFn: () =>
@@ -518,11 +623,11 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
     onSuccess: (r) => {
       notifications.show({ color: 'green', message: r.mensaje });
       setForm({ ...FORM_VACIO, fecha: hoyIso() });
-      setIntento(false);
+      v.reiniciar();
       void qc.invalidateQueries({ queryKey: ['riesgo'] });
     },
     onError: (e) => {
-      avisarError(e, 'No se pudo registrar la incidencia.');
+      v.errorServidor(e, 'No se pudo registrar la incidencia.');
       void qc.invalidateQueries({ queryKey: ['riesgo'] });
     },
   });
@@ -535,11 +640,14 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
       void qc.invalidateQueries({ queryKey: ['riesgo'] });
     },
     onError: (e) => {
-      avisarError(e, 'No se pudo cerrar la incidencia.');
-      // Cerrada por otro o inexistente (404): se cierra el diálogo y se recarga la lista y el tablero
+      // Cerrada por otro o inexistente (404): se cierra el diálogo, el aviso queda sobre la lista y se recarga la lista y el tablero
       if (e instanceof ErrorApi && e.estado === 404) {
+        setSinRetorno(true);
+        vLista.errorServidor(e, 'No se pudo cerrar la incidencia.');
         setCerrando(null);
         setMotivo('');
+      } else {
+        vCierre.errorServidor(e, 'No se pudo cerrar la incidencia.');
       }
       void qc.invalidateQueries({ queryKey: ['riesgo'] });
     },
@@ -547,15 +655,16 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
 
   return (
     <Card withBorder data-testid="incidencias">
-      <Title order={4}>Incidencias reportadas por la DIGSA</Title>
+      <Title order={2} size="h4">Incidencias reportadas por la DIGSA</Title>
       <Text size="sm" c="dimmed" mb="sm">
         Cada incidencia abierta de los últimos 12 meses suma al factor «Incidencias de la DIGSA» del ESM. Al cerrarla deja de sumar.
       </Text>
       {registra && (
-        <Card withBorder mb="md" data-testid="form-incidencia">
-          <Title order={5} mb="xs">
+        <Card withBorder mb="md" data-testid="form-incidencia" ref={v.ref}>
+          <Title order={3} size="h5" mb="xs">
             Registrar incidencia
           </Title>
+          {v.resumen && <Box mb="sm">{v.resumen}</Box>}
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
             <Select
               label="ESM"
@@ -564,8 +673,9 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
               placeholder="Elija el ESM"
               data={esm.map((e) => ({ value: String(e.puntoId), label: `${e.nombre} (${e.fuerza})` }))}
               value={form.puntoId || null}
-              onChange={(v) => setForm({ ...form, puntoId: v ?? '' })}
+              onChange={(x) => cambiar({ puntoId: x ?? '' })}
               nothingFoundMessage="Sin ESM con ese nombre"
+              error={v.error('puntoId')}
             />
             <TextInput
               label="Fecha"
@@ -573,19 +683,21 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
               required
               max={hoy}
               value={form.fecha}
-              onChange={(e) => setForm({ ...form, fecha: e.currentTarget.value })}
+              onChange={(e) => cambiar({ fecha: e.currentTarget.value })}
+              error={v.error('fecha')}
             />
           </SimpleGrid>
           <Textarea
             mt="sm"
             label="Descripción"
             required
-            autosize
-            minRows={3}
+            rows={4}
+            resize="vertical"
             maxLength={2000}
             description={`${form.descripcion.trim().length} de 2000 caracteres (mínimo 10)`}
             value={form.descripcion}
-            onChange={(e) => setForm({ ...form, descripcion: e.currentTarget.value })}
+            onChange={(e) => cambiar({ descripcion: e.currentTarget.value })}
+            error={v.error('descripcion')}
           />
           <TextInput
             mt="sm"
@@ -593,19 +705,14 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
             placeholder="Oficio, correo o reunión en que la DIGSA la reportó"
             maxLength={200}
             value={form.fuente}
-            onChange={(e) => setForm({ ...form, fuente: e.currentTarget.value })}
+            onChange={(e) => cambiar({ fuente: e.currentTarget.value })}
+            error={v.error('fuente')}
           />
-          {intento && problema && (
-            <Text size="sm" c="red.8" mt="xs">
-              {problema}
-            </Text>
-          )}
           <Group mt="sm">
             <Button
               loading={registrar.isPending}
               onClick={() => {
-                setIntento(true);
-                if (!problema) registrar.mutate();
+                if (v.validar(erroresIncidencia(form, hoy))) registrar.mutate();
               }}
             >
               Registrar incidencia
@@ -613,6 +720,7 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
           </Group>
         </Card>
       )}
+      {vLista.resumen && <Box mb="sm">{vLista.resumen}</Box>}
       {lista.isLoading && <Loader size="sm" />}
       {lista.error && <Alert color="red">{lista.error.message}</Alert>}
       {lista.data && (
@@ -629,7 +737,7 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
                 </Badge>
               </Group>
               <Text size="xs" c="dimmed">
-                {i.fecha}
+                {fecha(i.fecha)}
                 {i.fuente ? ` · ${i.fuente}` : ''}
               </Text>
               <Text size="sm" mt={4} style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
@@ -645,10 +753,7 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
                   <Button
                     size="compact-sm"
                     variant="light"
-                    onClick={() => {
-                      setMotivo('');
-                      setCerrando(i);
-                    }}
+                    onClick={() => abrirCierre(i)}
                   >
                     Cerrar
                   </Button>
@@ -679,7 +784,7 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
               )}
               {lista.data.map((i) => (
                 <Table.Tr key={i.id} data-testid={'incidencia-' + i.id} style={{ verticalAlign: 'top' }}>
-                  <Table.Td style={{ whiteSpace: 'nowrap' }}>{i.fecha}</Table.Td>
+                  <Table.Td style={{ whiteSpace: 'nowrap' }}>{fecha(i.fecha)}</Table.Td>
                   <Table.Td>
                     {i.punto} ({i.fuerza})
                   </Table.Td>
@@ -701,10 +806,7 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
                         <Button
                           size="compact-xs"
                           variant="light"
-                          onClick={() => {
-                            setMotivo('');
-                            setCerrando(i);
-                          }}
+                          onClick={() => abrirCierre(i)}
                         >
                           Cerrar
                         </Button>
@@ -717,30 +819,46 @@ function Incidencias({ esm, registra }: { esm: FilaRiesgo[]; registra: boolean }
           </Table>
         </ScrollArea>
       )}
-      <Modal opened={cerrando !== null} onClose={() => setCerrando(null)} title="Cerrar incidencia">
+      <Modal opened={cerrando !== null} onClose={() => setCerrando(null)} title="Cerrar incidencia" returnFocus={!sinRetorno}>
         {cerrando && (
-          <Stack>
+          <Stack ref={vCierre.ref}>
             <Text size="sm">
-              {cerrando.punto} · {cerrando.fecha}
+              {cerrando.punto} · {fecha(cerrando.fecha)}
             </Text>
+            {vCierre.resumen}
             <Textarea
               label="Motivo del cierre"
               required
-              autosize
-              minRows={3}
+              rows={4}
+              resize="vertical"
               maxLength={800}
               description={`${motivo.trim().length} de 800 caracteres (mínimo 10)`}
               value={motivo}
-              onChange={(e) => setMotivo(e.currentTarget.value)}
+              onChange={(e) => {
+                setMotivo(e.currentTarget.value);
+                vCierre.limpiar('motivo');
+              }}
+              error={vCierre.error('motivo')}
               data-testid="motivo-cierre-incidencia"
             />
+            {problemaMotivo && (
+              <Text size="sm" c="dimmed" id={idMotivo}>
+                {problemaMotivo}
+              </Text>
+            )}
             <Group justify="flex-end">
               <Button variant="default" onClick={() => setCerrando(null)}>
                 Cancelar
               </Button>
-              <Button color="red" disabled={!!problemaMotivo} loading={cerrar.isPending} onClick={() => cerrar.mutate(cerrando)}>
+              <BotonConMotivo
+                color="red"
+                motivo={problemaMotivo || null}
+                idMotivo={idMotivo}
+                loading={cerrar.isPending}
+                onClick={() => cerrar.mutate(cerrando)}
+              >
                 Cerrar incidencia
-              </Button>
+              </BotonConMotivo>
             </Group>
           </Stack>
         )}

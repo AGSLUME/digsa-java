@@ -42,6 +42,11 @@ export function tituloMes(anio: number, mes: number): string {
   return `${MESES[mes]} de ${anio}`;
 }
 
+/** Año y mes (0 a 11) de una fecha «aaaa-mm-dd», p. ej. el mes inicial a partir de hoyBogota(). */
+export function mesDeIso(iso: string): { anio: number; mes: number } {
+  return { anio: Number(iso.slice(0, 4)), mes: Number(iso.slice(5, 7)) - 1 };
+}
+
 /** Mueve el mes visible n meses (negativo hacia atrás). */
 export function moverMes(anio: number, mes: number, n: number): { anio: number; mes: number } {
   const d = new Date(anio, mes + n, 1);

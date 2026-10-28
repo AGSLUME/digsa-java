@@ -82,7 +82,7 @@ test('propuesta del nivel central: proponer, ajustar, recalcular, confirmar y ve
     await expect(page.getByText('Parámetro actualizado.')).toBeVisible();
     await page.getByRole('link', { name: 'Propuesta de agenda' }).click();
   }
-  await expect(page.getByTestId('anio-contrato')).toHaveValue(/^Año de contrato \d+ \(\d{4}-\d{2}-\d{2} – \d{4}-\d{2}-\d{2}\)$/);
+  await expect(page.getByTestId('anio-contrato')).toHaveValue(/^Año de contrato \d+ \(\d{2}\/\d{2}\/\d{4} – \d{2}\/\d{2}\/\d{4}\)$/);
 
   // Explicación plegada con los parámetros vigentes
   await page.getByRole('button', { name: 'Cómo arma la propuesta' }).click();
@@ -90,7 +90,7 @@ test('propuesta del nivel central: proponer, ajustar, recalcular, confirmar y ve
   await expect(como).toContainText('Nada se programa ni se notifica hasta confirmar');
   await expect(como).toContainText('coordenadas del DANE');
   await expect(como.getByTestId('visitas-por-dia')).toHaveText(/^\d+$/);
-  await expect(como.getByTestId('km-mismo-dia')).toHaveText(/^\d+$/);
+  await expect(como.getByTestId('km-mismo-dia')).toHaveText(/^\d+,\d{2}$/); // km con 2 decimales (Anexo 5 num. 2.4)
 
   // Cuatro ciclos; el del nivel central tiene al menos el punto nuevo por proponer
   for (const c of ['linea_base', 'anual', 'farmacia', 'central']) await expect(page.getByTestId('ciclo-' + c)).toBeVisible();
@@ -149,7 +149,7 @@ test('propuesta del nivel central: proponer, ajustar, recalcular, confirmar y ve
   await expect(vista.getByTestId('estado-propuesta')).toHaveText('Confirmada');
   const resultado = fila.getByTestId('resultado-fila');
   await expect(resultado).toContainText(/VS-\d{8}-\d{4,}/);
-  await expect(fila).toContainText(fecha);
+  await expect(fila).toContainText(fecha.split('-').reverse().join('/')); // en pantalla, dd/mm/aaaa (decisión UI-3)
   const numero = (/VS-\d{8}-\d{4,}/.exec((await resultado.textContent()) ?? '') ?? [''])[0];
 
   // La visita queda en la agenda

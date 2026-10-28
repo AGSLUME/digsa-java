@@ -17,5 +17,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: false,
+    setupFiles: ['./src/pruebas.setup.ts'],
+    // Los tokens de lume.css se leen en la prueba del tema (comprueba que el tema de Mantine repite los mismos valores)
+    css: { include: [/lume\.css/] },
   },
 });

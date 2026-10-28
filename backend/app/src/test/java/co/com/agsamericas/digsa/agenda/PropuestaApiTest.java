@@ -94,10 +94,12 @@ class PropuestaApiTest extends PruebaIntegracion {
 
         // Ajuste: un sábado no; el primer día posible sí, y la fila queda fija
         LocalDate sabado = hoy().plusDays(30).with(DayOfWeek.SATURDAY);
-        assertThat(coord.put("/api/propuesta/items/" + item, Map.of("auditorId", idDe(qf), "otros", List.of(idDe(ing)), "fecha", sabado.toString())).estado())
-                .isEqualTo(422);
-        assertThat(coord.put("/api/propuesta/items/" + item, Map.of("auditorId", idDe(ing), "otros", List.of(), "fecha", "")).mensaje())
-                .as("el ingeniero no lidera").contains("químico farmacéutico, regente o auditor en salud");
+        Respuesta sab = coord.put("/api/propuesta/items/" + item, Map.of("auditorId", idDe(qf), "otros", List.of(idDe(ing)), "fecha", sabado.toString()));
+        assertThat(sab.estado()).isEqualTo(422);
+        assertThat(sab.json().path("campo").asText()).as("UI-21: el rechazo dice el campo").isEqualTo("fecha");
+        Respuesta ing0 = coord.put("/api/propuesta/items/" + item, Map.of("auditorId", idDe(ing), "otros", List.of(), "fecha", ""));
+        assertThat(ing0.mensaje()).as("el ingeniero no lidera").contains("químico farmacéutico, regente o auditor en salud");
+        assertThat(ing0.json().path("campo").asText()).isEqualTo("auditorId");
         LocalDate dia = PropuestaAgenda.dias(new Plazos(), hoy(), hoy(), hoy().plusDays(90)).get(3);
         Respuesta aj = coord.put("/api/propuesta/items/" + item, Map.of("auditorId", idDe(qf), "otros", List.of(idDe(ing)), "fecha", dia.toString()));
         assertThat(aj.estado()).as(aj.texto()).isEqualTo(200);

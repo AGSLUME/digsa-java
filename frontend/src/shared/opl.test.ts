@@ -5,6 +5,9 @@ import {
   editaQuienComo,
   errorFirmaPlan,
   errorRespuesta,
+  erroresFirmaPlan,
+  erroresQuienComo,
+  erroresRespuesta,
   faltanQuienComo,
   objecionesPorDecidir,
   pideReabrir,
@@ -119,6 +122,35 @@ describe('respuesta del OPL', () => {
     expect(errorFirmaPlan('Ana Pérez', 'Gerente', '1020304050', 'data:image/png;base64,x')).toBeNull();
     expect(errorFirmaPlan('Ana Pérez', 'Gerente', '12', 'data:image/png;base64,x')).toMatch(/documento/);
     expect(errorFirmaPlan('Ana Pérez', 'Gerente', '1020304050', null)).toMatch(/firma/);
+    // El primer error, en el orden de los campos
+    expect(errorRespuesta('acepta', '', 'Ana', 'J')).toBe('Escriba el cargo de quien responde (2 a 150 caracteres).');
+    expect(errorRespuesta(null, 'corta', 'An', 'Jefe')).toBe('Escriba el nombre de quien responde (3 a 150 caracteres).');
+    expect(errorFirmaPlan('An', 'Gerente', '12', null)).toBe('Escriba el nombre de quien firma (3 a 150 caracteres).');
+    expect(errorFirmaPlan('Ana Pérez', 'G', '12', null)).toBe('Escriba el cargo de quien firma (2 a 150 caracteres).');
+  });
+
+  it('las variantes por campo usan los mismos límites y dicen a qué campo corresponde cada error', () => {
+    const casos: [Parameters<typeof errorRespuesta>, string[]][] = [
+      [['acepta', '', 'Ana', 'Jefe'], []],
+      [['acepta', '', 'An', 'J'], ['nombre', 'cargo']],
+      [[null, '', 'Ana', 'Jefe'], ['decision']],
+      [['objeta', 'corta', 'Ana', 'Jefe'], ['justificacion']],
+      [['objeta', 'El registro sí existe en el sistema.', 'Ana', 'Jefe'], []],
+    ];
+    for (const [args, campos] of casos) {
+      expect(Object.keys(erroresRespuesta(...args))).toEqual(campos);
+      // Hay errores por campo exactamente cuando la función de un solo texto los da
+      expect(campos.length === 0).toBe(errorRespuesta(...args) === null);
+    }
+    expect(erroresFirmaPlan('Ana Pérez', 'Gerente', '1020304050', 'data:image/png;base64,x')).toEqual({});
+    expect(Object.keys(erroresFirmaPlan('An', 'Gerente', '12', null))).toEqual(['nombre', 'documento', 'imagen']);
+    expect(errorFirmaPlan('An', 'Gerente', '12', null)).not.toBeNull();
+    const d = detalle({
+      hallazgos: [hallazgo('HB-01', { estado: 'aceptado' }), hallazgo('HB-02', { estado: 'aceptado', quien: 'Regente' }), hallazgo('HB-03', { estado: 'objetado' })],
+    });
+    expect(erroresQuienComo(d, {})).toEqual({ 'quien-HB-01': 'Falta quién.', 'como-HB-01': 'Falta cómo.', 'como-HB-02': 'Falta cómo.' });
+    expect(erroresQuienComo(d, { 'it:HB-01': { quien: 'Jefe', como: 'Registro' } })).toEqual({ 'como-HB-02': 'Falta cómo.' });
+    expect(erroresQuienComo(detalle({ fase: 'vencido', hallazgos: d.hallazgos }), {})).toEqual({});
   });
 
   it('quién y cómo: envía solo lo cambiado y cuenta lo que falta con lo escrito', () => {

@@ -23,8 +23,8 @@ export async function dibujarEn(page: Page, panel: Locator): Promise<void> {
 }
 
 /**
- * Inicio y fin real de la visita («yyyy-MM-ddTHH:mm»): fecha en su campo y hora militar en el suyo (decisión D4). Al salir del campo la
- * hora queda en 24 h con dos dígitos.
+ * Inicio y fin real de la visita («yyyy-MM-ddTHH:mm»): fecha en su campo y hora militar en sus dos listas, hora 00 a 23 y minutos 00 a 59
+ * (decisión D4; ítem 12: la hora no se escribe).
  */
 export async function llenarInicioFin(page: Page, inicio: string, fin: string): Promise<void> {
   for (const [nombre, valor] of [
@@ -33,11 +33,17 @@ export async function llenarInicioFin(page: Page, inicio: string, fin: string): 
   ] as const) {
     const [fecha = '', hora = ''] = valor.split('T');
     await page.getByLabel('Fecha de ' + nombre).fill(fecha);
-    const campo = page.getByRole('textbox', { name: 'Hora de ' + nombre });
-    await campo.fill(hora);
-    await campo.blur();
-    await expect(campo).toHaveValue(hora);
+    await elegirHora(page, 'Hora de ' + nombre, hora);
   }
+}
+
+/** Elige «HH:MM» en las dos listas de un CampoHora24 (dentro de la página o de un diálogo). */
+export async function elegirHora(dentro: Page | Locator, etiqueta: string, hora: string): Promise<void> {
+  const [hh = '', mm = ''] = hora.split(':');
+  await dentro.getByRole('combobox', { name: etiqueta + ': hora', exact: true }).selectOption(hh);
+  await dentro.getByRole('combobox', { name: etiqueta + ': minutos', exact: true }).selectOption(mm);
+  await expect(dentro.getByRole('combobox', { name: etiqueta + ': hora', exact: true })).toHaveValue(hh);
+  await expect(dentro.getByRole('combobox', { name: etiqueta + ': minutos', exact: true })).toHaveValue(mm);
 }
 
 /** Firma de un rol del formulario (acta o plan de mejoramiento) en su diálogo. */
@@ -47,7 +53,13 @@ export async function firmarRol(page: Page, rol: string, nombre: string): Promis
     .getByRole('button', { name: 'Firmar' })
     .click();
   const dialogo = page.getByRole('dialog');
-  await dialogo.getByLabel('Nombre').fill(nombre);
+  // En WebKit, con el equipo cargado, el texto escrito mientras el diálogo termina de abrir a veces no queda (sale el nombre que
+  // trae el campo): se confirma que quedó antes de firmar
+  const campo = dialogo.getByLabel('Nombre');
+  await expect(async () => {
+    await campo.fill(nombre);
+    await expect(campo).toHaveValue(nombre, { timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
   await dibujarEn(page, dialogo.locator('canvas').first());
   await dialogo.getByRole('button', { name: 'Guardar firma' }).click();
   await expect(page.getByTestId('firma-' + rol)).toContainText(nombre);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { moverMes, rangoMes, semanasDelMes, tituloMes } from './mes';
+import { mesDeIso, moverMes, rangoMes, semanasDelMes, tituloMes } from './mes';
 
 describe('cuadrícula del mes', () => {
   it('noviembre de 2026: empieza el lunes 26 de octubre porque el 1 es domingo, y termina el domingo 6 de diciembre', () => {
@@ -26,5 +26,7 @@ describe('cuadrícula del mes', () => {
     expect(tituloMes(2026, 10)).toBe('noviembre de 2026');
     expect(moverMes(2026, 11, 1)).toEqual({ anio: 2027, mes: 0 });
     expect(moverMes(2026, 0, -1)).toEqual({ anio: 2025, mes: 11 });
+    expect(mesDeIso('2026-01-31')).toEqual({ anio: 2026, mes: 0 });
+    expect(mesDeIso('2026-12-01')).toEqual({ anio: 2026, mes: 11 });
   });
 });

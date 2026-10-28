@@ -2,6 +2,7 @@
  * Tipos y funciones puras de la fase 9 (docs/especificaciones/riesgo-tablero): dashboard de riesgo por ESM (puntaje, pesos,
  * incidencias de la DIGSA) y dashboard de visitas (indicadores y gráficas de barras).
  */
+import { cifra, hoyBogota } from './formato';
 import { puedeEntrar, type DatosSesion } from './sesion';
 
 // ---------- Dashboard de riesgo ----------
@@ -97,22 +98,19 @@ export function nivelRiesgo(nivel: string): { color: string; insignia: string; e
 }
 
 /**
- * Tono de un texto de color sobre fondo claro con contraste suficiente (los tonos .6 de rojo, naranja y verde no llegan a AA):
- * rojo .8, naranja y verde .9. Sin color, undefined; un color con tono explícito se respeta.
+ * Tono de un texto de color sobre fondo claro: con la paleta LUME (U3.5) el tono del tema de cada color ya es el token de texto, que
+ * llega a AA sobre blanco (tema.test.ts); se deja la función para no tocar las pantallas que la usan.
  */
 export function tonoTexto(color: string | undefined): string | undefined {
-  if (!color || color.includes('.')) return color;
-  return ({ red: 'red.8', orange: 'orange.9', green: 'green.9' } as Record<string, string>)[color] ?? color;
+  return color;
 }
 
-/** Número con 2 decimales como máximo y coma decimal, sin separador de miles (VCO P27). */
+/** Puntaje o promedio con 2 decimales y coma decimal, sin separador de miles (Anexo 5 num. 2.4): «72,00». Sin dato, «—». */
 export function decimal(n: number | null | undefined): string {
-  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
-  const r = Math.round(n * 100) / 100;
-  return Number.isInteger(r) ? String(r) : r.toFixed(2).replace('.', ',');
+  return cifra(n);
 }
 
-/** Nivel y puntaje en texto para lectores de pantalla y tarjetas: «Riesgo alto, 72 de 100». */
+/** Nivel y puntaje en texto para lectores de pantalla y tarjetas: «Riesgo alto, 72,00 de 100». */
 export function textoNivel(nivel: string, total: number): string {
   return `Riesgo ${nivelRiesgo(nivel).etiqueta.toLowerCase()}, ${decimal(total)} de 100`;
 }
@@ -139,16 +137,33 @@ export function problemaPesos(
   alto: number | string | null | undefined,
   medio: number | string | null | undefined,
 ): string | null {
+  return camposPesos(pesos, factores, nombres, alto, medio)?.mensaje ?? null;
+}
+
+/**
+ * Lo mismo que problemaPesos, con los campos que hay que marcar: el factor cuyo peso falla, «alto» y/o «medio». La suma no es de un
+ * solo campo (sin campos).
+ */
+export function camposPesos(
+  pesos: Record<string, number | string | null | undefined>,
+  factores: string[],
+  nombres: Record<string, string>,
+  alto: number | string | null | undefined,
+  medio: number | string | null | undefined,
+): { mensaje: string; campos: string[] } | null {
   for (const f of factores) {
     const n = numero(pesos[f]);
-    if (!Number.isInteger(n) || n < 0 || n > 100) return `El peso de «${nombres[f] ?? f}» debe ser un entero entre 0 y 100.`;
+    if (!Number.isInteger(n) || n < 0 || n > 100) return { mensaje: `El peso de «${nombres[f] ?? f}» debe ser un entero entre 0 y 100.`, campos: [f] };
   }
   const suma = sumaPesos(pesos, factores);
-  if (suma !== 100) return `Los pesos deben sumar 100 (suman ${suma}).`;
+  if (suma !== 100) return { mensaje: `Los pesos deben sumar 100 (suman ${suma}).`, campos: [] };
   const a = numero(alto);
   const m = numero(medio);
-  if (!Number.isInteger(a) || !Number.isInteger(m)) return 'Los umbrales deben ser números enteros.';
-  if (!(a <= 100 && a > m && m > 0)) return 'Los umbrales deben cumplir 100 ≥ alto > medio > 0.';
+  if (!Number.isInteger(a) || !Number.isInteger(m)) {
+    const campos = [...(Number.isInteger(a) ? [] : ['alto']), ...(Number.isInteger(m) ? [] : ['medio'])];
+    return { mensaje: 'Los umbrales deben ser números enteros.', campos };
+  }
+  if (!(a <= 100 && a > m && m > 0)) return { mensaje: 'Los umbrales deben cumplir 100 ≥ alto > medio > 0.', campos: ['alto', 'medio'] };
   return null;
 }
 
@@ -186,13 +201,19 @@ export interface FormIncidencia {
 
 /** Validación de una incidencia nueva (como ServicioRiesgo.registrarIncidencia): ESM, fecha no futura, descripción 10–2000, fuente ≤ 200. */
 export function problemaIncidencia(f: FormIncidencia, hoy: string): string | null {
-  if (!f.puntoId) return 'Elija el ESM.';
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.fecha) || Number.isNaN(Date.parse(f.fecha))) return 'La fecha no es válida.';
-  if (f.fecha > hoy) return 'La fecha de la incidencia no puede ser futura.';
+  return Object.values(erroresIncidencia(f, hoy))[0] ?? null;
+}
+
+/** Las mismas reglas de problemaIncidencia, campo por campo (puntoId, fecha, descripcion, fuente), en el mismo orden, para marcar cada uno. */
+export function erroresIncidencia(f: FormIncidencia, hoy: string): Partial<Record<keyof FormIncidencia, string>> {
+  const e: Partial<Record<keyof FormIncidencia, string>> = {};
+  if (!f.puntoId) e.puntoId = 'Elija el ESM.';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.fecha) || Number.isNaN(Date.parse(f.fecha))) e.fecha = 'La fecha no es válida.';
+  else if (f.fecha > hoy) e.fecha = 'La fecha de la incidencia no puede ser futura.';
   const d = f.descripcion.trim().length;
-  if (d < 10 || d > 2000) return 'Describa la incidencia (de 10 a 2000 caracteres).';
-  if (f.fuente.trim().length > 200) return 'La fuente tiene máximo 200 caracteres.';
-  return null;
+  if (d < 10 || d > 2000) e.descripcion = 'Describa la incidencia (de 10 a 2000 caracteres).';
+  if (f.fuente.trim().length > 200) e.fuente = 'La fuente tiene máximo 200 caracteres.';
+  return e;
 }
 
 /** Motivo del cierre de una incidencia: de 10 a 800 caracteres sin contar los espacios alrededor. */
@@ -201,9 +222,9 @@ export function problemaCierre(motivo: string): string | null {
   return n < 10 || n > 800 ? 'Escriba el motivo del cierre (de 10 a 800 caracteres).' : null;
 }
 
-/** Fecha de hoy (del navegador) en AAAA-MM-DD. */
+/** Fecha de hoy en Bogotá (no la del equipo) en AAAA-MM-DD. */
 export function hoyIso(d: Date = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return hoyBogota(d);
 }
 
 // ---------- Dashboard de visitas ----------
@@ -311,7 +332,12 @@ export function filtrosConsultables(f: FiltrosDashboard): FiltrosDashboard {
 
 /** Problema del rango de fechas: «Desde» posterior a «Hasta» (ambas completas). */
 export function problemaFechas(f: FiltrosDashboard): string | null {
-  return fechaCompleta(f.desde) && fechaCompleta(f.hasta) && f.desde > f.hasta ? 'La fecha «Desde» es posterior a «Hasta».' : null;
+  return problemaRango(f.desde, f.hasta);
+}
+
+/** Rango de un filtro de fechas: «Desde» posterior a «Hasta» (ambas completas). El mensaje va junto al campo «Hasta». */
+export function problemaRango(desde: string, hasta: string): string | null {
+  return fechaCompleta(desde) && fechaCompleta(hasta) && desde > hasta ? 'La fecha «Desde» es posterior a «Hasta».' : null;
 }
 
 /**

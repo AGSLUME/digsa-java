@@ -1,8 +1,11 @@
-import { Alert, Anchor, Badge, Center, Group, Loader, ScrollArea, Stack, Table, Text, Title } from '@mantine/core';
+import { Alert, Anchor, Badge, Center, Loader, Stack, Table, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { colorEstado, horaCorta } from '../shared/agenda';
 import { api } from '../shared/api';
+import { conteo, fecha, fechaHora, hora } from '../shared/formato';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 
 interface VisitaSeguimiento {
   id: number;
@@ -15,6 +18,8 @@ interface VisitaSeguimiento {
   lider: string;
   integrantes: number;
   iniciada: string | null;
+  /** Fecha y hora de inicio en Bogotá (UI-20); en servidores anteriores no viene. */
+  iniciadaEl?: string | null;
   ultimo: string | null;
 }
 
@@ -34,19 +39,16 @@ export function Seguimiento() {
 
   return (
     <Stack>
-      <Group justify="space-between">
-        <div>
-          <Title order={3}>Seguimiento en tiempo real</Title>
-          {datos.data && (
-            <Text size="sm" c="dimmed">
-              Actualizado a las {datos.data.actualizado}
-            </Text>
-          )}
-        </div>
-        <Anchor component={Link} to="/agenda">
-          Volver a la agenda
-        </Anchor>
-      </Group>
+      <EncabezadoPagina
+        titulo="Seguimiento en tiempo real"
+        fuente="Anexo 5 · 4.5"
+        descripcion={datos.data && <>Actualizado a las {hora(datos.data.actualizado)}</>}
+        acciones={
+          <Anchor component={Link} to="/agenda">
+            Volver a la agenda
+          </Anchor>
+        }
+      />
       {datos.error && <Alert color="red">{datos.error.message}</Alert>}
       {datos.isLoading && (
         <Center py="xl">
@@ -55,7 +57,7 @@ export function Seguimiento() {
       )}
       {datos.data && visitas.length === 0 && <Text c="dimmed">No hay visitas hoy ni en ejecución.</Text>}
       {visitas.length > 0 && (
-        <ScrollArea type="auto">
+        <TablaAdaptable>
           <Table miw={820} data-testid="tabla-seguimiento">
             <Table.Thead>
               <Table.Tr>
@@ -77,27 +79,27 @@ export function Seguimiento() {
                     </Anchor>
                   </Table.Td>
                   <Table.Td style={{ whiteSpace: 'nowrap' }}>
-                    {v.fecha} {horaCorta(v.hora)}
+                    {fecha(v.fecha)} {horaCorta(v.hora)}
                   </Table.Td>
                   <Table.Td>{v.punto}</Table.Td>
                   <Table.Td>
                     {v.lider}
                     {v.integrantes > 1 && (
                       <Text size="xs" c="dimmed">
-                        {v.integrantes} integrantes
+                        {conteo(v.integrantes)} integrantes
                       </Text>
                     )}
                   </Table.Td>
                   <Table.Td>
                     <Badge color={colorEstado(v.estado)}>{v.estadoNombre}</Badge>
                   </Table.Td>
-                  <Table.Td>{v.iniciada ?? '—'}</Table.Td>
+                  <Table.Td>{v.iniciadaEl ? fechaHora(v.iniciadaEl) : hora(v.iniciada)}</Table.Td>
                   <Table.Td>{v.ultimo ?? '—'}</Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>
           </Table>
-        </ScrollArea>
+        </TablaAdaptable>
       )}
     </Stack>
   );

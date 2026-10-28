@@ -5,6 +5,7 @@ import co.com.agsamericas.digsa.plataforma.Accion;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Bitacora.Declarada;
 import co.com.agsamericas.digsa.reglas.Riesgo;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpHeaders;
@@ -18,7 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Dashboard de riesgo y dashboard de visitas: coordinación y perfiles de consulta en su alcance; pesos e incidencias de la coordinación. */
+/** Dashboard de riesgo, dashboard de visitas y mapas: coordinación y perfiles de consulta en su alcance; pesos e incidencias de la coordinación. */
 @RestController
 public class ControladorTablero {
 
@@ -27,12 +28,15 @@ public class ControladorTablero {
 
     private final ServicioRiesgo riesgo;
     private final ServicioDashboard dashboard;
+    private final ServicioMapas mapas;
     private final ExportadorTablero exportador;
     private final RegistroBitacora bitacora;
 
-    public ControladorTablero(ServicioRiesgo riesgo, ServicioDashboard dashboard, ExportadorTablero exportador, RegistroBitacora bitacora) {
+    public ControladorTablero(ServicioRiesgo riesgo, ServicioDashboard dashboard, ServicioMapas mapas, ExportadorTablero exportador,
+                              RegistroBitacora bitacora) {
         this.riesgo = riesgo;
         this.dashboard = dashboard;
+        this.mapas = mapas;
         this.exportador = exportador;
         this.bitacora = bitacora;
     }
@@ -114,6 +118,34 @@ public class ControladorTablero {
         ExportadorTablero.Archivo a = exportador.dashboard(d, formato, quien().usuario());
         bitacora.registrar("reporte_descargado", "Dashboard de visitas descargado (" + a.nombre() + ")", quien().id(), quien().usuario());
         return descarga(a);
+    }
+
+    /** Las mismas opciones de filtro del dashboard (un rol puede tener los mapas sin el dashboard) y las capitales del mapa político. */
+    @GetMapping("/api/mapas/opciones")
+    @PreAuthorize("@permisos.pantalla('MAPAS')")
+    @Accion(modulo = "mapas", accion = "opciones", operacion = Declarada.SIN_REGISTRO)
+    public Map<String, Object> opcionesMapas() {
+        Map<String, Object> r = new LinkedHashMap<>(dashboard.opciones(UsuarioSesion.alcanceActual()));
+        r.put("capitales", mapas.capitales());
+        return r;
+    }
+
+    @GetMapping("/api/mapas/visitas")
+    @PreAuthorize("@permisos.pantalla('MAPAS')")
+    @Accion(modulo = "mapas", accion = "visitas", operacion = Declarada.CONSULTA)
+    public Map<String, Object> mapaVisitas(@RequestParam(required = false) String desde, @RequestParam(required = false) String hasta,
+                                           @RequestParam(required = false) String fuerza, @RequestParam(required = false) String tipo,
+                                           @RequestParam(required = false) Long auditor, @RequestParam(required = false) String unidad) {
+        return mapas.visitas(new ServicioDashboard.Filtros(desde, hasta, fuerza, tipo, auditor, unidad), UsuarioSesion.alcanceActual());
+    }
+
+    @GetMapping("/api/mapas/cobertura")
+    @PreAuthorize("@permisos.pantalla('MAPAS')")
+    @Accion(modulo = "mapas", accion = "cobertura", operacion = Declarada.CONSULTA)
+    public Map<String, Object> mapaCobertura(@RequestParam(required = false) String desde, @RequestParam(required = false) String hasta,
+                                             @RequestParam(required = false) String fuerza, @RequestParam(required = false) String tipo,
+                                             @RequestParam(required = false) Long auditor, @RequestParam(required = false) String unidad) {
+        return mapas.cobertura(new ServicioDashboard.Filtros(desde, hasta, fuerza, tipo, auditor, unidad), UsuarioSesion.alcanceActual());
     }
 
     private static ResponseEntity<byte[]> descarga(ExportadorTablero.Archivo a) {

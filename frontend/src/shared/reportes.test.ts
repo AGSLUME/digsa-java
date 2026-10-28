@@ -122,8 +122,8 @@ describe('catálogo', () => {
 
 describe('presentación', () => {
   it('números con coma decimal, vacíos en blanco y páginas de 100 filas', () => {
-    expect(celda(66.7)).toBe('66,7');
-    expect(celda(1200)).toBe('1200');
+    expect(celda(66.7)).toBe('66,70');
+    expect(celda(1200)).toBe('1200,00');
     expect(celda(null)).toBe('');
     expect(celda('Bogotá')).toBe('Bogotá');
     expect(totalPaginas(0)).toBe(1);
@@ -245,7 +245,7 @@ describe('descargas del día', () => {
 
   it('tiempo legible', () => {
     expect(segundos(850)).toBe('850 ms');
-    expect(segundos(12_400)).toBe('12,4 s');
+    expect(segundos(12_400)).toBe('12,40 s');
     expect(segundos(185_000)).toBe('3 min 5 s');
     expect(segundos(119_700)).toBe('2 min');
     expect(segundos(59_980)).toBe('1 min');
@@ -255,7 +255,7 @@ describe('descargas del día', () => {
   it('tamaño legible', () => {
     expect(tamano(2048)).toBe('2 KB');
     expect(tamano(10)).toBe('1 KB');
-    expect(tamano(1572864)).toBe('1,5 MB');
+    expect(tamano(1572864)).toBe('1,50 MB');
     expect(tamano(null)).toBe('');
   });
 });

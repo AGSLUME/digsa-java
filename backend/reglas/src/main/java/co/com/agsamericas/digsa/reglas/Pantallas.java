@@ -23,6 +23,8 @@ public enum Pantallas {
     // El Analista entra en modo consulta nacional, como la DIGSA, sin solicitar visitas (decisión del usuario del 2026-10-22)
     RIESGO("riesgo", "Dashboard de riesgo", "Visitas", union(Set.of(Perfil.COORDINADOR, Perfil.ANALISTA), Alcance.PERFILES_CONSULTA)),
     DASHBOARD("dashboard", "Dashboard", "Visitas", union(Set.of(Perfil.COORDINADOR, Perfil.ANALISTA), Alcance.PERFILES_CONSULTA)),
+    /** Mapa de visitas por departamento y mapa de control (cobertura): mismos perfiles y alcance que el dashboard (Anexo 4 §9 y §11). */
+    MAPAS("mapas", "Mapas de visitas", "Visitas", union(Set.of(Perfil.COORDINADOR, Perfil.ANALISTA), Alcance.PERFILES_CONSULTA)),
     REPORTES("reportes", "Reportes de visitas", "Visitas", union(Set.of(Perfil.COORDINADOR, Perfil.ANALISTA), Alcance.PERFILES_CONSULTA)),
     MAESTROS("maestros", "Puntos y auditores", "Configuración", Set.of(Perfil.COORDINADOR)),
     CATALOGOS("catalogos", "Catálogos", "Configuración", Set.of(Perfil.COORDINADOR)),

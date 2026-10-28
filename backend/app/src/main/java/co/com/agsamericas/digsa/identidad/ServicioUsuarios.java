@@ -258,7 +258,8 @@ public class ServicioUsuarios {
             return escrito;
         }
         return co.com.agsamericas.digsa.reglas.Alertas.normalizarTelefono(escrito).orElseThrow(() -> ErrorNegocio.validacion(
-                "El teléfono debe ser un móvil colombiano: +57 y 10 dígitos que empiezan por 3 (p. ej. +57 300 000 0000). Se usa para los SMS de las alertas críticas."));
+                "El teléfono debe ser un móvil colombiano: +57 y 10 dígitos que empiezan por 3 (p. ej. +57 300 000 0000). Se usa para los SMS de las alertas críticas.",
+                "telefono"));
     }
 
     private static Map<String, Object> foto(String nombre, String documento, String telefono, String usuario, String correo,

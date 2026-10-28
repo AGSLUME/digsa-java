@@ -450,27 +450,31 @@ public class ServicioPropuesta {
         List<Long> otros = new ArrayList<>(new LinkedHashSet<>(a.otros() == null ? List.<Long>of()
                 : a.otros().stream().filter(x -> x != null && !x.equals(a.auditorId())).toList()));
         if (otros.size() > Reparto.MAX_OTROS) {
-            throw ErrorNegocio.validacion("Máximo " + Reparto.MAX_OTROS + " auditores además del líder.");
+            throw ErrorNegocio.validacion("Máximo " + Reparto.MAX_OTROS + " auditores además del líder.", "otros");
         }
         Map<Long, String> roles = visitas.auditoresActivos(otros);
         if (roles.size() != otros.size()) {
-            throw ErrorNegocio.validacion("Todos los auditores del equipo deben estar activos y tener el perfil Auditor.");
+            throw ErrorNegocio.validacion("Todos los auditores del equipo deben estar activos y tener el perfil Auditor.", "otros");
         }
         if (a.auditorId() != null) {
             Map<Long, String> rolLider = visitas.auditoresActivos(List.of(a.auditorId()));
             if (!rolLider.containsKey(a.auditorId())) {
-                throw ErrorNegocio.validacion("El auditor líder debe estar activo con el perfil Auditor.");
+                throw ErrorNegocio.validacion("El auditor líder debe estar activo con el perfil Auditor.", "auditorId");
             }
             PropuestaAgenda.Punto p = new PropuestaAgenda.Punto(puntoId, punto.nombre(), punto.unidad(), null, null, null, punto.exigeQf());
             if (!PropuestaAgenda.puedeLiderar(p, new PropuestaAgenda.Auditor(a.auditorId(), "", rolLider.get(a.auditorId()), null, 0))) {
                 throw ErrorNegocio.validacion(punto.exigeQf() ? "Este punto exige un químico farmacéutico como auditor líder (Anexo 3 p.9)."
-                        : "El auditor líder debe ser químico farmacéutico, regente o auditor en salud.");
+                        : "El auditor líder debe ser químico farmacéutico, regente o auditor en salud.", "auditorId");
             }
         }
         LocalDate fecha = null;
         if (a.fecha() != null && !a.fecha().isBlank()) {
-            fecha = Fechas.valida(a.fecha()).orElseThrow(() -> ErrorNegocio.validacion("La fecha no es válida."));
-            validarDia(fecha);
+            fecha = Fechas.valida(a.fecha()).orElseThrow(() -> ErrorNegocio.validacion("La fecha no es válida.", "fecha"));
+            try {
+                validarDia(fecha);
+            } catch (ErrorNegocio e) {
+                throw e.conCampo("fecha");
+            }
         }
         LocalDate f = fecha;
         tx.executeWithoutResult(t -> {

@@ -236,6 +236,18 @@ class AgendaApiTest extends PruebaIntegracion {
         assertThat(coord.post("/api/agenda/" + id + "/mover", Map.of("parte", "C05", "usuarioId", idDe(qf))).mensaje())
                 .contains("solo se mueven antes de iniciar");
         assertThat(coord.get("/api/agenda/seguimiento").json().path("visitas").toString()).contains(det.path("numero").asText());
+        // UI-20: además de la hora («iniciada»), la fecha y hora de inicio en Bogotá («iniciadaEl»)
+        com.fasterxml.jackson.databind.JsonNode enSeguimiento = null;
+        for (com.fasterxml.jackson.databind.JsonNode v : coord.get("/api/agenda/seguimiento").json().path("visitas")) {
+            if (v.path("numero").asText().equals(det.path("numero").asText())) {
+                enSeguimiento = v;
+            }
+        }
+        assertThat(enSeguimiento).isNotNull();
+        // toString() omite los segundos cuando son 0: «14:05» o «14:05:12»
+        assertThat(enSeguimiento.path("iniciada").asText()).matches("\\d{2}:\\d{2}(:\\d{2})?");
+        assertThat(enSeguimiento.path("iniciadaEl").asText()).matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2})?")
+                .endsWith("T" + enSeguimiento.path("iniciada").asText());
 
         assertThat(coord.post("/api/agenda/" + id + "/cancelar", Map.of("motivo", "")).estado()).isEqualTo(422);
         assertThat(coord.post("/api/agenda/" + id + "/cancelar", Map.of("motivo", "El punto cerró")).estado()).isEqualTo(200);

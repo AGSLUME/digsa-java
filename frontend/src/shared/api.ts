@@ -121,12 +121,13 @@ async function leerRespuesta<T>(r: Response, ruta: string): Promise<T> {
   return datos as T;
 }
 
-/** Descarga un archivo de la API (Excel, CSV, PDF) con el nombre que da el servidor. */
-export async function descargar(ruta: string): Promise<void> {
+/** Archivo de la API como blob, con el nombre que da el servidor (para descargarlo o verlo dentro de la aplicación). */
+export async function obtenerArchivo(ruta: string, senal?: AbortSignal): Promise<{ blob: Blob; nombre: string }> {
   let r: Response;
   try {
-    r = await fetch(ruta, { credentials: 'same-origin' });
-  } catch {
+    r = await fetch(ruta, { credentials: 'same-origin', signal: senal });
+  } catch (e) {
+    if (senal?.aborted) throw e;
     throw new ErrorApi(0, 'No hay conexión con el servidor. Revise su conexión e intente de nuevo.');
   }
   marcarActividad();
@@ -138,8 +139,26 @@ export async function descargar(ruta: string): Promise<void> {
     }
     throw new ErrorApi(r.status, mensaje, d);
   }
-  const nombre = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') ?? '')?.[1] ?? 'reporte';
-  const url = URL.createObjectURL(await r.blob());
+  return { blob: await r.blob(), nombre: nombreDeArchivo(r.headers.get('Content-Disposition')) };
+}
+
+/** Nombre del archivo del Content-Disposition: el `filename*` en UTF-8 (con tildes) si viene, si no el `filename` ASCII. */
+export function nombreDeArchivo(disposicion: string | null): string {
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposicion ?? '')?.[1];
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8.trim());
+    } catch {
+      // codificación inválida: se usa el nombre ASCII
+    }
+  }
+  return /filename="([^"]+)"/.exec(disposicion ?? '')?.[1] ?? 'reporte';
+}
+
+/** Descarga un archivo de la API (Excel, CSV, PDF) con el nombre que da el servidor. */
+export async function descargar(ruta: string): Promise<void> {
+  const { blob, nombre } = await obtenerArchivo(ruta);
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = nombre;

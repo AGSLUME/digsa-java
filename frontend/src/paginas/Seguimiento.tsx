@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { colorEstado, horaCorta } from '../shared/agenda';
 import { api } from '../shared/api';
-import { conteo, fecha, hora } from '../shared/formato';
+import { conteo, fecha, fechaHora, hora } from '../shared/formato';
 import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 import { TablaAdaptable } from '../shared/TablaAdaptable';
 
@@ -18,6 +18,8 @@ interface VisitaSeguimiento {
   lider: string;
   integrantes: number;
   iniciada: string | null;
+  /** Fecha y hora de inicio en Bogotá (UI-20); en servidores anteriores no viene. */
+  iniciadaEl?: string | null;
   ultimo: string | null;
 }
 
@@ -91,7 +93,7 @@ export function Seguimiento() {
                   <Table.Td>
                     <Badge color={colorEstado(v.estado)}>{v.estadoNombre}</Badge>
                   </Table.Td>
-                  <Table.Td>{hora(v.iniciada)}</Table.Td>
+                  <Table.Td>{v.iniciadaEl ? fechaHora(v.iniciadaEl) : hora(v.iniciada)}</Table.Td>
                   <Table.Td>{v.ultimo ?? '—'}</Table.Td>
                 </Table.Tr>
               ))}

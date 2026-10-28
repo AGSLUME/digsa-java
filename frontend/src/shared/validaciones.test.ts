@@ -104,12 +104,11 @@ describe('Solicitudes', () => {
 
 describe('Propuesta', () => {
   it('ubica el campo de la fila según el rechazo del servidor', () => {
-    expect(campoDelAjuste('La fecha debe ser un día hábil (sin fines de semana ni festivos).')).toBe('fecha');
-    expect(campoDelAjuste('Este punto exige un químico farmacéutico como auditor líder (Anexo 3 p.9).')).toBe('lider');
-    expect(campoDelAjuste('El auditor líder debe estar activo con el perfil Auditor.')).toBe('lider');
-    expect(campoDelAjuste('Máximo 3 auditores además del líder.')).toBe('otros');
-    expect(campoDelAjuste('Todos los auditores del equipo deben estar activos y tener el perfil Auditor.')).toBe('otros');
-    expect(campoDelAjuste('La propuesta dejó de ser borrador mientras tanto. Recargue.')).toBeNull();
+    expect(campoDelAjuste('fecha')).toBe('fecha');
+    expect(campoDelAjuste('auditorId')).toBe('lider');
+    expect(campoDelAjuste('otros')).toBe('otros');
+    expect(campoDelAjuste(undefined)).toBeNull();
+    expect(campoDelAjuste('motivo')).toBeNull();
   });
 });
 

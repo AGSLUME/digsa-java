@@ -300,7 +300,8 @@ function Vista<T extends Ubicado>({
       })),
     [visibles, estados, etiquetas, titulo],
   );
-  const filas = d?.porDepartamento ?? [];
+  // Memorizado: un `[]` nuevo en cada pintada recalcularía textos y clases aunque no hubiera datos (react-hooks/exhaustive-deps)
+  const filas = useMemo(() => d?.porDepartamento ?? [], [d]);
   const textos = useMemo(() => {
     const t: Record<string, string> = {};
     for (const x of filas) t[x.codigo] = `${x.nombre}: ${x.total} · ${textoConteos(estados, x)}`;

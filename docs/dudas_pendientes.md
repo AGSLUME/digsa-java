@@ -963,3 +963,12 @@ Encargo del usuario: adoptar el design system LUME (`referencias_interfaz/LUME_d
 | UI-51 | **360 px en todas las pantallas y motores** | `responsivo-360.spec.ts`: el administrador recorre todo su menú a 360 px y ninguna pantalla desborda a lo ancho, en cada motor (y en Chrome y Edge con `DIGSA_E2E_CANALES`) |
 | UI-52 | **Opera (UI-1)** | Sigue sin instalarse en el equipo de desarrollo; documentado en `docs/guia_interfaz.md` (mismo motor que Chrome y Edge, canal si se instala) |
 | UI-53 | **Guía para las otras sesiones** | `docs/guia_interfaz.md`: tokens LUME, componentes compartidos, formato, validación, responsive, accesibilidad, pruebas y navegadores |
+
+### U6 · Pendientes autorizados por la integradora (2026-10-27)
+
+| N.º | Duda o pendiente | Qué se hizo |
+|---|---|---|
+| UI-20 | Seguimiento mostraba solo la hora de inicio | El servidor agrega `iniciadaEl` (fecha y hora en Bogotá); `iniciada` se conserva. La pantalla muestra «dd/mm/aaaa HH:mm». JUnit en `AgendaApiTest` |
+| UI-21 | Propuesta y Usuarios deducían el campo del error por el texto del mensaje | `ErrorNegocio.validacion(mensaje, campo)` y `conCampo(campo)`: el 422 de negocio trae `campo` (nombre en el cuerpo de la petición) sin cambiar mensajes ni códigos. Ajuste de la propuesta (`auditorId`, `otros`, `fecha`) y teléfono de Usuarios. La interfaz ya no lee el texto. JUnit en `ManejadorErroresTest`, `PropuestaApiTest` y `AlertasApiTest` |
+| UI-54 | Aviso de ESLint en `Mapas.tsx` (dependencias de `useMemo`) | `filas` memorizado; ESLint sin avisos |
+| UI-55 | **E2E de firmas intermitente en WebKit** (formulario-acta y seguimiento): el nombre escrito mientras el diálogo de firma termina de abrir a veces no quedaba y se firmaba con el nombre que trae el campo | `firmarRol` confirma que el nombre quedó en el campo (y lo vuelve a escribir si no) antes de firmar; la prueba sigue exigiendo que la firma lleve ese nombre. 6/6 en WebKit con dos repeticiones |

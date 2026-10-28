@@ -376,8 +376,8 @@ function VistaPropuesta({ id, auditores, alCerrar }: { id: number; auditores: Au
       refrescar();
     },
     onError: (e, x) => {
-      // El rechazo se marca en el campo de la fila (si el mensaje lo deja ver) o dice de qué punto es
-      const campo = e instanceof ErrorApi ? campoDelAjuste(e.message) : null;
+      // El rechazo se marca en el campo de la fila (el servidor dice cuál: UI-21) o dice de qué punto es
+      const campo = e instanceof ErrorApi ? campoDelAjuste(e.datos.campo) : null;
       const error =
         e instanceof ErrorApi
           ? campo

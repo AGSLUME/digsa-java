@@ -325,6 +325,8 @@ public class ServicioConsultaAgenda {
             m.put("integrantes", rs.getInt("integrantes"));
             java.time.OffsetDateTime ini = rs.getObject("iniciada", java.time.OffsetDateTime.class);
             m.put("iniciada", ini == null ? null : ini.atZoneSameInstant(Fechas.BOGOTA).toLocalTime().withNano(0).toString());
+            // Fecha y hora de inicio en Bogotá (UI-20): una visita iniciada otro día dice cuál; «iniciada» se conserva (solo la hora)
+            m.put("iniciadaEl", ini == null ? null : ini.atZoneSameInstant(Fechas.BOGOTA).toLocalDateTime().withNano(0).toString());
             m.put("ultimo", rs.getString("ultimo"));
             return m;
         }).list();

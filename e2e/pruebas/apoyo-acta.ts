@@ -53,7 +53,13 @@ export async function firmarRol(page: Page, rol: string, nombre: string): Promis
     .getByRole('button', { name: 'Firmar' })
     .click();
   const dialogo = page.getByRole('dialog');
-  await dialogo.getByLabel('Nombre').fill(nombre);
+  // En WebKit, con el equipo cargado, el texto escrito mientras el diálogo termina de abrir a veces no queda (sale el nombre que
+  // trae el campo): se confirma que quedó antes de firmar
+  const campo = dialogo.getByLabel('Nombre');
+  await expect(async () => {
+    await campo.fill(nombre);
+    await expect(campo).toHaveValue(nombre, { timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
   await dibujarEn(page, dialogo.locator('canvas').first());
   await dialogo.getByRole('button', { name: 'Guardar firma' }).click();
   await expect(page.getByTestId('firma-' + rol)).toContainText(nombre);

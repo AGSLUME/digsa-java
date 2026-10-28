@@ -56,4 +56,25 @@ class ManejadorErroresTest {
         assertThat(respuesta.getStatusCode().value()).isEqualTo(422);
         assertThat(respuesta.getBody()).containsOnlyKeys("mensaje").containsEntry("mensaje", "Hay datos no válidos.");
     }
+
+    @Test
+    @DisplayName("error de negocio de un campo (UI-21): el mismo mensaje y código, más el campo")
+    void negocioConCampo() {
+        var respuesta = new ManejadorErrores().negocio(ErrorNegocio.validacion("La fecha no es válida.", "fecha"));
+
+        assertThat(respuesta.getStatusCode().value()).isEqualTo(422);
+        assertThat(respuesta.getBody()).containsOnlyKeys("mensaje", "campo").containsEntry("mensaje", "La fecha no es válida.").containsEntry("campo", "fecha");
+    }
+
+    @Test
+    @DisplayName("conCampo conserva el estado, el mensaje y los demás datos; un error de negocio sin campo no lo trae")
+    void errorNegocioConCampo() {
+        var original = new ErrorNegocio(org.springframework.http.HttpStatus.CONFLICT, "Ese día es festivo.", java.util.Map.of("dia", "2026-12-25"));
+        var conCampo = original.conCampo("fecha");
+
+        assertThat(conCampo.estado()).isEqualTo(original.estado());
+        assertThat(conCampo.getMessage()).isEqualTo("Ese día es festivo.");
+        assertThat(conCampo.datos()).containsEntry("dia", "2026-12-25").containsEntry("campo", "fecha");
+        assertThat(new ManejadorErrores().negocio(ErrorNegocio.validacion("Sin campo.")).getBody()).containsOnlyKeys("mensaje");
+    }
 }

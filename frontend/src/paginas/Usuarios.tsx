@@ -162,8 +162,8 @@ export function Usuarios() {
       setForm(null);
       qc.invalidateQueries({ queryKey: ['usuarios'] });
     },
-    // El mensaje del servidor sobre el teléfono (no trae «campo») también marca el campo
-    onError: (e) => v.errorServidor(conCampo(e, 'telefono', (x) => typeof x.datos.campo !== 'string' && /tel[eé]fono/i.test(x.message)), 'No se pudo guardar.'),
+    // El 422 del teléfono trae «campo» (UI-21): el resumen lo nombra y el campo queda marcado
+    onError: (e) => v.errorServidor(e, 'No se pudo guardar.'),
   });
 
   // Cada llamada dice dónde va su error (tabla, contraseña inicial o nombres de perfiles): queda a la vista, no en un aviso que se va solo

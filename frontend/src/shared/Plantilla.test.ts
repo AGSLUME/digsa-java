@@ -10,15 +10,15 @@ const grupos = agrupar([
 
 describe('migasDe (cabecera LUME)', () => {
   it('pantalla del menú: grupo y pantalla', () => {
-    expect(migasDe('/usuarios', grupos)).toEqual(['Administración', 'Usuarios']);
+    expect(migasDe('/usuarios', grupos)).toEqual(['Seguridad', 'Usuarios']);
     expect(migasDe('/', grupos)).toEqual(['Inicio']);
   });
 
   it('detalles que no están en el menú agregan su nivel', () => {
-    expect(migasDe('/agenda/visita/15', grupos)).toEqual(['Auditoría', 'Agenda de visitas', 'Detalle de la visita']);
-    expect(migasDe('/calendario/visita/3', grupos)).toEqual(['Auditoría', 'Calendario de visitas', 'Detalle de la visita']);
-    expect(migasDe('/visita/15', grupos)).toEqual(['Auditoría', 'Visita']);
-    expect(migasDe('/seguimiento', grupos)).toEqual(['Auditoría', 'Agenda de visitas', 'Seguimiento']);
+    expect(migasDe('/agenda/visita/15', grupos)).toEqual(['Visitas', 'Agenda de visitas', 'Detalle de la visita']);
+    expect(migasDe('/calendario/visita/3', grupos)).toEqual(['Visitas', 'Calendario de visitas', 'Detalle de la visita']);
+    expect(migasDe('/visita/15', grupos)).toEqual(['Visitas', 'Visita']);
+    expect(migasDe('/seguimiento', grupos)).toEqual(['Visitas', 'Agenda de visitas', 'Seguimiento']);
   });
 
   it('una ruta desconocida no inventa migas', () => {

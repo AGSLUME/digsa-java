@@ -39,6 +39,7 @@ export function useIrAFila<T>(lista: T[], objetivo: string | null, clave: (fila:
     irA(i);
     alLlegar();
     // clave, irA y alLlegar pueden ser funciones nuevas en cada render: lo que dispara el salto es la lista o el objetivo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lista, objetivo]);
 }
 

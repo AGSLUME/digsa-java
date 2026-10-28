@@ -96,14 +96,11 @@ export function erroresSolicitud(punto: string | null, fecha: string, motivo: st
 }
 
 /**
- * Campo de la fila de la propuesta al que se refiere el rechazo de un ajuste (el servidor no lo dice): los mensajes de
- * ServicioPropuesta.ajustar hablan del equipo, del auditor líder o de la fecha. null si no es de un campo.
+ * Campo de la fila de la propuesta al que se refiere el rechazo de un ajuste: el servidor lo dice en `campo` (nombre en el cuerpo de
+ * la petición; decisión UI-21) y aquí se traduce al de la fila. null si el rechazo no es de un campo.
  */
-export function campoDelAjuste(mensaje: string): 'fecha' | 'lider' | 'otros' | null {
-  if (/además del líder|auditores del equipo/i.test(mensaje)) return 'otros';
-  if (/líder|químico farmacéutico/i.test(mensaje)) return 'lider';
-  if (/fecha/i.test(mensaje)) return 'fecha';
-  return null;
+export function campoDelAjuste(campo: unknown): 'fecha' | 'lider' | 'otros' | null {
+  return ({ auditorId: 'lider', otros: 'otros', fecha: 'fecha' } as const)[String(campo) as 'auditorId' | 'otros' | 'fecha'] ?? null;
 }
 
 const NI_N_NI_TILDES = /[ñÑáéíóúÁÉÍÓÚüÜ]/;

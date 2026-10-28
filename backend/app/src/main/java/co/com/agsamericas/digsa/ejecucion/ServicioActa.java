@@ -324,14 +324,19 @@ public class ServicioActa {
                 .param("v", v.id()).query((rs, n) -> new String[] {rs.getString(1), rs.getString(2), nulo(rs.getString(3)), nulo(rs.getString(4))}).list();
         Map<String, GeneradorActa.Componente> comps = new LinkedHashMap<>();
         Set<String> tramite = formulario.enTramite(v.id());
+        // VIS-14: la marca de intervención inmediata sale del mismo dato que el auditor registra en vivo (visitas_respuestas y
+        // visitas_obligaciones), el mismo que se copia a visitas_hallazgos al enviar el acta
+        Set<String> inmediatas = formulario.inmediatas(v.id());
         for (ServicioFormulario.ItemVisita i : items) {
             Checklist.Respuesta r = resp.get(i.codigo());
             String hallazgo = r == null || r.hallazgo() == null ? "" : r.hallazgo();
             if (tramite.contains(i.codigo())) {
                 hallazgo = (hallazgo.isEmpty() ? "" : hallazgo + " ") + ServicioFormulario.TEXTO_TRAMITE;
             }
+            boolean inmediata = r != null && "NC".equals(r.calificacion()) && inmediatas.contains(i.codigo());
             comps.computeIfAbsent(i.componente(), k -> new GeneradorActa.Componente(i.componente(), i.componenteNombre(), new ArrayList<>()))
-                    .items().add(new String[] {i.codigo(), i.punto(), r == null ? "" : Checklist.NOMBRES.getOrDefault(r.calificacion(), ""), hallazgo});
+                    .items().add(new String[] {i.codigo(), i.punto(), r == null ? "" : Checklist.NOMBRES.getOrDefault(r.calificacion(), ""), hallazgo,
+                            inmediata ? GeneradorActa.SI : GeneradorActa.NO});
         }
         Map<String, String> resumen = new LinkedHashMap<>();
         resumen.put("Cumple", String.valueOf(s.c()));

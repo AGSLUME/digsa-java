@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { inflateSync } from 'node:zlib';
 
 /** PNG de 2x2 px para las evidencias y los soportes (el servidor valida el tipo por el contenido). */
 export const PNG = Buffer.from(
@@ -111,4 +112,35 @@ export async function correoCon(texto: string): Promise<string> {
     )
     .toBe(true);
   return encontrado;
+}
+
+/**
+ * Texto de un PDF generado por el servidor (OpenPDF, sin cifrar): descomprime cada flujo FlateDecode y junta, en orden, las cadenas
+ * literales que dibujan texto. Las celdas y los trozos de una línea quedan pegados; sirve para buscar frases, no para medir el diseño.
+ */
+export function textoPdf(pdf: Buffer): string {
+  const bruto = pdf.toString('latin1');
+  const partes: string[] = [];
+  const flujo = /stream\r?\n/g;
+  let m: RegExpExecArray | null;
+  while ((m = flujo.exec(bruto))) {
+    const inicio = m.index + m[0].length;
+    const fin = bruto.indexOf('endstream', inicio);
+    if (fin < 0) break;
+    let contenido: string;
+    try {
+      contenido = inflateSync(pdf.subarray(inicio, fin)).toString('latin1');
+    } catch {
+      continue; // flujo sin comprimir o de imagen: no trae texto
+    }
+    for (const c of contenido.matchAll(/\(((?:\\.|[^\\)])*)\)/g)) {
+      partes.push(
+        c[1]!.replace(/\\([0-7]{1,3}|.)/g, (_, e: string) =>
+          /^[0-7]+$/.test(e) ? String.fromCharCode(parseInt(e, 8)) : ({ n: '\n', r: '\r', t: '\t' } as Record<string, string>)[e] ?? e,
+        ),
+      );
+    }
+    flujo.lastIndex = fin;
+  }
+  return partes.join('');
 }

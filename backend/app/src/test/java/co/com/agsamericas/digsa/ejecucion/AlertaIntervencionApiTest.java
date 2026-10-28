@@ -58,5 +58,20 @@ class AlertaIntervencionApiTest extends EscenariosVisita {
         assertThat(jdbc.sql("SELECT count(*) FROM sms_salida s JOIN alertas_eventos a ON a.id = s.alerta_id WHERE a.clave = :c AND a.tipo = 'intervencion_inmediata'")
                 .param("c", "acta:" + actaId).query(Long.class).single()).as("operativa: sin SMS").isZero();
         assertThat(jdbc.sql("SELECT estado FROM visitas WHERE id = :v").param("v", e.id()).query(String.class).single()).isEqualTo("cerrada");
+
+        // VIS-14: el acta enviada trae el recuadro y la marca del mismo dato registrado en vivo
+        long archivo = jdbc.sql("SELECT archivo_id FROM visitas_actas WHERE id = :a").param("a", actaId).query(Long.class).single();
+        com.lowagie.text.pdf.PdfReader r = new com.lowagie.text.pdf.PdfReader(e.lider().get("/api/archivos/" + archivo).cuerpo());
+        StringBuilder texto = new StringBuilder();
+        try {
+            var ex = new com.lowagie.text.pdf.parser.PdfTextExtractor(r);
+            for (int p = 1; p <= r.getNumberOfPages(); p++) {
+                texto.append(ex.getTextFromPage(p)).append('\n');
+            }
+        } finally {
+            r.close();
+        }
+        assertThat(texto.toString().replaceAll("\\s+", " ")).contains("Hallazgos que requieren intervención inmediata del OPL (1)",
+                codigo + ": Nevera sin registro de temperatura", "Intervención inmediata").containsPattern("Nevera sin registro de temperatura ?Sí");
     }
 }

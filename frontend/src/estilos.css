@@ -145,14 +145,26 @@ form:not([novalidate]) .mantine-Input-input:user-invalid {
   color: var(--lume-white);
 }
 
-/* Insignia de estado LUME: píldora con punto de 6 px del color de la variante (shared/tema.ts) */
+/*
+ * Insignia de estado LUME: píldora (padding 4px 10px y alto en shared/tema.ts) con punto de 6 px del color de la variante, separado
+ * 6 px del texto. U7: el Badge de Mantine es un inline-grid sin columnas cuando no es «dot», así que el punto caía en otra fila, encima
+ * del texto; la insignia con punto pasa a inline-flex centrado y la separación es un gap (no un margen que el grid ignoraba).
+ */
+.lume-insignia[data-variant='light'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.lume-insignia[data-variant='light'][data-block] {
+  display: flex;
+}
 .lume-insignia[data-variant='light']::before {
   content: '';
   flex: none;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  margin-right: 6px;
   background: var(--badge-dot-color, currentColor);
 }
 
@@ -254,6 +266,17 @@ form:not([novalidate]) .mantine-Input-input:user-invalid {
   color: var(--lume-text-muted);
   white-space: nowrap;
   overflow: hidden;
+}
+/* U7: el módulo (p. ej. «Interventoría y seguimiento presupuestal») se recorta con puntos suspensivos; la pantalla actual no */
+.lume-migas li {
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+}
+.lume-migas li[aria-current='page'] {
+  flex-shrink: 0;
+  max-width: calc(100% - 3em - 12px);
 }
 .lume-migas li + li::before {
   content: '/';

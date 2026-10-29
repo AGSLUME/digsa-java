@@ -325,6 +325,60 @@ class MotorReportesApiTest extends PruebaIntegracion {
     }
 
     @Test
+    @DisplayName("VIS-14: el detalle cuenta y rotula los hallazgos de intervención inmediata, filtra por ellos y la descarga trae lo mismo")
+    void detalleIntervencionInmediata() {
+        Escenario x = escenario();
+        LocalDate dia = LocalDate.of(2026, 5, 6);
+        long con = visita(x.ejc(), x.lider(), dia, "cerrada", "C08");
+        jdbc.sql("INSERT INTO visitas_resumen (visita_id, c, nc, na, pendientes, hallazgos) VALUES (:v, 8, 2, 0, 0, 2)").param("v", con).update();
+        long actaCon = acta(con, 1, "enviada");
+        hallazgo(con, actaCon, "C08-02", "Temperatura fuera de rango");
+        hallazgo(con, actaCon, "C08-05", "Medicamentos vencidos en dispensación");
+        jdbc.sql("UPDATE visitas_hallazgos SET inmediata = true WHERE acta_id = :a AND codigo = 'C08-05'").param("a", actaCon).update();
+        long sin = visita(x.ejc(), x.lider(), dia.plusDays(1), "cerrada", "C08");
+        jdbc.sql("INSERT INTO visitas_resumen (visita_id, c, nc, na, pendientes, hallazgos) VALUES (:v, 9, 1, 0, 0, 1)").param("v", sin).update();
+        hallazgo(sin, acta(sin, 1, "enviada"), "C08-01", "Sin rotulación");
+        String numeroCon = jdbc.sql("SELECT numero FROM visitas WHERE id = :v").param("v", con).query(String.class).single();
+        String numeroSin = jdbc.sql("SELECT numero FROM visitas WHERE id = :v").param("v", sin).query(String.class).single();
+        String filtro = "desde=2026-05-01&hasta=2026-05-31&punto_id=" + x.ejc();
+
+        JsonNode det = x.coord().get("/api/reportes/detalle?" + filtro).json();
+        JsonNode cols = det.path("columnas");
+        List<String> nombres = new ArrayList<>();
+        cols.forEach(c -> nombres.add(c.asText()));
+        int iInm = nombres.indexOf("Intervención inmediata");
+        int iDesc = nombres.indexOf("Descripción de los hallazgos");
+        assertThat(iInm).isPositive().isEqualTo(nombres.indexOf("Hallazgos") + 1);
+        assertThat(det.path("filas")).hasSize(2);
+        JsonNode filaCon = det.path("filas").get(0);
+        assertThat(filaCon.get(0).asText()).isEqualTo(numeroCon);
+        assertThat(filaCon.get(iInm).asInt()).isEqualTo(1);
+        assertThat(filaCon.get(iDesc).asText())
+                .isEqualTo("C08-02: Temperatura fuera de rango · C08-05 (intervención inmediata): Medicamentos vencidos en dispensación");
+        assertThat(det.path("filas").get(1).get(iInm).asInt()).isZero();
+        assertThat(det.path("filas").get(1).get(iDesc).asText()).doesNotContain("intervención inmediata");
+
+        // Filtro «Intervención inmediata»: con (si), sin (no) o las dos = todas; la opción va en el encabezado
+        assertThat(x.coord().get("/api/reportes/detalle/opciones").json().path("inmediata").toString())
+                .contains("Con hallazgos de intervención inmediata", "Sin hallazgos de intervención inmediata");
+        JsonNode soloCon = x.coord().get("/api/reportes/detalle?" + filtro + "&inmediata=si").json();
+        assertThat(soloCon.path("filas")).hasSize(1);
+        assertThat(soloCon.path("filas").get(0).get(0).asText()).isEqualTo(numeroCon);
+        assertThat(soloCon.path("filtros").path("Intervención inmediata").asText()).isEqualTo("Con hallazgos de intervención inmediata");
+        JsonNode soloSin = x.coord().get("/api/reportes/detalle?" + filtro + "&inmediata=no").json();
+        assertThat(soloSin.path("filas")).hasSize(1);
+        assertThat(soloSin.path("filas").get(0).get(0).asText()).isEqualTo(numeroSin);
+        assertThat(x.coord().get("/api/reportes/detalle?" + filtro + "&inmediata=si&inmediata=no").json().path("filas")).hasSize(2);
+        assertThat(x.coord().get("/api/reportes/detalle?" + filtro + "&inmediata=quizas").estado()).isEqualTo(422);
+
+        // Anexo 5, 2.8: la descarga trae lo mismo que la pantalla (columna, rótulo y filtro)
+        String csv = new String(x.coord().get("/api/reportes/detalle/exportar?formato=csv&" + filtro + "&inmediata=si").cuerpo(),
+                java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(csv).contains("Intervención inmediata", "C08-05 (intervención inmediata): Medicamentos vencidos en dispensación", numeroCon)
+                .doesNotContain(numeroSin);
+    }
+
+    @Test
     @DisplayName("bitácora: el reporte generado queda con todos los valores de cada filtro; el envío acepta filtros en lista")
     void bitacoraYEnvio() {
         Escenario x = escenario();

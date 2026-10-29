@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { ADMIN, api, ingresar, ingresarConClaveInicial, salir, unico } from './apoyo';
-import { firmarRol, llenarInicioFin, llenarPlan, PNG } from './apoyo-acta';
+import { firmarRol, llenarInicioFin, llenarPlan, PNG, textoPdf } from './apoyo-acta';
 
 // Anexo 5, prueba 12 (formulario), prueba 10 (acta en PDF y reabrir) y prueba 13 (reportes con descarga).
 
@@ -96,6 +96,11 @@ test('pruebas 12, 10 y 13: formulario, evidencias, firmas, acta, reabrir y repor
   }
 
   await p2.getByLabel('Hallazgo de ' + primero).fill('La nevera no tiene registro diario de temperatura.');
+  // VIS-14: el hallazgo se marca de intervención inmediata del OPL; el acta y el reporte deben mostrarlo
+  await p2
+    .getByTestId('marca-inmediata-' + primero)
+    .getByRole('checkbox', { name: 'Requiere intervención inmediata del OPL' })
+    .check();
   await p2.getByTestId('guardar-calificaciones').click();
   await expect(p2.getByText(/Guardado \(\d+ ítems\)/)).toBeVisible();
 
@@ -127,6 +132,15 @@ test('pruebas 12, 10 y 13: formulario, evidencias, firmas, acta, reabrir y repor
   await expect(p2.getByText(/Acta enviada a \d+ destinatarios/)).toBeVisible();
   await expect(p2.getByTestId('estado-visita')).toContainText('Cerrada');
   await expect(p2.getByTestId('actas')).toContainText('Ver acta');
+  // VIS-14 (Anexo 3; ítem 10): el acta trae el recuadro de intervención inmediata y la marca en la tabla de hallazgos
+  const form = await api<{ actas: { archivoId: number }[] }>(p2, 'GET', `/api/visitas/${id}/formulario`);
+  const pdf = await p2.request.get(`/api/archivos/${form.datos.actas[0]!.archivoId}`);
+  expect(pdf.status()).toBe(200);
+  const texto = textoPdf(await pdf.body());
+  expect(texto).toContain('Hallazgos que requieren intervención inmediata del OPL (1)');
+  expect(texto).toContain(`${primero}: La nevera no tiene registro diario de temperatura.`);
+  expect(texto).toContain('Intervención inmediata');
+  expect(texto).toContain('La nevera no tiene registro diario de temperatura.Sí');
   await salir(p2);
   await ctx.close();
 
@@ -180,9 +194,20 @@ test('pruebas 12, 10 y 13: formulario, evidencias, firmas, acta, reabrir y repor
   await expect(page.getByTestId('encabezado-reporte')).toContainText(`Establecimiento: ${lugar}`);
   await expect(page.getByTestId('tabla-reporte')).toContainText(numero);
   // Prueba 13: inicio y fin reales, objeto, componentes y hallazgos del acta
-  for (const columna of ['Inicio real', 'Fin real', 'Objeto', 'Componentes', 'Descripción de los hallazgos']) {
+  for (const columna of ['Inicio real', 'Fin real', 'Objeto', 'Componentes', 'Intervención inmediata', 'Descripción de los hallazgos']) {
     await expect(page.getByTestId('tabla-reporte').getByRole('columnheader', { name: columna, exact: true })).toBeVisible();
   }
+  // VIS-14: el informe rotula el hallazgo de intervención inmediata (ronda 2: la marca se conserva al reabrir)
+  await expect(page.getByTestId('tabla-reporte')).toContainText(
+    `${primero} (intervención inmediata): La nevera no tiene registro diario de temperatura.`,
+  );
+  // Filtro «solo con intervención inmediata»: la visita sigue y el filtro queda en el encabezado (y en la descarga)
+  await page.getByRole('textbox', { name: 'Intervención inmediata', exact: true }).click();
+  await page.getByRole('option', { name: 'Con hallazgos de intervención inmediata', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Generar reporte' }).click();
+  await expect(page.getByTestId('encabezado-reporte')).toContainText('Intervención inmediata: Con hallazgos de intervención inmediata');
+  await expect(page.getByTestId('tabla-reporte')).toContainText(numero);
   const descarga = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Descargar Excel' }).click();
   expect((await descarga).suggestedFilename()).toMatch(/^reporte_detalle_.*\.xlsx$/);

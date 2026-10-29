@@ -12,6 +12,7 @@ import { EncabezadoPagina } from '../shared/EncabezadoPagina';
 import { conteo, fechaHora, hoyBogota, sumarDias } from '../shared/formato';
 import { TablaAdaptable } from '../shared/TablaAdaptable';
 import { useValidacion } from '../shared/validacion';
+import { PlantillasCorreo } from './CorreosPlantillas';
 import { errorCorreo } from '../shared/validaciones';
 
 interface Envio {
@@ -77,14 +78,18 @@ export function Correos() {
     <Stack>
       <EncabezadoPagina
         titulo="Correos"
-        descripcion="Cada correo que envía la aplicación: estado, vista previa, reintento de los fallidos y descarga."
+        descripcion="Cada correo que envía la aplicación: estado, vista previa, reintento de los fallidos, descarga y los textos de las plantillas."
       />
       <Tabs defaultValue="envios" keepMounted={false}>
         <Tabs.List>
           <Tabs.Tab value="envios">Envíos</Tabs.Tab>
+          <Tabs.Tab value="plantillas">Plantillas</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="envios" pt="md">
           <BitacoraEnvios />
+        </Tabs.Panel>
+        <Tabs.Panel value="plantillas" pt="md">
+          <PlantillasCorreo />
         </Tabs.Panel>
       </Tabs>
     </Stack>

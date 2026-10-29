@@ -42,8 +42,18 @@ final class GeneradorActa {
                      String seguimientoDe, List<String[]> prorrogas) {
     }
 
+    /**
+     * @param items por ítem: código, criterio, calificación, hallazgo y la marca de intervención inmediata del OPL ({@link #SI} o
+     *              {@link #NO}; VIS-14). La tabla del componente muestra las cuatro primeras; la marca va en «Hallazgos»
+     */
     record Componente(String codigo, String nombre, List<String[]> items) {
     }
+
+    /** Valores de la columna «Intervención inmediata» (VIS-14). */
+    static final String SI = "Sí";
+    static final String NO = "No";
+    private static final Color ROJO = new Color(150, 20, 20);
+    private static final Color ROSADO = new Color(253, 236, 236);
 
     record FirmaActa(String rotulo, String nombre, String documento, String cargo, byte[] png) {
     }
@@ -106,9 +116,15 @@ final class GeneradorActa {
 
             seccion(doc, "Hallazgos");
             List<String[]> hallazgos = c.componentes().stream().flatMap(x -> x.items().stream()).filter(i -> "No cumple".equals(i[2]))
-                    .map(i -> new String[] {i[0], i[3]}).toList();
+                    .map(i -> new String[] {i[0], i[3], i.length > 4 && SI.equals(i[4]) ? SI : NO}).toList();
+            // VIS-14 (Anexo 3: «tanto en el acta como en el informe»): recuadro con los que requieren intervención inmediata del OPL al
+            // inicio de la sección; sin ninguno no se muestra (la columna de la tabla ya dice «No» en cada hallazgo)
+            List<String[]> inmediatos = hallazgos.stream().filter(h -> SI.equals(h[2])).toList();
+            if (!inmediatos.isEmpty()) {
+                doc.add(recuadroInmediatos(inmediatos));
+            }
             doc.add(hallazgos.isEmpty() ? new Paragraph("Sin hallazgos.", NORMAL)
-                    : tabla(new String[] {"Ítem", "Hallazgo"}, hallazgos, new float[] {1, 6}));
+                    : tabla(new String[] {"Ítem", "Hallazgo", "Intervención inmediata"}, hallazgos, new float[] {1, 4.4f, 1.8f}));
 
             if (!c.plan().isEmpty()) {
                 seccion(doc, "Plan de mejoramiento (5W2H)" + (c.planFecha() == null ? "" : " · " + c.planFecha()));
@@ -189,6 +205,28 @@ final class GeneradorActa {
             throw new IllegalStateException("No se pudo generar el acta", e);
         }
         return out.toByteArray();
+    }
+
+    /** Recuadro «Hallazgos que requieren intervención inmediata del OPL (N)» con el ítem y el hallazgo de cada uno. */
+    private static PdfPTable recuadroInmediatos(List<String[]> inmediatos) {
+        PdfPTable t = new PdfPTable(1);
+        t.setWidthPercentage(100);
+        t.setSpacingAfter(6);
+        PdfPCell cel = new PdfPCell();
+        cel.setPadding(6);
+        cel.setBorderColor(ROJO);
+        cel.setBorderWidth(1.2f);
+        cel.setBackgroundColor(ROSADO);
+        cel.addElement(new Paragraph("Hallazgos que requieren intervención inmediata del OPL (" + inmediatos.size() + ")",
+                new Font(Font.HELVETICA, 10, Font.BOLD, ROJO)));
+        for (String[] h : inmediatos) {
+            Paragraph p = new Paragraph();
+            p.add(new Chunk(h[0] + ": ", NEGRITA));
+            p.add(new Chunk(h[1] == null ? "" : h[1], NORMAL));
+            cel.addElement(p);
+        }
+        t.addCell(cel);
+        return t;
     }
 
     private static void seccion(Document doc, String titulo) throws DocumentException {

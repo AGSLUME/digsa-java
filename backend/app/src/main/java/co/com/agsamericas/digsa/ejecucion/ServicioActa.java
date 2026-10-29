@@ -5,9 +5,11 @@ import co.com.agsamericas.digsa.agenda.ServicioNotificacion;
 import co.com.agsamericas.digsa.alertas.ServicioAlertas;
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
+import co.com.agsamericas.digsa.plataforma.CatalogoPlantillas;
 import co.com.agsamericas.digsa.plataforma.Correo;
 import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Bitacora;
@@ -48,6 +50,7 @@ public class ServicioActa {
     }
 
     private final ServicioFormulario formulario;
+    private final CatalogoPlantillas plantillas;
     private final ServicioArchivos archivos;
     private final ServicioNotificacion notificacion;
     private final ServicioCatalogos catalogos;
@@ -65,7 +68,8 @@ public class ServicioActa {
     public ServicioActa(ServicioFormulario formulario, ServicioArchivos archivos, ServicioNotificacion notificacion, ServicioCatalogos catalogos,
                         RepositorioVisitas visitas, EnvioRegistrado correo, RegistroBitacora bitacora, JdbcClient jdbc, TransactionTemplate tx, Clock reloj,
                         co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta, co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa cfg,
-                        ServicioSeguimiento seguimiento, ServicioAlertas alertas) {
+                        ServicioSeguimiento seguimiento, ServicioAlertas alertas, CatalogoPlantillas plantillas) {
+        this.plantillas = plantillas;
         this.alertas = alertas;
         this.seguimiento = seguimiento;
         this.consulta = consulta;
@@ -84,7 +88,7 @@ public class ServicioActa {
 
     /** Genera el acta, la envía y cierra la visita. Si el correo no sale, la visita sigue en ejecución y se puede reintentar. */
     public Envio enviar(long visitaId, UsuarioSesion quien, Set<Perfil> perfiles) {
-        record Preparada(long actaId, int ronda, String numero, List<String> para, Set<String> obligatorios, String asunto, byte[] pdf, String nombre,
+        record Preparada(long actaId, int ronda, String numero, List<String> para, Set<String> obligatorios, Map<String, String> valores, byte[] pdf, String nombre,
                          EnlaceOpl enlace, ServicioSeguimiento.Programacion programacion, List<ServicioSeguimiento.Prorroga> prorrogas) {
         }
         Preparada p = tx.execute(t -> {
@@ -168,29 +172,33 @@ public class ServicioActa {
             }
             guardarHallazgosYEnlace(v, actaId, hallazgos, enlace);
             Map<String, Object> segDatos = seguimiento.datos(v);
-            String asunto = (v.esSeguimiento() ? "Acta de seguimiento a plan de mejoramiento " : "Acta de visita ") + v.numero() + " · " + v.puntoNombre()
-                    + (segDatos == null ? "" : " · " + segDatos.get("ordinal") + " de la visita " + segDatos.get("origenNumero"))
-                    + (ronda > 1 ? " · ronda " + ronda : "");
-            return new Preparada(actaId, ronda, v.numero(), lista, obligatorios, asunto, pdf, nombre, enlace, programacion, prorrogas);
+            Map<String, String> valores = new java.util.HashMap<>();
+            valores.put("tipo_acta", v.esSeguimiento() ? "Acta de seguimiento a plan de mejoramiento" : "Acta de visita");
+            valores.put("numero", v.numero());
+            valores.put("punto", v.puntoNombre());
+            valores.put("complemento", (segDatos == null ? "" : " · " + segDatos.get("ordinal") + " de la visita " + segDatos.get("origenNumero"))
+                    + (ronda > 1 ? " · ronda " + ronda : ""));
+            valores.put("ronda", ronda > 1 ? " (ronda " + ronda + ", visita reabierta)" : "");
+            return new Preparada(actaId, ronda, v.numero(), lista, obligatorios, valores, pdf, nombre, enlace, programacion, prorrogas);
         });
 
-        // En la bitácora de envíos el enlace de respuesta del OPL (lleva el token) queda oculto; el acta se reenvía desde la visita
-        java.util.function.Function<String, String> html = url -> PlantillaCorreo.marco(
-                p.asunto().startsWith("Acta de seguimiento") ? "Acta de seguimiento a plan de mejoramiento" : "Acta de visita",
-                "<p>Adjuntamos el acta de la visita <strong>" + PlantillaCorreo.e(p.numero())
-                        + "</strong>" + (p.ronda() > 1 ? " (ronda " + p.ronda() + ", visita reabierta)" : "") + ".</p>"
-                        + (p.enlace() == null ? "<p>La visita no tiene hallazgos.</p>"
-                                : "<p style=\"border:2px solid #961414;padding:10px;color:#961414\"><strong>" + PlantillaCorreo.e(p.enlace().textoPlazos())
-                                        + "</strong></p><p>Responda los hallazgos y firme el plan en: <a href=\"" + PlantillaCorreo.e(url) + "\">"
-                                        + PlantillaCorreo.e(url) + "</a></p>")
-                        + "<p style=\"color:#6b7280;font-size:11px\">Huella SHA-256 del acta: "
-                        + co.com.agsamericas.digsa.reglas.Huellas.sha256(p.pdf()) + "</p>");
+        // Plantilla vigente (módulo Correos). En la bitácora de envíos el enlace de respuesta del OPL (lleva el token) queda oculto; el
+        // acta se reenvía desde la visita
+        Plantilla plantilla = plantillas.vigente(PlantillasEjecucion.ACTA);
+        String huella = co.com.agsamericas.digsa.reglas.Huellas.sha256(p.pdf());
+        java.util.function.Function<String, Plantilla.Renderizada> armar = url -> {
+            Map<String, String> v = new java.util.HashMap<>(p.valores());
+            v.put("hallazgos", p.enlace() == null ? PlantillasEjecucion.SIN_HALLAZGOS : PlantillasEjecucion.hallazgos(p.enlace().textoPlazos(), url));
+            v.put("huella", huella);
+            return plantilla.render(v);
+        };
         EnvioRegistrado.Registro registro = EnvioRegistrado.Registro.de("acta", "acta:" + p.actaId());
         if (p.enlace() != null) {
-            registro = registro.secreto(html.apply(PlantillaCorreo.ENLACE_OCULTO));
+            registro = registro.secreto(armar.apply(PlantillaCorreo.ENLACE_OCULTO).html());
         }
+        Plantilla.Renderizada acta = armar.apply(p.enlace() == null ? null : p.enlace().url());
         Correo.Resultado r = correo.enviar(registro.reenvio("Se reenvía desde la visita con «Enviar acta» (genera el PDF de nuevo)."),
-                new Correo.Mensaje(p.para(), List.of(), p.asunto(), html.apply(p.enlace() == null ? null : p.enlace().url()),
+                new Correo.Mensaje(p.para(), List.of(), acta.asunto(), acta.html(),
                         List.of(new Correo.Adjunto(p.nombre(), "application/pdf", p.pdf()))));
         List<String> rechazados = r.ok() ? r.rechazados() : p.para();
         long obligatoriosRechazados = rechazados.stream().filter(x -> p.obligatorios().contains(x.toLowerCase(Locale.ROOT))).count();

@@ -5,9 +5,11 @@ import co.com.agsamericas.digsa.agenda.ServicioAgenda;
 import co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda;
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
+import co.com.agsamericas.digsa.plataforma.CatalogoPlantillas;
 import co.com.agsamericas.digsa.plataforma.Correo;
 import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Bitacora;
@@ -78,6 +80,7 @@ public class ServicioSeguimiento {
     }
 
     private final RepositorioVisitas visitas;
+    private final CatalogoPlantillas plantillas;
     private final ServicioAgenda agenda;
     private final ServicioConsultaAgenda consulta;
     private final ServicioCatalogos catalogos;
@@ -91,7 +94,8 @@ public class ServicioSeguimiento {
 
     public ServicioSeguimiento(RepositorioVisitas visitas, ServicioAgenda agenda, ServicioConsultaAgenda consulta, ServicioCatalogos catalogos, EnvioRegistrado correo,
                                RegistroBitacora bitacora, ApplicationEventPublisher eventos, JdbcClient jdbc, Clock reloj,
-                               org.springframework.transaction.PlatformTransactionManager transacciones) {
+                               org.springframework.transaction.PlatformTransactionManager transacciones, CatalogoPlantillas plantillas) {
+        this.plantillas = plantillas;
         this.anidada = new org.springframework.transaction.support.TransactionTemplate(transacciones);
         this.anidada.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_NESTED);
         this.visitas = visitas;
@@ -427,13 +431,10 @@ public class ServicioSeguimiento {
             filas.append("<tr><td>").append(PlantillaCorreo.e(String.valueOf(a.get("codigo")))).append("</td><td>").append(PlantillaCorreo.e(String.valueOf(a.get("texto"))))
                     .append("</td><td>").append(a.get("fin") == null ? "" : PlantillaCorreo.e(String.valueOf(a.get("fin")))).append("</td></tr>");
         }
-        String html = PlantillaCorreo.marco(Seguimiento.ordinal(p.n()) + " visita de seguimiento · " + s.numero(),
-                "<p>Se programó la visita de seguimiento <strong>" + PlantillaCorreo.e(s.numero()) + "</strong> al plan de mejoramiento de la visita "
-                        + PlantillaCorreo.e(origen.numero()) + ", para el <strong>" + PlantillaCorreo.e(Plazos.fechaLarga(s.fecha())) + "</strong> en "
-                        + PlantillaCorreo.e(s.puntoNombre()) + ".</p><p>Acciones por verificar:</p><table border=\"1\" cellpadding=\"4\" style=\"border-collapse:collapse\">"
-                        + "<tr><th>Hallazgo</th><th>Descripción</th><th>Fin del plan</th></tr>" + filas + "</table>");
+        Plantilla.Renderizada aviso = plantillas.render(PlantillasEjecucion.SEGUIMIENTO_AVISO, Map.of("ordinal", Seguimiento.ordinal(p.n()),
+                "numero", s.numero(), "punto", s.puntoNombre(), "origen", origen.numero(), "fecha", Plazos.fechaLarga(s.fecha()), "acciones", filas.toString()));
         try {
-            Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("seguimiento_aviso", "visita:" + seguimientoId), new Correo.Mensaje(para, List.of(), "Visita de seguimiento " + s.numero() + " · " + s.puntoNombre(), html, List.of()));
+            Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("seguimiento_aviso", "visita:" + seguimientoId), new Correo.Mensaje(para, List.of(), aviso.asunto(), aviso.html(), List.of()));
             visitas.historial(seguimientoId, null, "sistema", r.ok() ? "Aviso al auditor" : "Aviso al auditor fallido",
                     r.ok() ? "Acciones por verificar: " + p.abiertas().size() : Bitacora.cortar(Bitacora.sinCorreos(String.valueOf(r.error())), 300));
             return r.ok() ? "Seguimiento " + s.numero() + " programado para el " + Plazos.fechaLarga(s.fecha()) + "." : "El aviso al auditor del seguimiento falló.";
@@ -467,11 +468,10 @@ public class ServicioSeguimiento {
             filas.append("<li>").append(PlantillaCorreo.e(String.valueOf(a.get("codigo")))).append(": ").append(PlantillaCorreo.e(String.valueOf(a.get("texto"))))
                     .append("</li>");
         }
-        String html = PlantillaCorreo.marco("Plan de mejoramiento sin cerrar · " + v.numero(), "<p>La visita <strong>" + PlantillaCorreo.e(v.numero()) + "</strong> ("
-                + PlantillaCorreo.e(v.puntoNombre()) + ") llegó al máximo de " + maximo() + " visitas de seguimiento con acciones abiertas del plan de mejoramiento:</p><ul>"
-                + filas + "</ul><p>No se programa otro seguimiento. El reporte formal a la DIGSA sale por separado con su consecutivo.</p>");
+        Plantilla.Renderizada aviso = plantillas.render(PlantillasEjecucion.SEGUIMIENTO_ESCALAMIENTO, Map.of("numero", v.numero(), "punto", v.puntoNombre(),
+                "maximo", String.valueOf(maximo()), "acciones", filas.toString()));
         try {
-            Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("seguimiento_escalamiento", "visita:" + v.id()), new Correo.Mensaje(para, copia, "Plan de mejoramiento sin cerrar · visita " + v.numero(), html, List.of()));
+            Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("seguimiento_escalamiento", "visita:" + v.id()), new Correo.Mensaje(para, copia, aviso.asunto(), aviso.html(), List.of()));
             visitas.historial(v.id(), null, "sistema", r.ok() ? "Escalamiento" : "Escalamiento fallido",
                     r.ok() ? "Enviado a " + para.size() + " destinatario(s)" + (copia.isEmpty() ? (coordinadores.isEmpty() ? " de la DIGSA (no hay coordinadores)" : "; sin correos de la DIGSA") : " con copia a la DIGSA")
                             : Bitacora.cortar(Bitacora.sinCorreos(String.valueOf(r.error())), 300));

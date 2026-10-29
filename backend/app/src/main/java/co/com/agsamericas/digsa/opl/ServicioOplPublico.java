@@ -4,6 +4,7 @@ import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.plataforma.Correo;
 import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Bitacora;
@@ -123,7 +124,7 @@ public class ServicioOplPublico {
         try {
             // En la bitácora de envíos el código queda oculto (módulo Correos; duda CO-3)
             r = correo.enviar(EnvioRegistrado.Registro.de("opl_codigo", "visita:" + a.visitaId()).secreto(htmlCodigo(a.numero(), PlantillaCorreo.OCULTO)),
-                    Correo.Mensaje.simple(para, "Código de verificación · visita " + a.numero(), htmlCodigo(a.numero(), codigo)));
+                    Correo.Mensaje.simple(para, PlantillasOpl.CODIGO.render(Map.of("numero", a.numero())).asunto(), htmlCodigo(a.numero(), codigo)));
         } catch (RuntimeException e) {
             r = null;
         }
@@ -260,9 +261,8 @@ public class ServicioOplPublico {
         return OffsetDateTime.parse(String.valueOf(o));
     }
 
-    private static String htmlCodigo(String numero, String codigo) {
-        return PlantillaCorreo.marco("Código de verificación", "<p>Su código para responder el acta de la visita " + PlantillaCorreo.e(numero)
-                + " es:</p><p style=\"font-size:24px;letter-spacing:4px\"><strong>" + codigo + "</strong></p><p>Vence en " + MINUTOS_CODIGO
-                + " minutos. Si usted no lo pidió, ignore este correo.</p>");
+    /** Plantilla no editable (código de un solo uso): siempre el texto de fábrica. */
+    static String htmlCodigo(String numero, String codigo) {
+        return PlantillasOpl.CODIGO.render(Map.of("numero", numero, "codigo", codigo, "minutos", String.valueOf(MINUTOS_CODIGO))).html();
     }
 }

@@ -1,8 +1,10 @@
 package co.com.agsamericas.digsa.presupuesto;
 
+import co.com.agsamericas.digsa.plataforma.CatalogoPlantillas;
 import co.com.agsamericas.digsa.plataforma.BandejaSalida;
 import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Correos;
@@ -45,12 +47,14 @@ class Notificaciones {
     }
 
     private final JdbcClient jdbc;
+    private final CatalogoPlantillas plantillas;
     private final BandejaSalida bandeja;
     private final RegistroBitacora bitacora;
     private final ConfiguracionDigsa cfg;
     private final Clock reloj;
 
-    Notificaciones(JdbcClient jdbc, BandejaSalida bandeja, RegistroBitacora bitacora, ConfiguracionDigsa cfg, Clock reloj) {
+    Notificaciones(JdbcClient jdbc, BandejaSalida bandeja, RegistroBitacora bitacora, ConfiguracionDigsa cfg, Clock reloj, CatalogoPlantillas plantillas) {
+        this.plantillas = plantillas;
         this.jdbc = jdbc;
         this.bandeja = bandeja;
         this.bitacora = bitacora;
@@ -69,11 +73,11 @@ class Notificaciones {
         String consecutivo = Presupuesto.consecutivo(prefijo, anio, numero);
         Destinatarios d = destinatarios(a.fuerza(), a.nivel());
         String estado = d.estado();
-        String asunto = consecutivo + " · " + a.asunto();
-        String html = html(consecutivo, a, ahora);
+        Plantilla.Renderizada correoAviso = correo(consecutivo, a, ahora);
+        String asunto = correoAviso.asunto();
         String texto = texto(consecutivo, a, ahora);
         Long correoId = d.todos().isEmpty() ? null : bandeja.encolar("presupuesto:" + a.tipo(), consecutivo,
-                new Correo.Mensaje(d.todos(), List.of(), asunto, html, List.of()));
+                new Correo.Mensaje(d.todos(), List.of(), asunto, correoAviso.html(), List.of()));
         long id = jdbc.sql("""
                 INSERT INTO presupuesto_notificaciones (consecutivo, tipo, nivel, vigencia_id, linea_id, lineas, fuerza, corte, asunto, texto, para, correo_id,
                                                         estado, creado)
@@ -178,18 +182,15 @@ class Notificaciones {
         return List.of();
     }
 
-    private String html(String consecutivo, Aviso a, OffsetDateTime ahora) {
+    /** Asunto y html con la plantilla vigente (módulo Correos). El texto plano que se guarda y se reenvía no cambia. */
+    private Plantilla.Renderizada correo(String consecutivo, Aviso a, OffsetDateTime ahora) {
         StringBuilder filas = new StringBuilder();
         for (String[] d : encabezado(consecutivo, a, ahora)) {
             filas.append("<tr><th style=\"text-align:left;padding:2px 8px\">").append(PlantillaCorreo.e(d[0])).append("</th><td style=\"padding:2px 8px\">")
                     .append(PlantillaCorreo.e(d[1])).append("</td></tr>");
         }
-        String cuerpo = "<p>La interventoría informa a la DIGSA y a la Dirección de Sanidad o Jefatura de Salud correspondiente, en cumplimiento del Anexo 2 "
-                + "(auditoría de facturación), la siguiente novedad de la ejecución presupuestal del contrato de medicamentos:</p>"
-                + "<table style=\"border-collapse:collapse\">" + filas + "</table>"
-                + "<p>Consulte el detalle en la Suite DIGSA: <a href=\"" + PlantillaCorreo.e(cfg.enlace("presupuesto")) + "\">" + PlantillaCorreo.e(cfg.enlace("presupuesto"))
-                + "</a></p><p>Generado por la interventoría · Suite DIGSA.</p>";
-        return PlantillaCorreo.marco("Notificación presupuestal " + consecutivo, cuerpo);
+        return plantillas.render(PlantillasPresupuesto.NOTIFICACION, Map.of("consecutivo", consecutivo, "asunto", a.asunto(), "datos", filas.toString(),
+                "enlace", cfg.enlace("presupuesto")));
     }
 
     private String texto(String consecutivo, Aviso a, OffsetDateTime ahora) {

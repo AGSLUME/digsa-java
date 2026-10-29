@@ -70,6 +70,8 @@ psql "postgresql://digsa_migracion@localhost/digsa" -f herramientas/verificar_ba
 | `DIGSA_CORREO_REPORTES` | correo del comité | Destino por defecto de los reportes |
 | `DIGSA_ARCHIVOS_CARPETA` | `D:\digsa\archivos` | Evidencias y actas, fuera de la carpeta de la aplicación |
 | `DIGSA_TURNSTILE_SITIO` / `DIGSA_TURNSTILE_SECRETA` | | Captcha. Sin ellas se desactiva y queda en el registro |
+| `DIGSA_ANALITICA_CLAVE_SEUDONIMO` | secreto de Key Vault, 32 caracteres o más | Analítica: clave HMAC del seudónimo del paciente (Ley 1581). Con `produccion` y sin ella la aplicación **no arranca**; en otros entornos arranca pero rechaza los cargues. **No se rota durante el contrato**: si cambia, los mismos pacientes reciben seudónimos nuevos y las cohortes y los conteos de pacientes dejan de ser continuos. Nunca va en el repositorio ni en los logs |
+| `DIGSA_ANALITICA_HORAS_ABANDONO` | `24` | Analítica: horas sin actividad tras las que un cargue en subida o mapeo vence y se descartan sus archivos con datos personales |
 
 Si falta algo obligatorio, la aplicación no arranca y dice qué falta.
 

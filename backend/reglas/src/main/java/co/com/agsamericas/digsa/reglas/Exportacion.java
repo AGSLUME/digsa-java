@@ -56,11 +56,45 @@ public final class Exportacion {
             // --- Presupuesto (rama presupuesto): V40 ---
             "presupuesto_vigencias", "presupuesto_modalidades", "presupuesto_lineas", "presupuesto_saldos", "presupuesto_soportes",
             "presupuesto_lotes", "presupuesto_movimientos", "presupuesto_movimientos_lineas", "presupuesto_ejecucion", "presupuesto_proyeccion",
-            "presupuesto_consecutivos", "presupuesto_notificaciones", "presupuesto_umbrales", "presupuesto_desviaciones");
+            "presupuesto_consecutivos", "presupuesto_notificaciones", "presupuesto_umbrales", "presupuesto_desviaciones",
             // --- fin presupuesto ---
+            // --- Analítica (rama analitica) ---
+            // V60 · ingesta del insumo del OPL: cargues, partes, lotes del servicio web, rechazos, plantillas y dimensión de tiempo (los
+            // hechos ana_dispensaciones no van aquí: ver TECNICAS)
+            "ana_cargues", "ana_cargue_partes", "ana_ws_lotes", "ana_cargue_rechazos", "ana_mapeo_plantillas", "ana_dim_tiempo",
+            // V61 · homologación: referencias oficiales versionadas (CUM del INVIMA, CIE-10, precio regulado, vitales, listas normativas y
+            // códigos SSFM), reglas y catálogos con su historial, versiones de la tabla maestra, revisión y devoluciones al OPL
+            "ref_fuente", "ref_version", "ref_cum_presentacion", "ref_cum_principio_activo", "ref_cum_rol", "ref_atc_nombre_nivel", "ref_cie10",
+            "ref_precio_regulado", "ref_vital_no_disponible", "ref_lista_normativa", "ref_codigo_ssfm", "hom_regla", "hom_regla_historial",
+            "hom_catalogo", "hom_version", "hom_medicamento_origen", "hom_tabla_maestra", "hom_cie10_origen", "hom_tabla_cie10",
+            "hom_cargue_origen", "hom_cargue_mes", "hom_revision", "hom_devolucion",
+            // V62 · tableros: bitácora de consultas, descargas y rastreos de analítica (los agregados van en TECNICAS)
+            "ana_consultas",
+            // V63 · cohortes y alertas tempranas: definiciones y versiones de cohortes, sus series agregadas por corte y ejecuciones;
+            // parámetros de alertas con su historial, alertas con su análisis técnico y validación humana, ejecuciones del motor y
+            // referencias cargables (interacciones, indicaciones, huérfanas). La membresía (paciente por mes) va en TECNICAS
+            "ana_cohortes", "ana_cohortes_versiones", "ana_cohortes_resultados", "ana_cohortes_serie", "ana_cohortes_conteos", "ana_cohortes_ejecuciones",
+            "ana_alertas_parametros", "ana_alertas_parametros_historial", "ana_alertas", "ana_alertas_historial", "ana_alertas_ejecuciones",
+            "ana_ref_versiones", "ana_ref_filas");
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
-    public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes");
+    public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes",
+            // --- Analítica (rama analitica) ---
+            // Staging de la ingesta (UNLOGGED, se vacía al terminar cada cargue)
+            "ana_staging_dispensacion",
+            // Fuera de la exportación completa (duda AN.14; EXCLUIDAS es por columnas, así que la tabla entera se excluye aquí): los hechos
+            // de dispensación (unos 2 M de filas por mes, 24 M al año) no caben en el límite de 10 minutos de la exportación completa
+            // (digsa.exportacion.limite-minutos); se entregan por la exportación analítica por periodo (fase A7). ana_llaves es el índice
+            // de llaves naturales de esos mismos hechos (se reconstruye de ellos).
+            "ana_dispensaciones", "ana_llaves",
+            // Tablas de apoyo de los tableros (V62): copia angosta de los hechos, numeración de pacientes y valores de filtro por cargue; se
+            // derivan de los hechos de cada cargue y se reconstruyen de ellos
+            "ana_hechos_tablero", "ana_pacientes", "ana_cargue_valores",
+            // Membresía de las cohortes (V63): número de paciente por mes y versión, solo del último corte; se deriva de los hechos y no
+            // sale de la base salvo como conteos (A5 14.6 «nunca individualizada»)
+            "ana_cohortes_miembros",
+            // Staging de la carga del CUM del INVIMA (UNLOGGED, se vacía al terminar cada versión)
+            "ref_cum_staging");
 
     /**
      * Columnas que no salen (secretos y binarios), por tabla. Las firmas (bytea) salen como PNG en la carpeta de la visita; en el CSV no
@@ -274,6 +308,9 @@ public final class Exportacion {
         linea(sb, "COLUMNAS EXCLUIDAS (secretos y binarios)");
         EXCLUIDAS.forEach((t, c) -> linea(sb, "- " + t + ": " + c.stream().sorted().collect(Collectors.joining(", "))));
         linea(sb, "No se exportan las tablas técnicas: " + TECNICAS.stream().sorted().collect(Collectors.joining(", ")) + ".");
+        // --- Analítica (rama analitica) ---
+        linea(sb, "Los hechos de dispensación de analítica (ana_dispensaciones, ana_llaves) NO van en este ZIP: por su volumen se entregan");
+        linea(sb, "aparte, en la exportación analítica por periodo (un archivo por mes), con su propia huella.");
         linea(sb, "Las imágenes de las firmas salen como PNG en la carpeta firmas/ de cada visita.");
         linea(sb, "");
         linea(sb, "SOPORTES");

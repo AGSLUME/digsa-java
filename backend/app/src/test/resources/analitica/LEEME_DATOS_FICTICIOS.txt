@@ -1,0 +1,19 @@
+DATOS DE EJEMPLO FICTICIOS · NO SON REFERENCIAS OFICIALES
+
+Estos archivos imitan el formato público de las fuentes oficiales de la homologación (docs/especificaciones/analitica-homologacion;
+fuentes_oficiales.md) para las pruebas automáticas, con valores inventados:
+
+  cum_vigentes_ejemplo_ficticio.csv, cum_vencidos_..., cum_renovacion_..., cum_otros_...
+      Las 29 columnas de los cuatro conjuntos del CUM del INVIMA en datos.gov.co (fieldName de Socrata, fechas MM/DD/YYYY, una fila por
+      principio activo y rol). Los CUM son los ficticios de GeneradorSintetico (20010000 + (i + 1) * 37 - (1 + i % 3)) con variantes
+      sembradas a propósito: LOSARTAN como tableta recubierta (R-015), ENALAPRIL con otra concentración (R-012), PARACETAMOL frente a
+      ACETAMINOFEN (R-004), METFORMINA CLORHIDRATO (sal, R-013), ADALIMUMAB solo en vencidos y ETANERCEPT inactivo (R-021), TRASTUZUMAB
+      ausente (R-050), IMATINIB en trámite de renovación, y 120 presentaciones «FICTICIO…» sin relación con el insumo, una fecha que no es
+      MM/DD/YYYY y una fila sin consecutivo.
+  codigos_ssfm_ejemplo_ficticio.csv      Catálogo SSFM inventado (falta la insulina glargina: R-030).
+  cie10_ejemplo_ficticio.csv             Columnas del buscador de SISPRO (tabla CIE10) con nombres inventados.
+  estrecho_margen_ejemplo_ficticio.csv   Lista normativa digitada (ejemplo).
+  precio_regulado_ejemplo_ficticio.csv   Columnas del conjunto nauz-qkjw con una fila de precio no numérico.
+
+Las pruebas los cargan por la pantalla con «ejemplo = true» (la versión muestra «Datos de ejemplo» y no se publica en producción).
+Las referencias reales se descargan con herramientas/descargar_referencias.py y se cargan por la pantalla.

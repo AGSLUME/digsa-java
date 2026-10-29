@@ -44,6 +44,13 @@ const OplVisita = perezosa(() => import('./paginas/Opl'), 'OplVisita');
 // --- Presupuesto (rama presupuesto) ---
 const Presupuesto = perezosa(() => import('./paginas/Presupuesto'), 'Presupuesto');
 // --- fin presupuesto ---
+// --- Analítica (rama analitica) ---
+const CarguesOpl = perezosa(() => import('./paginas/CarguesOpl'), 'CarguesOpl');
+const Homologacion = perezosa(() => import('./paginas/Homologacion'), 'Homologacion');
+const Analitica = perezosa(() => import('./paginas/Analitica'), 'Analitica');
+const TrazabilidadAnalitica = perezosa(() => import('./paginas/TrazabilidadAnalitica'), 'TrazabilidadAnalitica');
+const AlertasAnaliticas = perezosa(() => import('./paginas/AlertasAnaliticas'), 'AlertasAnaliticas');
+// --- fin analítica ---
 
 // Los mapas (límites departamentales, ~60 kB) se cargan al abrir la pantalla
 const Mapas = lazy(() => import('./paginas/Mapas').then((m) => ({ default: m.Mapas })));
@@ -154,6 +161,12 @@ export function App() {
             {/* --- Presupuesto (rama presupuesto; Anexo 5 §4.6) --- */}
             <Route path="/presupuesto" element={<Protegida ruta="presupuesto"><Presupuesto /></Protegida>} />
             {/* --- fin presupuesto --- */}
+            {/* --- Analítica (rama analitica) --- */}
+            <Route path="/analitica/cargues" element={<Protegida ruta="analitica/cargues"><CarguesOpl /></Protegida>} />
+            <Route path="/homologacion" element={<Protegida ruta="homologacion"><Homologacion /></Protegida>} />
+            <Route path="/analitica" element={<Protegida ruta="analitica"><Analitica /></Protegida>} />
+            <Route path="/analitica/trazabilidad" element={<Protegida ruta="analitica/trazabilidad"><TrazabilidadAnalitica /></Protegida>} />
+            <Route path="/analitica/alertas" element={<Protegida ruta="analitica/alertas"><AlertasAnaliticas /></Protegida>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

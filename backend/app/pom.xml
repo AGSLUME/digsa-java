@@ -58,7 +58,7 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
+            <!-- Analítica (rama analitica): compile en lugar de runtime para usar CopyManager/PGCopyOutputStream (COPY a staging) -->
         </dependency>
         <dependency>
             <groupId>org.springframework.modulith</groupId>

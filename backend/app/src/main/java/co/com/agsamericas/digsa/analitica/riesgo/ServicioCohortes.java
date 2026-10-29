@@ -746,7 +746,7 @@ public class ServicioCohortes {
     public Map<String, Object> crear(Map<String, Object> cuerpo, UsuarioSesion u) {
         String codigo = texto(cuerpo.get("codigo"));
         if (codigo == null || !AnaliticaCohortes.CODIGO.matcher(codigo).matches()) {
-            throw ErrorNegocio.validacion("El código va en minúsculas y guion bajo (3 a 40 caracteres).");
+            throw ErrorNegocio.validacion("El código va en minúsculas y guion bajo (3 a 40 caracteres).", "codigo");
         }
         String nombre = nombre(cuerpo.get("nombre"));
         String descripcion = descripcion(cuerpo.get("descripcion"));
@@ -845,7 +845,7 @@ public class ServicioCohortes {
         try {
             return AnaliticaCohortes.leer(o);
         } catch (IllegalArgumentException e) {
-            throw ErrorNegocio.validacion(e.getMessage());
+            throw ErrorNegocio.validacion(e.getMessage(), "criterios");
         }
     }
 
@@ -856,7 +856,7 @@ public class ServicioCohortes {
     private static String nombre(Object o) {
         String n = texto(o);
         if (n == null || n.length() < 3 || n.length() > 120) {
-            throw ErrorNegocio.validacion("El nombre lleva de 3 a 120 caracteres.");
+            throw ErrorNegocio.validacion("El nombre lleva de 3 a 120 caracteres.", "nombre");
         }
         return n;
     }
@@ -864,7 +864,7 @@ public class ServicioCohortes {
     private static String descripcion(Object o) {
         String d = texto(o);
         if (d != null && d.length() > 500) {
-            throw ErrorNegocio.validacion("La descripción lleva máximo 500 caracteres.");
+            throw ErrorNegocio.validacion("La descripción lleva máximo 500 caracteres.", "descripcion");
         }
         return d == null || d.isEmpty() ? null : d;
     }

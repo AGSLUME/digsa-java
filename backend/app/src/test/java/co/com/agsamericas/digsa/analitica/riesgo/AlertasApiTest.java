@@ -311,6 +311,7 @@ class AlertasApiTest extends PruebaRiesgo {
         Navegador.Respuesta sin = n.post("/api/analitica/alertas/" + id + "/estado", Map.of("estado", "validada", "nota", "corta"));
         assertThat(sin.estado()).isEqualTo(422);
         assertThat(sin.mensaje()).isEqualTo("Escriba el motivo (mínimo 10 caracteres)");
+        assertThat(sin.json().path("campo").asText()).as("UI-21: la interfaz marca la nota").isEqualTo("nota");
         assertThat(ok(n.get("/api/analitica/alertas/" + id)).path("estado").asText()).isEqualTo("en_revision");
         assertThat(n.post("/api/analitica/alertas/" + id + "/estado", Map.of("estado", "validada", "nota", "Revisada con el comité: procede")).estado())
                 .isEqualTo(200);
@@ -556,6 +557,7 @@ class AlertasApiTest extends PruebaRiesgo {
         Navegador.Respuesta r = n.put("/api/analitica/alertas/parametros/incremento_gasto", Map.of("niveles", List.of("esm")));
         assertThat(r.estado()).isEqualTo(422);
         assertThat(r.mensaje()).contains("no se evalúa");
+        assertThat(r.json().path("campo").asText()).as("UI-21: la interfaz marca «Niveles»").isEqualTo("niveles");
         JsonNode p = ok(n.get("/api/analitica/alertas/parametros"));
         p.forEach(x -> {
             if (x.path("tipo").asText().equals("formulacion_inusual")) {
@@ -563,7 +565,9 @@ class AlertasApiTest extends PruebaRiesgo {
             }
         });
         // El tope de los umbrales: 422 con el motivo
-        assertThat(n.put("/api/analitica/alertas/parametros/duplicidad_terapeutica", Map.of("alta", "99999999999999")).estado()).isEqualTo(422);
+        Navegador.Respuesta tope = n.put("/api/analitica/alertas/parametros/duplicidad_terapeutica", Map.of("alta", "99999999999999"));
+        assertThat(tope.estado()).isEqualTo(422);
+        assertThat(tope.json().path("campo").asText()).isEqualTo("alta");
     }
 
     @Test

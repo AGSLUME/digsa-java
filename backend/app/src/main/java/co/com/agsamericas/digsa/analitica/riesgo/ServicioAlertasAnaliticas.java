@@ -384,13 +384,13 @@ public class ServicioAlertasAnaliticas {
 
     /** nueva → en_revision → validada | descartada (y descartada → en_revision). Validar o descartar exige nota de 10 caracteres o más. */
     public Map<String, Object> cambiarEstado(long id, String estado, String nota, UsuarioSesion u, Alcance a) {
-        Estado nuevo = Estado.deCodigo(estado == null ? "" : estado.strip()).orElseThrow(() -> ErrorNegocio.validacion("Estado no válido."));
+        Estado nuevo = Estado.deCodigo(estado == null ? "" : estado.strip()).orElseThrow(() -> ErrorNegocio.validacion("Estado no válido.", "estado"));
         String n = nota == null ? "" : nota.strip();
         if (nuevo.exigeNota() && n.length() < AnaliticaAlertas.NOTA_MINIMA) {
-            throw ErrorNegocio.validacion(AnaliticaAlertas.NOTA_CORTA);
+            throw ErrorNegocio.validacion(AnaliticaAlertas.NOTA_CORTA, "nota");
         }
         if (n.length() > 1000) {
-            throw ErrorNegocio.validacion("La nota lleva máximo 1000 caracteres.");
+            throw ErrorNegocio.validacion("La nota lleva máximo 1000 caracteres.", "nota");
         }
         return escritura.execute(s -> {
             Map<String, Object> p = new LinkedHashMap<>();
@@ -444,6 +444,9 @@ public class ServicioAlertasAnaliticas {
         Parametros nuevo;
         try {
             nuevo = AnaliticaAlertas.leer(t, cuerpo);
+        } catch (AnaliticaAlertas.ParametroNoValido e) {
+            // El campo del formulario de parámetros (baja, media, alta, ventana, niveles o plantilla) para que la interfaz lo marque
+            throw ErrorNegocio.validacion(e.getMessage(), e.campo());
         } catch (IllegalArgumentException e) {
             throw ErrorNegocio.validacion(e.getMessage());
         }
@@ -562,10 +565,10 @@ public class ServicioAlertasAnaliticas {
         }
         String f = fuente == null ? "" : fuente.strip();
         if (f.length() < 3 || f.length() > 200) {
-            throw ErrorNegocio.validacion("Escriba la fuente con su edición (3 a 200 caracteres).");
+            throw ErrorNegocio.validacion("Escriba la fuente con su edición (3 a 200 caracteres).", "fuente");
         }
         if (archivo == null || archivo.length == 0) {
-            throw ErrorNegocio.validacion("El archivo está vacío.");
+            throw ErrorNegocio.validacion("El archivo está vacío.", "archivo");
         }
         if (ficticio && configuracion.esProduccion()) {
             throw ErrorNegocio.validacion("Las referencias de ejemplo ficticias no se cargan en producción.");

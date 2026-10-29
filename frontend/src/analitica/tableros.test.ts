@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { cifra as decimal, fecha as fechaCorta, monto as moneda } from '../shared/formato';
 import {
   abrirReporte,
   bajarNivel,
@@ -9,16 +10,13 @@ import {
   conTablero,
   cruzarFiltro,
   consultaDe,
-  decimal,
   descripcionSerie,
   estadoCelda,
-  fechaCorta,
   filasGrafico,
   indiceColumna,
   intensidad,
   leerEstado,
   maximoEje,
-  moneda,
   problemaPeriodo,
   puntosSerie,
   quitarFiltro,
@@ -143,8 +141,10 @@ describe('gráficos', () => {
     expect(intensidad(5, 10)).toBe(0.5);
     expect(intensidad(5, 0)).toBe(0);
     expect(intensidad(20, 10)).toBe(1);
-    expect(colorCalor(0).texto).toBe('#1a1b1e');
-    expect(colorCalor(1).texto).toBe('#ffffff');
+    expect(colorCalor(0)).toEqual({ fondo: 'color-mix(in srgb, var(--lume-blue) 6%, var(--lume-white))', texto: 'var(--lume-text)' });
+    expect(colorCalor(0.55).texto).toBe('var(--lume-text)');
+    expect(colorCalor(0.56).texto).toBe('var(--lume-white)');
+    expect(colorCalor(1)).toEqual({ fondo: 'color-mix(in srgb, var(--lume-blue) 100%, var(--lume-white))', texto: 'var(--lume-white)' });
   });
 
   it('texto alternativo de la serie con periodo y unidad', () => {

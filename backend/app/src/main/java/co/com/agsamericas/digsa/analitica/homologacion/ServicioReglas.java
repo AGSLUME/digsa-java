@@ -139,7 +139,7 @@ class ServicioReglas {
             }
             int orden = c.orden() == null ? ((Number) actual.get("orden")).intValue() : c.orden();
             if (orden < 1 || orden > 999) {
-                throw ErrorNegocio.validacion("El orden debe estar entre 1 y 999.");
+                throw ErrorNegocio.validacion("El orden debe estar entre 1 y 999.", "orden");
             }
             @SuppressWarnings("unchecked")
             Map<String, Object> previos = (Map<String, Object>) antes.get("parametros");
@@ -150,17 +150,18 @@ class ServicioReglas {
                 for (var e : c.parametros().entrySet()) {
                     int[] rango = admite.get(e.getKey());
                     if (rango == null) {
-                        throw ErrorNegocio.validacion("La regla " + id + " no tiene el parámetro «" + e.getKey() + "».");
+                        throw ErrorNegocio.validacion("La regla " + id + " no tiene el parámetro «" + e.getKey() + "».", e.getKey());
                     }
                     String v = e.getValue() == null ? "" : e.getValue().strip();
                     int n;
                     try {
                         n = Integer.parseInt(v);
                     } catch (NumberFormatException x) {
-                        throw ErrorNegocio.validacion("El parámetro «" + e.getKey() + "» debe ser un número entero entre " + rango[0] + " y " + rango[1] + ".");
+                        throw ErrorNegocio.validacion("El parámetro «" + e.getKey() + "» debe ser un número entero entre " + rango[0] + " y " + rango[1] + ".",
+                                e.getKey());
                     }
                     if (n < rango[0] || n > rango[1]) {
-                        throw ErrorNegocio.validacion("El parámetro «" + e.getKey() + "» debe estar entre " + rango[0] + " y " + rango[1] + ".");
+                        throw ErrorNegocio.validacion("El parámetro «" + e.getKey() + "» debe estar entre " + rango[0] + " y " + rango[1] + ".", e.getKey());
                     }
                     parametros.put(e.getKey(), Integer.toString(n));
                 }
@@ -266,25 +267,25 @@ class ServicioReglas {
     Map<String, Object> editarCatalogo(String tipo, List<Entrada> entradas, Integer versionEditada, UsuarioSesion quien, String responsable) {
         validarTipo(tipo);
         if (entradas == null || entradas.isEmpty()) {
-            throw ErrorNegocio.validacion("El catálogo debe tener al menos una entrada.");
+            throw ErrorNegocio.validacion("El catálogo debe tener al menos una entrada.", "entradas");
         }
         Map<String, Entrada> limpias = new TreeMap<>();
         for (Entrada e : entradas) {
             if (e == null || e.clave() == null || e.clave().isBlank()) {
-                throw ErrorNegocio.validacion("Cada entrada necesita su texto de entrada.");
+                throw ErrorNegocio.validacion("Cada entrada necesita su texto de entrada.", "entradas");
             }
             String clave = "unidad".equals(tipo) ? e.clave().strip().toUpperCase(java.util.Locale.ROOT) : AnaliticaHomologacion.normalizarTexto(e.clave());
             String valor = "sal".equals(tipo) ? clave : e.valor() == null ? "" : "unidad".equals(tipo) ? e.valor().strip().toUpperCase(java.util.Locale.ROOT)
                     : AnaliticaHomologacion.normalizarTexto(e.valor());
             String extra = "forma".equals(tipo) && e.extra() != null && !e.extra().isBlank() ? AnaliticaHomologacion.normalizarTexto(e.extra()) : null;
             if (clave.isEmpty() || valor.isEmpty() || clave.length() > 120 || valor.length() > 200 || extra != null && extra.length() > 120) {
-                throw ErrorNegocio.validacion("Entrada no válida: «" + e.clave().strip() + "» (texto y valor obligatorios; 120 y 200 caracteres).");
+                throw ErrorNegocio.validacion("Entrada no válida: «" + e.clave().strip() + "» (texto y valor obligatorios; 120 y 200 caracteres).", "entradas");
             }
             if ("unidad".equals(tipo) && !UNIDADES.contains(valor)) {
-                throw ErrorNegocio.validacion("La unidad canónica debe ser una de " + String.join(", ", new java.util.TreeSet<>(UNIDADES)) + ".");
+                throw ErrorNegocio.validacion("La unidad canónica debe ser una de " + String.join(", ", new java.util.TreeSet<>(UNIDADES)) + ".", "entradas");
             }
             if (limpias.put(clave, new Entrada(clave, valor, extra)) != null) {
-                throw ErrorNegocio.validacion("«" + clave + "» está repetido.");
+                throw ErrorNegocio.validacion("«" + clave + "» está repetido.", "entradas");
             }
         }
         Object[] r = tx.execute(t -> {

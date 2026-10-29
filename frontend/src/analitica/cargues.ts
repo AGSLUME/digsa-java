@@ -1,7 +1,8 @@
 /**
  * Cargues del insumo del OPL (docs/especificaciones/analitica-ingesta): tipos de la API, partes de la subida, estados, mapeo de
- * columnas y formato de la bitácora (A5 2.4: cifras sin separador de miles, coma decimal y hora militar).
+ * columnas y formato de la bitácora (A5 2.4: cifras, fechas y horas con el formato único de shared/formato).
  */
+import { cifra, fecha, fechaHora } from '../shared/formato';
 
 export type EstadoCargue =
   'subiendo' | 'mapeo' | 'pendiente' | 'procesando' | 'aplicado' | 'rechazado' | 'fallido' | 'duplicado' | 'vencido' | 'descartado';
@@ -178,40 +179,10 @@ export function intervaloSondeo(filas: Pick<Cargue, 'estado'>[] | undefined): nu
   return (filas ?? []).some((c) => c.estado === 'pendiente' || c.estado === 'procesando') ? INTERVALO_SONDEO_MS : false;
 }
 
-/** Cifra sin separador de miles (A5 2.4); vacío ⇒ «—». */
-export function cifra(n: number | null | undefined): string {
-  return n === null || n === undefined || !Number.isFinite(n) ? '—' : String(Math.trunc(n));
-}
-
-/** Segundos con dos decimales y coma: 12345 ms ⇒ «12,35 s». */
+/** Segundos con dos decimales y coma: 12345 ms ⇒ «12,35 s» (cifra de shared/formato con la unidad). */
 export function segundos(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—';
-  return `${(ms / 1000).toFixed(2).replace('.', ',')} s`;
-}
-
-const FORMATO_FECHA_HORA = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'America/Bogota',
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23',
-});
-
-/** dd/mm/aaaa hh:mm en hora de Bogotá, 24 h. */
-export function fechaHora(v: string | null | undefined): string {
-  if (!v) return '—';
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return '—';
-  const p = Object.fromEntries(FORMATO_FECHA_HORA.formatToParts(d).map((x) => [x.type, x.value]));
-  return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;
-}
-
-/** aaaa-mm-dd ⇒ dd/mm/aaaa. */
-export function fecha(v: string | null | undefined): string {
-  const m = v ? /^(\d{4})-(\d{2})-(\d{2})/.exec(v) : null;
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : '—';
+  return `${cifra(ms / 1000)} s`;
 }
 
 /** Periodo procesado: «01/01/2025 – 31/12/2025». */

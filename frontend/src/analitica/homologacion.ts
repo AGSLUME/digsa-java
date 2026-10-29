@@ -1,8 +1,9 @@
 /**
- * Homologación de medicamentos (docs/especificaciones/analitica-homologacion): tipos de la API, estados con su color y texto, formato
- * de los porcentajes de calidad (A5 2.4: dos decimales con coma, sin separador de miles), consultas de la tabla maestra y validaciones
- * de la pantalla (fecha de corte, motivo de la devolución, parámetros de las reglas y entradas de los catálogos).
+ * Homologación de medicamentos (docs/especificaciones/analitica-homologacion): tipos de la API, estados con su color y texto (colores
+ * LUME), consultas de la tabla maestra y validaciones de la pantalla (fecha de corte, motivo de la devolución, parámetros de las reglas y
+ * entradas de los catálogos). Porcentajes y fechas con shared/formato (A5 2.4).
  */
+import { fecha } from '../shared/formato';
 
 export type EstadoHomologacion = 'homologado' | 'inconsistente' | 'duplicado' | 'sin_correspondencia' | 'pendiente' | 'no_valido';
 
@@ -10,10 +11,10 @@ export type EstadoHomologacion = 'homologado' | 'inconsistente' | 'duplicado' | 
 export const ESTADOS: Array<{ codigo: EstadoHomologacion; texto: string; color: string }> = [
   { codigo: 'homologado', texto: 'Homologados', color: 'green' },
   { codigo: 'inconsistente', texto: 'Inconsistentes', color: 'orange' },
-  { codigo: 'duplicado', texto: 'Duplicados', color: 'grape' },
+  { codigo: 'duplicado', texto: 'Duplicados', color: 'blue' },
   { codigo: 'sin_correspondencia', texto: 'Sin correspondencia', color: 'red' },
   { codigo: 'pendiente', texto: 'Pendientes de revisión', color: 'yellow' },
-  { codigo: 'no_valido', texto: 'CUM o registro no válido', color: 'dark' },
+  { codigo: 'no_valido', texto: 'CUM o registro no válido', color: 'gray' },
 ];
 
 export const NOMBRE_ESTADO: Record<EstadoHomologacion, string> = {
@@ -304,12 +305,6 @@ export interface Evento {
   perfil: string | null;
 }
 
-/** Porcentaje con dos decimales y coma («33,34 %»); sin dato, «—». */
-export function porcentaje(v: number | null | undefined): string {
-  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
-  return `${v.toFixed(2).replace('.', ',')} %`;
-}
-
 /** Suma de los porcentajes (debe ser 100 con registros; la pantalla la muestra para que se vea que cuadra). */
 export function sumaPorcentajes(kpis: Pick<Kpi, 'porcentaje'>[]): number {
   return Math.round(kpis.reduce((s, k) => s + Number(k.porcentaje), 0) * 100) / 100;
@@ -324,15 +319,8 @@ export function datoFinalTexto(f: FilaMaestra['final']): string {
 /** «INVIMA_CUM_VIGENTES · v3 · corte 16/10/2026» o «Sin fuente». */
 export function fuenteTexto(f: FilaMaestra['fuente']): string {
   if (!f) return 'Sin fuente';
-  const corte = f.fechaCorte ? ` · corte ${fechaCorta(f.fechaCorte)}` : '';
+  const corte = f.fechaCorte ? ` · corte ${fecha(f.fechaCorte)}` : '';
   return `${f.nombre ?? f.codigo}${f.version ? ` · v${f.version}` : ''}${corte}`;
-}
-
-/** aaaa-mm-dd ⇒ dd/mm/aaaa. */
-export function fechaCorta(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
 }
 
 /** Consulta de la tabla maestra (y de su exportación) con los filtros de la pantalla. */

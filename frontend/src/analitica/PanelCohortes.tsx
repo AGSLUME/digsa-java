@@ -23,9 +23,13 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, descargar, ErrorApi } from '../shared/api';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
+import { conteo } from '../shared/formato';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
+import { useValidacion } from '../shared/validacion';
 import { TACTIL } from './GraficosAnalitica';
 import {
   COMPOSICIONES,
@@ -117,7 +121,7 @@ function TarjetaCohorteVista({ c, alAbrir }: { c: TarjetaCohorte; alAbrir: () =>
         <Text size="xs" c="dimmed">
           {c.registros === null || c.registros === undefined
             ? 'Registros y gasto ocultos (celda pequeña)'
-            : `${c.registros} registros · gasto ${c.gasto}`}
+            : `${conteo(c.registros)} registros · gasto ${c.gasto}`}
         </Text>
       )}
       {c.nota && (
@@ -223,10 +227,16 @@ function ModalCohorte({ abierto, alCerrar, cohorte }: { abierto: boolean; alCerr
   const [nombre, setNombre] = useState(cohorte?.nombre ?? '');
   const [editor, setEditor] = useState<Editor | null>(inicial);
   const [enviando, setEnviando] = useState(false);
+  // Los criterios no son un solo campo: su error (y el de la descripción) va en el resumen
+  const v = useValidacion({ etiquetas: { codigo: 'Código', nombre: 'Nombre' }, testid: 'error-cohorte' });
+  const idMotivo = useId();
   const problemas = editor ? problemasEditor(editor) : [];
+  const motivo =
+    problemas.length > 0 ? 'Corrija los criterios indicados.' : nombre.trim().length < 3 ? 'Escriba el nombre (mínimo 3 caracteres).' : null;
   const guardar = async () => {
     if (!editor && !cohorte) return;
     setEnviando(true);
+    v.reiniciar();
     try {
       // Sin editor (partición o grupos anidados) solo cambia el nombre: el servidor conserva los criterios
       const cuerpo = editor ? { nombre, criterios: editorACriterio(editor), ...(cohorte ? {} : { codigo }) } : { nombre };
@@ -245,24 +255,37 @@ function ModalCohorte({ abierto, alCerrar, cohorte }: { abierto: boolean; alCerr
       await cliente.invalidateQueries({ queryKey: ['analitica', 'cohortes'] });
       alCerrar();
     } catch (e) {
-      notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : 'No se pudo guardar la cohorte.' });
+      v.errorServidor(e, 'No se pudo guardar la cohorte.');
     } finally {
       setEnviando(false);
     }
   };
   return (
     <Modal opened={abierto} onClose={alCerrar} size="xl" title={cohorte ? `Editar «${cohorte.nombre}»` : 'Nueva cohorte'}>
-      <Stack>
+      <Stack ref={v.ref}>
         {!cohorte && (
           <TextInput
             label="Código"
             description="Minúsculas y guion bajo (3 a 40)"
             value={codigo}
-            onChange={(e) => setCodigo(e.currentTarget.value)}
+            onChange={(e) => {
+              setCodigo(e.currentTarget.value);
+              v.limpiar('codigo');
+            }}
+            error={v.error('codigo')}
             required
           />
         )}
-        <TextInput label="Nombre" value={nombre} onChange={(e) => setNombre(e.currentTarget.value)} required />
+        <TextInput
+          label="Nombre"
+          value={nombre}
+          onChange={(e) => {
+            setNombre(e.currentTarget.value);
+            v.limpiar('nombre');
+          }}
+          error={v.error('nombre')}
+          required
+        />
         {editor ? (
           <EditorCriterios valor={editor} alCambiar={setEditor} />
         ) : (
@@ -273,13 +296,19 @@ function ModalCohorte({ abierto, alCerrar, cohorte }: { abierto: boolean; alCerr
             {p}
           </Text>
         ))}
+        {v.resumen}
         <Group justify="flex-end">
+          {motivo && (
+            <Text size="sm" c="dimmed" id={idMotivo}>
+              {motivo}
+            </Text>
+          )}
           <Button variant="default" onClick={alCerrar}>
             Cancelar
           </Button>
-          <Button loading={enviando} disabled={problemas.length > 0 || nombre.trim().length < 3} onClick={guardar} data-testid="guardar-cohorte">
+          <BotonConMotivo loading={enviando} motivo={motivo} idMotivo={idMotivo} onClick={guardar} data-testid="guardar-cohorte">
             Guardar
-          </Button>
+          </BotonConMotivo>
         </Group>
       </Stack>
     </Modal>
@@ -313,29 +342,33 @@ function DetalleCohorteVista({
     enabled: detalle.data?.estado === 'evaluada' && !(detalle.data?.grupos?.length ?? 0),
     retry: false,
   });
+  // El error de una descarga o del recálculo queda fijo en el detalle (Anexo 5 num. 2.4)
+  const v = useValidacion({ testid: 'error-detalle-cohorte' });
   if (detalle.isLoading) return <Loader />;
   if (detalle.error || !detalle.data) {
     return <Alert color="red">{detalle.error instanceof ErrorApi ? detalle.error.message : 'No se pudo abrir la cohorte.'}</Alert>;
   }
   const d = detalle.data;
   const bajar = async (formato: string, vista: string) => {
+    v.reiniciar();
     try {
       await descargar(`/api/analitica/cohortes/${id}/descarga?${parametros(estado, { formato, vista, por: vista === 'composicion' ? por : '' })}`);
     } catch (e) {
-      notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : 'No se pudo descargar.' });
+      v.errorServidor(e, 'No se pudo descargar.');
     }
   };
   const recalcular = async () => {
+    v.reiniciar();
     try {
       await api(`/api/analitica/cohortes/${id}/recalcular`, { metodo: 'POST', cuerpo: {} });
       notifications.show({ color: 'green', message: 'Recálculo en curso; actualice en unos segundos.' });
       await cliente.invalidateQueries({ queryKey: ['analitica', 'cohortes'] });
     } catch (e) {
-      notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo recalcular.' });
+      v.errorServidor(e, 'No se pudo recalcular.');
     }
   };
   return (
-    <Stack>
+    <Stack ref={v.ref}>
       <Text size="sm">{d.descripcion}</Text>
       <Text size="sm" data-testid="detalle-criterio">
         <b>Criterio:</b> {d.criterio}
@@ -361,6 +394,7 @@ function DetalleCohorteVista({
           </Button>
         ))}
       </Group>
+      {v.resumen}
       {d.estado !== 'evaluada' && <Alert color="gray">{d.motivo}</Alert>}
       {d.avisoSupresion && <Alert color="blue">{d.avisoSupresion}</Alert>}
       {puedeVerConsola && d.estado === 'evaluada' && (
@@ -369,8 +403,8 @@ function DetalleCohorteVista({
         </Anchor>
       )}
       {d.serie && d.serie.length > 0 && (
-        <Table.ScrollContainer minWidth={560}>
-          <Table striped withTableBorder fz="xs" aria-label="Serie mensual de la cohorte">
+        <TablaAdaptable>
+          <Table striped withTableBorder fz="xs" miw={560} aria-label="Serie mensual de la cohorte">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Mes</Table.Th>
@@ -388,23 +422,23 @@ function DetalleCohorteVista({
                   <Table.Td>{f.mes}</Table.Td>
                   {d.grupos?.length ? <Table.Td>{f.grupo}</Table.Td> : null}
                   <Table.Td>{f.pacientesTexto}</Table.Td>
-                  <Table.Td>{f.ingresos ?? '—'}</Table.Td>
-                  <Table.Td>{f.salidas ?? '—'}</Table.Td>
-                  <Table.Td>{f.dispensaciones ?? '—'}</Table.Td>
+                  <Table.Td>{conteo(f.ingresos)}</Table.Td>
+                  <Table.Td>{conteo(f.salidas)}</Table.Td>
+                  <Table.Td>{conteo(f.dispensaciones)}</Table.Td>
                   <Table.Td>{f.gastoTexto}</Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>
           </Table>
-        </Table.ScrollContainer>
+        </TablaAdaptable>
       )}
       {d.comparacion && (
         <Card withBorder padding="xs">
           <Text size="sm" fw={600}>
             Comparación con el periodo anterior ({d.comparacion.periodoAnterior})
           </Text>
-          <Table.ScrollContainer minWidth={480}>
-            <Table fz="xs" aria-label="Comparación entre periodos">
+          <TablaAdaptable>
+            <Table fz="xs" miw={480} aria-label="Comparación entre periodos">
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Indicador</Table.Th>
@@ -426,7 +460,7 @@ function DetalleCohorteVista({
                 ))}
               </Table.Tbody>
             </Table>
-          </Table.ScrollContainer>
+          </TablaAdaptable>
         </Card>
       )}
       {d.niveles && d.niveles.length > 0 && (
@@ -434,8 +468,8 @@ function DetalleCohorteVista({
           <Text size="sm" fw={600}>
             Comparación entre niveles
           </Text>
-          <Table.ScrollContainer minWidth={420}>
-            <Table fz="xs" aria-label="Comparación entre niveles">
+          <TablaAdaptable>
+            <Table fz="xs" miw={420} aria-label="Comparación entre niveles">
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>{d.niveles[0]?.nivel === 'esm' ? 'ESM' : 'Fuerza'}</Table.Th>
@@ -449,13 +483,13 @@ function DetalleCohorteVista({
                   <Table.Tr key={n.codigo}>
                     <Table.Td>{n.codigo}</Table.Td>
                     <Table.Td>{n.pacientesTexto}</Table.Td>
-                    <Table.Td>{n.dispensaciones ?? '—'}</Table.Td>
+                    <Table.Td>{conteo(n.dispensaciones)}</Table.Td>
                     <Table.Td>{n.gasto}</Table.Td>
                   </Table.Tr>
                 ))}
               </Table.Tbody>
             </Table>
-          </Table.ScrollContainer>
+          </TablaAdaptable>
         </Card>
       )}
       {d.estado === 'evaluada' && !d.grupos?.length && (
@@ -481,8 +515,8 @@ function DetalleCohorteVista({
             <Alert color="yellow">{composicion.error instanceof ErrorApi ? composicion.error.message : 'Sin composición.'}</Alert>
           )}
           {composicion.data && (
-            <Table.ScrollContainer minWidth={480}>
-              <Table fz="xs" aria-label={`Composición por ${composicion.data.porTexto}`}>
+            <TablaAdaptable>
+              <Table fz="xs" miw={480} aria-label={`Composición por ${composicion.data.porTexto}`}>
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th>{composicion.data.porTexto}</Table.Th>
@@ -497,14 +531,14 @@ function DetalleCohorteVista({
                     <Table.Tr key={f.clave}>
                       <Table.Td>{f.clave}</Table.Td>
                       <Table.Td>{f.pacientesTexto}</Table.Td>
-                      <Table.Td>{f.dispensaciones ?? '—'}</Table.Td>
+                      <Table.Td>{conteo(f.dispensaciones)}</Table.Td>
                       <Table.Td>{f.gastoTexto}</Table.Td>
                       <Table.Td>{f.participacion ?? '—'}</Table.Td>
                     </Table.Tr>
                   ))}
                 </Table.Tbody>
               </Table>
-            </Table.ScrollContainer>
+            </TablaAdaptable>
           )}
         </Card>
       )}
@@ -553,7 +587,7 @@ export function PanelCohortes({ estado }: { estado: EstadoAnalitica }) {
   return (
     <Stack data-testid="panel-cohortes">
       <Group justify="space-between">
-        <Title order={3}>Cohortes y riesgo · {t.nivel ?? 'Nacional'}</Title>
+        <Title order={2}>Cohortes y riesgo · {t.nivel ?? 'Nacional'}</Title>
         <Group gap="xs">
           {t.puedeEditar && (
             <Button size="xs" onClick={() => setNueva(true)} data-testid="nueva-cohorte">
@@ -585,7 +619,9 @@ export function PanelCohortes({ estado }: { estado: EstadoAnalitica }) {
       </SimpleGrid>
       {otras.length > 0 && (
         <>
-          <Title order={5}>Otras cohortes y particiones</Title>
+          <Title order={3} size="h5">
+            Otras cohortes y particiones
+          </Title>
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="sm">
             {otras.map((c) => (
               <TarjetaCohorteVista key={c.id} c={c} alAbrir={() => setAbierta(c)} />

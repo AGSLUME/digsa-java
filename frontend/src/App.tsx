@@ -7,12 +7,6 @@ import { Ingreso } from './paginas/Ingreso';
 import { alCerrarseLaSesion, api, ErrorApi } from './shared/api';
 import { Plantilla } from './shared/Plantilla';
 import { ProveedorSesion, puedeEntrar, useSesion, type DatosSesion } from './shared/sesion';
-// --- Analítica (rama analitica) ---
-import { CarguesOpl } from './paginas/CarguesOpl';
-import { Homologacion } from './paginas/Homologacion';
-import { Analitica } from './paginas/Analitica';
-import { TrazabilidadAnalitica } from './paginas/TrazabilidadAnalitica';
-import { AlertasAnaliticas } from './paginas/AlertasAnaliticas';
 
 /**
  * División por rutas (U5): cada pantalla se descarga al abrirla. Inicio e ingreso van en el paquete principal (son lo primero que se
@@ -49,6 +43,13 @@ const OplVisita = perezosa(() => import('./paginas/Opl'), 'OplVisita');
 // --- Presupuesto (rama presupuesto) ---
 const Presupuesto = perezosa(() => import('./paginas/Presupuesto'), 'Presupuesto');
 // --- fin presupuesto ---
+// --- Analítica (rama analitica) ---
+const CarguesOpl = perezosa(() => import('./paginas/CarguesOpl'), 'CarguesOpl');
+const Homologacion = perezosa(() => import('./paginas/Homologacion'), 'Homologacion');
+const Analitica = perezosa(() => import('./paginas/Analitica'), 'Analitica');
+const TrazabilidadAnalitica = perezosa(() => import('./paginas/TrazabilidadAnalitica'), 'TrazabilidadAnalitica');
+const AlertasAnaliticas = perezosa(() => import('./paginas/AlertasAnaliticas'), 'AlertasAnaliticas');
+// --- fin analítica ---
 
 // Los mapas (límites departamentales, ~60 kB) se cargan al abrir la pantalla
 const Mapas = lazy(() => import('./paginas/Mapas').then((m) => ({ default: m.Mapas })));

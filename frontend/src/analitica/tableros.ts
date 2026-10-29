@@ -3,6 +3,7 @@
  * (tablero y filtros con parámetros repetidos, contrato de reportes 2.11), rutas de la API (tablero, descarga y rastreo), filtros de una
  * celda para rastrearla, escala de la serie de tiempo en SVG, color del mapa de calor y formato del Anexo 5 2.4.
  */
+import { cifra } from '../shared/formato';
 
 // ---------- Tipos de la API ----------
 
@@ -406,9 +407,17 @@ export function intensidad(valor: number, maximo: number): number {
   return Math.min(1, valor / maximo);
 }
 
+/**
+ * Tono del mapa de calor con los colores LUME: azul primario mezclado con blanco. Hasta 0,55 el fondo va de 6 % a 72 % de azul con texto
+ * oscuro; desde ahí, de 85 % a 100 % con texto blanco. El salto evita la franja media en la que ningún texto llega a AA (4,5:1).
+ */
 export function colorCalor(i: number): { fondo: string; texto: string } {
-  const l = Math.round(96 - i * 62); // luminosidad 96 % a 34 %
-  return { fondo: `hsl(205 55% ${l}%)`, texto: i > 0.55 ? '#ffffff' : '#1a1b1e' };
+  const oscuro = i > 0.55;
+  const azul = Math.round(oscuro ? 85 + ((i - 0.55) / 0.45) * 15 : 6 + (i / 0.55) * 66);
+  return {
+    fondo: `color-mix(in srgb, var(--lume-blue) ${azul}%, var(--lume-white))`,
+    texto: oscuro ? 'var(--lume-white)' : 'var(--lume-text)',
+  };
 }
 
 /** Texto alternativo de una serie: qué, periodo y unidad (lector de pantalla). */
@@ -419,33 +428,15 @@ export function descripcionSerie(titulo: string, filas: Fila[], unidad: string, 
   return `${titulo}, de ${primero} a ${ultimo}, en ${unidad}${conComparado ? '; línea discontinua: periodo de comparación' : ''}.`;
 }
 
-// ---------- Formato 2.4 ----------
+// ---------- Formato 2.4 (cifras con shared/formato) ----------
 
-/** Dos decimales, coma decimal, sin separador de miles. */
-export function decimal(n: number | null | undefined): string {
-  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
-  return (Math.round(n * 100) / 100).toFixed(2).replace('.', ',');
-}
-
-export function moneda(n: number | null | undefined): string {
-  const d = decimal(n);
-  return d === '—' ? d : `$ ${d}`;
-}
-
-/** Valor del eje compacto: «1,50 mil M», «320,00 M», «12,40 mil» o el número. */
+/** Valor del eje compacto: «1,50 mil M», «320,00 M», «12,40 mil» o el número (cifra de shared/formato con su escala). */
 export function compacto(n: number): string {
   const a = Math.abs(n);
-  if (a >= 1e9) return `${decimal(n / 1e9)} mil M`;
-  if (a >= 1e6) return `${decimal(n / 1e6)} M`;
-  if (a >= 1e3) return `${decimal(n / 1e3)} mil`;
-  return decimal(n);
-}
-
-/** Fecha aaaa-mm-dd ⇒ dd/mm/aaaa. */
-export function fechaCorta(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+  if (a >= 1e9) return `${cifra(n / 1e9)} mil M`;
+  if (a >= 1e6) return `${cifra(n / 1e6)} M`;
+  if (a >= 1e3) return `${cifra(n / 1e3)} mil`;
+  return cifra(n);
 }
 
 /** Seudónimo abreviado para la tabla (completo en el CSV de la trazabilidad). */

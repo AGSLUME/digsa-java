@@ -3,8 +3,8 @@ import { useDebouncedValue } from '@mantine/hooks';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../shared/api';
+import { fecha } from '../shared/formato';
 import {
-  fechaCorta,
   problemaPeriodo,
   quitarFiltro,
   SIN_HOMOLOGAR,
@@ -192,7 +192,7 @@ export function FiltrosAnalitica({
         ))}
       </SimpleGrid>
       {problema && (
-        <Text size="sm" c="red.8" role="alert">
+        <Text size="sm" c="red" role="alert">
           {problema}
         </Text>
       )}
@@ -233,7 +233,7 @@ export function FiltrosAnalitica({
       )}
       {g.desde || g.hasta ? (
         <Text size="xs" c="dimmed">
-          Periodo elegido: {fechaCorta(g.desde) ?? '—'} – {fechaCorta(g.hasta) ?? '—'}
+          Periodo elegido: {fecha(g.desde)} – {fecha(g.hasta)}
         </Text>
       ) : null}
     </Stack>

@@ -83,24 +83,13 @@ describe('fechas y horas en hora militar de Bogotá', () => {
 });
 
 describe('ninguna pantalla formatea números por su cuenta', () => {
-  // Todo el código de la aplicación como texto, sin las pruebas. Reportes y analítica son de otras sesiones: la sesión 1 los incluye
-  // al integrarlos.
-  const fuentes = import.meta.glob<string>(
-    [
-      '../**/*.ts',
-      '../**/*.tsx',
-      '!../**/*.test.ts',
-      '!../**/*.test.tsx',
-      '!../paginas/Reportes*.tsx',
-      '!../**/*[Aa]nalitica*',
-      '!../**/*[Hh]omologacion*',
-    ],
-    {
-      query: '?raw',
-      import: 'default',
-      eager: true,
-    },
-  );
+  // Todo el código de la aplicación como texto, sin las pruebas. Reportes es de otra sesión: la sesión 1 lo incluye al integrarlo.
+  // Analítica ya usa shared/formato (A4.5) y entra en la revisión.
+  const fuentes = import.meta.glob<string>(['../**/*.ts', '../**/*.tsx', '!../**/*.test.ts', '!../**/*.test.tsx', '!../paginas/Reportes*.tsx'], {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+  });
 
   it('no hay toLocaleString, Intl.NumberFormat ni separador de miles en src/', () => {
     expect(Object.keys(fuentes).length).toBeGreaterThan(40);

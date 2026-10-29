@@ -623,6 +623,7 @@ class HomologacionApiTest extends PruebaIntegracion {
         Navegador.Respuesta sinMotivo = analista.post("/api/homologacion/revision/" + enalapril + "/devolver", Map.of("motivo", " "));
         assertThat(sinMotivo.estado()).isEqualTo(422);
         assertThat(sinMotivo.mensaje()).isEqualTo("Escriba el motivo de la devolución.");
+        assertThat(sinMotivo.json().path("campo").asText()).as("UI-21: la interfaz marca el campo").isEqualTo("motivo");
         assertThat(analista.post("/api/homologacion/revision/" + enalapril + "/devolver", Map.of("motivo", "x", "version", v0 - 1)).estado())
                 .as("versión revisada vieja").isEqualTo(409);
         long filasAntes = jdbc.sql("SELECT count(*) FROM hom_tabla_maestra").query(Long.class).single();

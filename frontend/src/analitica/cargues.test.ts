@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { conteo, fecha, fechaHora } from '../shared/formato';
 import {
   abierto,
-  cifra,
   COLOR_ESTADO,
   consulta,
-  fecha,
   fechaBitacora,
-  fechaHora,
   formatoAceptado,
   INTERVALO_SONDEO_MS,
   intervaloSondeo,
@@ -97,8 +95,8 @@ describe('estados', () => {
 
 describe('formato de la bitácora (A5 2.4)', () => {
   it('cifras sin separador de miles; segundos con coma', () => {
-    expect(cifra(2000000)).toBe('2000000');
-    expect(cifra(null)).toBe('—');
+    expect(conteo(2000000)).toBe('2000000');
+    expect(conteo(null)).toBe('—');
     expect(segundos(12345)).toBe('12,35 s');
     expect(segundos(undefined)).toBe('—');
   });

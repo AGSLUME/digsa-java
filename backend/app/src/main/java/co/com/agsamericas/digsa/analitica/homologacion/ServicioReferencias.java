@@ -211,17 +211,17 @@ class ServicioReferencias {
             throws IOException {
         Fuente f = fuente(codigo);
         if (fechaCorte == null) {
-            throw ErrorNegocio.validacion("Indique la fecha de actualización de la fuente.");
+            throw ErrorNegocio.validacion("Indique la fecha de actualización de la fuente.", "fechaCorte");
         }
         if (fechaCorte.isAfter(LocalDate.now(reloj))) {
-            throw ErrorNegocio.validacion("La fecha de actualización de la fuente no puede ser futura.");
+            throw ErrorNegocio.validacion("La fecha de actualización de la fuente no puede ser futura.", "fechaCorte");
         }
         if (archivo == null || archivo.isEmpty()) {
-            throw ErrorNegocio.validacion("Adjunte el archivo de la fuente.");
+            throw ErrorNegocio.validacion("Adjunte el archivo de la fuente.", "archivo");
         }
         String nombre = archivo.getOriginalFilename() == null ? "referencia.csv" : Path.of(archivo.getOriginalFilename()).getFileName().toString();
         String formato = AnaliticaIngesta.formatoDe(nombre)
-                .orElseThrow(() -> ErrorNegocio.validacion("Formato no aceptado: use CSV, TXT, xlsx, .gz o .zip."));
+                .orElseThrow(() -> ErrorNegocio.validacion("Formato no aceptado: use CSV, TXT, xlsx, .gz o .zip.", "archivo"));
         String ruta = "homologacion/referencias/" + codigo.toLowerCase(Locale.ROOT) + "/" + Huellas.secreto(12) + "." + formato;
         String sha;
         try (InputStream in = archivo.getInputStream(); OutputStream out = almacen.escribir(ruta)) {

@@ -1,6 +1,7 @@
 import { Box, Button, Card, Group, ScrollArea, Stack, Table, Text, Title, UnstyledButton } from '@mantine/core';
 import { useState, type ReactNode } from 'react';
 import { BarraHorizontal } from '../shared/Barras';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 import {
   colorCalor,
   compacto,
@@ -34,60 +35,68 @@ function Alternar({ tabla, setTabla }: { tabla: boolean; setTabla: (t: boolean) 
   );
 }
 
-/** Tabla de un resultado: textos con el formato 2.4, fila Total en negrita, «Rastrear» por fila si se puede. */
+/**
+ * Tabla de un resultado (también la tabla accesible de «Ver tabla»): textos con el formato 2.4, fila Total en negrita, «Rastrear» por
+ * fila si se puede. En celular se apila en tarjetas (TablaAdaptable) sin perder la semántica de tabla.
+ */
 export function TablaResultado({ tabla, acciones, testid }: { tabla: Tabla; acciones?: AccionesFila; testid?: string }) {
   const rastrea = !!acciones?.alRastrear;
   return (
-    <ScrollArea type="auto" data-testid={testid}>
-      <Table striped withTableBorder fz="sm" miw={tabla.columnas.length * 110}>
-        <Table.Thead>
-          <Table.Tr>
-            {tabla.columnas.map((c, i) => (
-              <Table.Th key={c.clave} ta={i === 0 || c.tipo === 'TEXTO' ? 'left' : 'right'}>
-                {c.etiqueta}
-              </Table.Th>
-            ))}
-            {rastrea && <Table.Th>Rastrear</Table.Th>}
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {tabla.filas.map((f) => (
-            <Table.Tr key={f.clave} fw={f.tipo === 'total' ? 700 : undefined}>
-              {f.textos.map((t, i) => (
-                <Table.Td
-                  key={i}
-                  ta={i === 0 || tabla.columnas[i]?.tipo === 'TEXTO' ? 'left' : 'right'}
-                  style={{ whiteSpace: i === 0 ? 'normal' : 'nowrap' }}
-                >
-                  {t}
-                </Table.Td>
+    <div data-testid={testid}>
+      <TablaAdaptable>
+        <Table striped withTableBorder fz="sm" miw={tabla.columnas.length * 110}>
+          <Table.Thead>
+            <Table.Tr>
+              {tabla.columnas.map((c, i) => (
+                <Table.Th key={c.clave} ta={i === 0 || c.tipo === 'TEXTO' ? 'left' : 'right'}>
+                  {c.etiqueta}
+                </Table.Th>
               ))}
-              {rastrea && (
-                <Table.Td>
-                  {f.rastreo && (
-                    <Button
-                      size="compact-xs"
-                      mih={TACTIL}
-                      variant="light"
-                      onClick={() => acciones!.alRastrear!(f.rastreo!, `${tabla.titulo}: ${f.textos[0]}`, tabla.valorGrafico ?? 'gasto')}
-                    >
-                      Rastrear
-                    </Button>
-                  )}
-                </Table.Td>
-              )}
+              {rastrea && <Table.Th>Rastrear</Table.Th>}
             </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
-    </ScrollArea>
+          </Table.Thead>
+          <Table.Tbody>
+            {tabla.filas.map((f) => (
+              <Table.Tr key={f.clave} fw={f.tipo === 'total' ? 700 : undefined}>
+                {f.textos.map((t, i) => (
+                  <Table.Td
+                    key={i}
+                    ta={i === 0 || tabla.columnas[i]?.tipo === 'TEXTO' ? 'left' : 'right'}
+                    style={{ whiteSpace: i === 0 ? 'normal' : 'nowrap' }}
+                  >
+                    {t}
+                  </Table.Td>
+                ))}
+                {rastrea && (
+                  <Table.Td>
+                    {f.rastreo && (
+                      <Button
+                        size="compact-xs"
+                        mih={TACTIL}
+                        variant="light"
+                        onClick={() => acciones!.alRastrear!(f.rastreo!, `${tabla.titulo}: ${f.textos[0]}`, tabla.valorGrafico ?? 'gasto')}
+                      >
+                        Rastrear
+                      </Button>
+                    )}
+                  </Table.Td>
+                )}
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      </TablaAdaptable>
+    </div>
   );
 }
 
+/** Título de cada gráfico: h3 bajo el h2 del tablero (Anexo 5 num. 1.18; guía de interfaz §5), con el tamaño de antes. */
 function Encabezado({ titulo, derecha }: { titulo: string; derecha: ReactNode }) {
   return (
     <Group justify="space-between" mb="xs" wrap="wrap" gap="xs">
-      <Title order={5}>{titulo}</Title>
+      <Title order={3} size="h5">
+        {titulo}
+      </Title>
       {derecha}
     </Group>
   );
@@ -213,12 +222,12 @@ export function SerieTiempoSvg({ tabla, acciones, unidad = 'pesos' }: { tabla: T
             aria-label={descripcionSerie(tabla.titulo, filas, unidad, comp >= 0)}
             style={{ width: '100%', height: 'auto' }}
           >
-            <g stroke="#DCE2DD" strokeWidth={1}>
+            <g style={{ stroke: 'var(--lume-border)' }} strokeWidth={1}>
               {marcas.map((k) => (
                 <line key={k} x1={m.x} x2={m.x + anchoUtil} y1={m.y + altoUtil - altoUtil * k} y2={m.y + altoUtil - altoUtil * k} />
               ))}
             </g>
-            <g fontSize={10} fill="#56635B">
+            <g fontSize={10} style={{ fill: 'var(--lume-neutral-text)' }}>
               {marcas.map((k) => (
                 <text key={k} x={2} y={m.y + altoUtil - altoUtil * k + 3}>
                   {compacto(max * k)}
@@ -236,12 +245,17 @@ export function SerieTiempoSvg({ tabla, acciones, unidad = 'pesos' }: { tabla: T
               <polyline
                 points={puntosSerie(comparados, anchoUtil, altoUtil, max, m)}
                 fill="none"
-                stroke="#245683"
+                style={{ stroke: 'var(--lume-neutral-text)' }}
                 strokeWidth={2}
                 strokeDasharray="6 4"
               />
             )}
-            <polyline points={puntosSerie(valores, anchoUtil, altoUtil, max, m)} fill="none" stroke="#1C4632" strokeWidth={2.5} />
+            <polyline
+              points={puntosSerie(valores, anchoUtil, altoUtil, max, m)}
+              fill="none"
+              style={{ stroke: 'var(--lume-blue)' }}
+              strokeWidth={2.5}
+            />
           </svg>
           <Group gap="md">
             <Text size="xs" c="dimmed">
@@ -332,7 +346,7 @@ export function MapaCalor({ tabla, acciones }: { tabla: Tabla; acciones?: Accion
 export function TablaSimple({ tabla, acciones }: { tabla: Tabla; acciones?: AccionesFila }) {
   return (
     <Card withBorder data-testid={`tabla-${tabla.id}`}>
-      <Title order={5} mb="xs">
+      <Title order={3} size="h5" mb="xs">
         {tabla.titulo}
       </Title>
       <TablaResultado tabla={tabla} acciones={acciones} />

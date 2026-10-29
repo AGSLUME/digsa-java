@@ -181,7 +181,7 @@ public class AlertasAnaliticasApi {
             }
         }
         if (archivo != null && archivo.getSize() > 20L * 1024 * 1024) {
-            throw ErrorNegocio.validacion("El archivo de referencia pasa de 20 MB.");
+            throw ErrorNegocio.validacion("El archivo de referencia pasa de 20 MB.", "archivo");
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(servicio.cargarReferencia(lista, archivo == null ? null : archivo.getBytes(), fuente, fecha,
                 ficticio, quien()));

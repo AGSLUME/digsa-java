@@ -240,15 +240,15 @@ class ServicioRevision {
             }
             boolean conCum = cumElegido != null && !cumElegido.isBlank();
             if (!conCum && "no_valido".equals(f.get("estado"))) {
-                throw ErrorNegocio.validacion("El registro tiene «CUM o registro no válido»: elija un CUM vigente del INVIMA para aprobarlo.");
+                throw ErrorNegocio.validacion("El registro tiene «CUM o registro no válido»: elija un CUM vigente del INVIMA para aprobarlo.", "cum");
             }
             Map<String, Object> dato;
             Instantanea inst = Instantanea.cargar(jdbc, json);
             if (conCum) {
                 String cum = AnaliticaHomologacion.normalizarCum(cumElegido)
-                        .orElseThrow(() -> ErrorNegocio.validacion("El CUM elegido no tiene un formato válido."));
+                        .orElseThrow(() -> ErrorNegocio.validacion("El CUM elegido no tiene un formato válido.", "cum"));
                 Presentacion p = vigenteDe(inst, cum)
-                        .orElseThrow(() -> ErrorNegocio.validacion("El CUM elegido no está vigente en las versiones publicadas del INVIMA."));
+                        .orElseThrow(() -> ErrorNegocio.validacion("El CUM elegido no está vigente en las versiones publicadas del INVIMA.", "cum"));
                 DatoFinal d = AnaliticaHomologacion.datoDe(p, inst.configuracion());
                 dato = ServicioHomologacion.mapaDeDato(d);
                 Instantanea.Fuente fuente = inst.cum(p.conjunto()).orElseThrow();
@@ -257,11 +257,11 @@ class ServicioRevision {
                 dato.put("fuenteFechaCorte", fuente.fechaCorte().toString());
             } else {
                 if (f.get("fin_cum") == null && f.get("fin_dci") == null) {
-                    throw ErrorNegocio.validacion("Elija el CUM del INVIMA para aprobar.");
+                    throw ErrorNegocio.validacion("Elija el CUM del INVIMA para aprobar.", "cum");
                 }
                 // El CUM del dato final de la fila también debe estar vigente (la misma exigencia que con un CUM elegido)
                 if (f.get("fin_cum") != null && vigenteDe(inst, (String) f.get("fin_cum")).isEmpty()) {
-                    throw ErrorNegocio.validacion("El CUM del dato final no está vigente en el INVIMA: elija un CUM vigente para aprobar.");
+                    throw ErrorNegocio.validacion("El CUM del dato final no está vigente en el INVIMA: elija un CUM vigente para aprobar.", "cum");
                 }
                 dato = ServicioHomologacion.mapaDeDato(new DatoFinal((String) f.get("fin_nombre_comercial"), (String) f.get("fin_dci"),
                         (String) f.get("fin_principio_activo"), (String) f.get("fin_concentracion"), (String) f.get("fin_forma"),
@@ -294,10 +294,10 @@ class ServicioRevision {
      */
     Map<String, Object> devolver(long origenId, String motivo, Integer versionRevisada, UsuarioSesion quien, String responsable) {
         if (motivo == null || motivo.isBlank()) {
-            throw ErrorNegocio.validacion("Escriba el motivo de la devolución.");
+            throw ErrorNegocio.validacion("Escriba el motivo de la devolución.", "motivo");
         }
         if (motivo.strip().length() > MAX_MOTIVO) {
-            throw ErrorNegocio.validacion("El motivo no puede pasar de " + MAX_MOTIVO + " caracteres.");
+            throw ErrorNegocio.validacion("El motivo no puede pasar de " + MAX_MOTIVO + " caracteres.", "motivo");
         }
         String m = motivo.strip();
         Object[] r = tx.execute(t -> {

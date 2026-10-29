@@ -11,25 +11,20 @@ import {
   Pagination,
   Progress,
   Radio,
-  ScrollArea,
   Select,
   SimpleGrid,
   Stack,
   Table,
   Text,
   TextInput,
-  Title,
 } from '@mantine/core';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   abierto,
-  cifra,
   COLOR_ESTADO,
   consulta,
-  fecha,
   fechaBitacora,
-  fechaHora,
   formatoAceptado,
   INTERVALO_SONDEO_MS,
   intervaloSondeo,
@@ -55,6 +50,11 @@ import {
 } from '../analitica/cargues';
 import { subirArchivo, type Avance } from '../analitica/subida';
 import { api, descargar, ErrorApi, marcarActividad } from '../shared/api';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { conteo, fecha, fechaHora } from '../shared/formato';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
+import { useValidacion } from '../shared/validacion';
 
 const CLAVE = ['analitica', 'cargues'];
 
@@ -88,6 +88,7 @@ export function CarguesOpl() {
   });
   const [errorDescarga, setErrorDescarga] = useState<string | null>(null);
   const datos = lista.data;
+  const idAviso = useId();
 
   /** Todo cambio de filtro vuelve a la página 1 (una página que ya no existe dejaría la tabla vacía y sin paginación). */
   function filtrar(cambio: Partial<typeof filtros>) {
@@ -106,27 +107,28 @@ export function CarguesOpl() {
 
   return (
     <Stack>
-      <Title order={3}>Cargues del OPL</Title>
-      <Text size="sm" c="dimmed">
-        Insumo de dispensación del operador logístico por archivo estructurado o por el servicio web. Cada cargue queda en la bitácora con sus
-        registros recibidos, procesados y rechazados. El paciente se guarda solo como seudónimo; nombres, contactos y fecha de nacimiento se
-        descartan.
-      </Text>
+      <EncabezadoPagina
+        titulo="Cargues del OPL"
+        descripcion="Insumo de dispensación del operador logístico por archivo estructurado o por el servicio web. Cada cargue queda en la bitácora con sus registros recibidos, procesados y rechazados. El paciente se guarda solo como seudónimo; nombres, contactos y fecha de nacimiento se descartan."
+        fuente="Anexo 5 · 4.7.1"
+        acciones={
+          <>
+            {datos?.puedeCargar && (
+              <BotonConMotivo motivo={datos.avisoConfiguracion || null} idMotivo={idAviso} onClick={() => setSubiendo(true)}>
+                Cargar archivo estructurado
+              </BotonConMotivo>
+            )}
+            <Button variant="default" onClick={exportar}>
+              Exportar CSV
+            </Button>
+          </>
+        }
+      />
       {datos?.avisoConfiguracion && (
-        <Alert color="red" title="Cargues deshabilitados" data-testid="aviso-configuracion">
+        <Alert color="red" title="Cargues deshabilitados" data-testid="aviso-configuracion" id={idAviso}>
           {datos.avisoConfiguracion}
         </Alert>
       )}
-      <Group>
-        {datos?.puedeCargar && (
-          <Button onClick={() => setSubiendo(true)} disabled={!!datos.avisoConfiguracion}>
-            Cargar archivo estructurado
-          </Button>
-        )}
-        <Button variant="default" onClick={exportar}>
-          Exportar CSV
-        </Button>
-      </Group>
       {errorDescarga && <Alert color="red">{errorDescarga}</Alert>}
       <Group align="end" gap="sm" wrap="wrap">
         <Select
@@ -157,7 +159,7 @@ export function CarguesOpl() {
       {lista.isLoading && <Loader />}
       {datos && datos.filas.length === 0 && <Text c="dimmed">No hay cargues con estos filtros.</Text>}
       {datos && datos.filas.length > 0 && (
-        <ScrollArea>
+        <TablaAdaptable>
           <Table striped highlightOnHover withTableBorder data-testid="bitacora-cargues" miw={1180}>
             <Table.Thead>
               <Table.Tr>
@@ -179,10 +181,10 @@ export function CarguesOpl() {
                   <Table.Td>{fechaBitacora(c)}</Table.Td>
                   <Table.Td>{c.fuenteTexto}</Table.Td>
                   <Table.Td>{periodo(c)}</Table.Td>
-                  <Table.Td ta="right">{cifra(c.recibidos)}</Table.Td>
-                  <Table.Td ta="right">{cifra(c.procesados)}</Table.Td>
+                  <Table.Td ta="right">{conteo(c.recibidos)}</Table.Td>
+                  <Table.Td ta="right">{conteo(c.procesados)}</Table.Td>
                   <Table.Td ta="right" c={(c.rechazados ?? 0) > 0 ? 'red' : undefined} data-testid="rechazados">
-                    {cifra(c.rechazados)}
+                    {conteo(c.rechazados)}
                   </Table.Td>
                   <Table.Td maw={320}>
                     <Text size="sm" lineClamp={2}>
@@ -216,7 +218,7 @@ export function CarguesOpl() {
               ))}
             </Table.Tbody>
           </Table>
-        </ScrollArea>
+        </TablaAdaptable>
       )}
       {datos && datos.total > datos.tamanoPagina && (
         <Pagination total={Math.ceil(datos.total / datos.tamanoPagina)} value={pagina} onChange={setPagina} />
@@ -367,29 +369,31 @@ function DetalleCargue({
         <Dato titulo="Periodo procesado">{periodo(c)}</Dato>
         <Dato titulo="Modo">{c.modo === 'reemplazar' ? 'Reemplazar el periodo' : 'Agregar'}</Dato>
         <Dato titulo="Recibidos · procesados · rechazados">
-          {cifra(c.recibidos)} · {cifra(c.procesados)} · {cifra(c.rechazados)}
+          {conteo(c.recibidos)} · {conteo(c.procesados)} · {conteo(c.rechazados)}
         </Dato>
-        <Dato titulo="ESM sin correspondencia">{cifra(c.esmSinCorrespondencia)}</Dato>
+        <Dato titulo="ESM sin correspondencia">{conteo(c.esmSinCorrespondencia)}</Dato>
         <Dato titulo="SHA-256">{c.sha256 ?? '—'}</Dato>
         <Dato titulo="Duración total">{segundos(c.duracionMs)}</Dato>
       </SimpleGrid>
       {Object.keys(c.etapasMs).length > 0 && (
-        <Table withTableBorder data-testid="etapas">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Etapa</Table.Th>
-              <Table.Th ta="right">Duración</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {Object.entries(c.etapasMs).map(([e, ms]) => (
-              <Table.Tr key={e}>
-                <Table.Td>{NOMBRE_ETAPA[e] ?? e}</Table.Td>
-                <Table.Td ta="right">{segundos(ms)}</Table.Td>
+        <TablaAdaptable>
+          <Table withTableBorder data-testid="etapas">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Etapa</Table.Th>
+                <Table.Th ta="right">Duración</Table.Th>
               </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+            </Table.Thead>
+            <Table.Tbody>
+              {Object.entries(c.etapasMs).map(([e, ms]) => (
+                <Table.Tr key={e}>
+                  <Table.Td>{NOMBRE_ETAPA[e] ?? e}</Table.Td>
+                  <Table.Td ta="right">{segundos(ms)}</Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </TablaAdaptable>
       )}
       {(c.estado === 'rechazado' || c.estado === 'duplicado' || c.estado === 'vencido' || c.estado === 'descartado') && c.motivo && (
         <Alert
@@ -400,22 +404,24 @@ function DetalleCargue({
         </Alert>
       )}
       {c.motivos.length > 0 && (
-        <Table withTableBorder data-testid="motivos">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Motivo del rechazo</Table.Th>
-              <Table.Th ta="right">Registros</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {c.motivos.map((m) => (
-              <Table.Tr key={m.causa}>
-                <Table.Td>{m.texto}</Table.Td>
-                <Table.Td ta="right">{cifra(m.cantidad)}</Table.Td>
+        <TablaAdaptable>
+          <Table withTableBorder data-testid="motivos">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Motivo del rechazo</Table.Th>
+                <Table.Th ta="right">Registros</Table.Th>
               </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+            </Table.Thead>
+            <Table.Tbody>
+              {c.motivos.map((m) => (
+                <Table.Tr key={m.causa}>
+                  <Table.Td>{m.texto}</Table.Td>
+                  <Table.Td ta="right">{conteo(m.cantidad)}</Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </TablaAdaptable>
       )}
       {error && <Alert color="red">{error}</Alert>}
       <Group>
@@ -476,7 +482,7 @@ function AvanceCargue({ c }: { c: Cargue }) {
       <Text size="sm">
         {c.estado === 'pendiente'
           ? `En cola${c.posicion ? ` (posición ${c.posicion})` : ''}: empieza cuando termine el cargue anterior.`
-          : `${NOMBRE_ETAPA[c.etapa ?? ''] ?? 'Procesando'} · ${cifra(c.filasLeidas)} registros leídos`}
+          : `${NOMBRE_ETAPA[c.etapa ?? ''] ?? 'Procesando'} · ${conteo(c.filasLeidas)} registros leídos`}
       </Text>
       <Progress value={c.porcentaje} animated aria-label="Avance del cargue" />
     </Stack>
@@ -500,7 +506,8 @@ function AsistenteCargue({
   const [archivo, setArchivo] = useState<File | null>(null);
   const [avance, setAvance] = useState<Avance | null>(null);
   const [cargue, setCargue] = useState<Cargue | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const v = useValidacion({ etiquetas: { archivo: 'Archivo del insumo' }, testid: 'error-subida' });
+  const idMotivo = useId();
   const cancelador = useRef<AbortController | null>(null);
   const creado = useRef<number | null>(null);
   const subir = useMutation({
@@ -519,10 +526,17 @@ function AsistenteCargue({
     onSuccess: (c) => setCargue(c),
     onError: (e) => {
       if (e instanceof DOMException && e.name === 'AbortError') return;
-      setError(mensajeError(e, 'No se pudo subir el archivo.'));
+      v.errorServidor(e, 'No se pudo subir el archivo.');
     },
   });
   const grande = !!archivo && !!archivoMaxBytes && archivo.size > archivoMaxBytes;
+  const problemaArchivo =
+    archivo && !formatoAceptado(archivo.name)
+      ? 'Formato no aceptado: use CSV, TXT, xlsx, .gz o .zip.'
+      : grande
+        ? `El archivo supera el tamaño máximo (${Math.round((archivoMaxBytes ?? 0) / (1024 * 1024))} MB).`
+        : null;
+  const motivoSubir = !archivo ? 'Seleccione el archivo del insumo.' : problemaArchivo ? 'Corrija el archivo marcado.' : null;
 
   /** Cancelar a mitad de la subida: se abortan las partes en curso y se descarta el cargue creado (sus partes tienen datos personales). */
   async function cancelar() {
@@ -551,7 +565,7 @@ function AsistenteCargue({
       size="xl"
     >
       {!cargue && (
-        <Stack>
+        <Stack ref={v.ref}>
           <Text size="sm">
             CSV o TXT en UTF-8 separado por «;» (coma decimal) o «,», libro de Excel (.xlsx, varias hojas con el mismo encabezado), o esos mismos
             comprimidos en .gz o .zip. El archivo se sube por partes y se verifica su huella SHA-256.
@@ -563,13 +577,12 @@ function AsistenteCargue({
             value={archivo}
             onChange={(f) => {
               setArchivo(f);
-              setError(null);
+              v.reiniciar();
             }}
             disabled={subir.isPending}
+            error={problemaArchivo ?? v.error('archivo')}
             data-testid="archivo-cargue"
           />
-          {archivo && !formatoAceptado(archivo.name) && <Alert color="red">Formato no aceptado: use CSV, TXT, xlsx, .gz o .zip.</Alert>}
-          {grande && <Alert color="red">El archivo supera el tamaño máximo ({Math.round((archivoMaxBytes ?? 0) / (1024 * 1024))} MB).</Alert>}
           {avance && subir.isPending && (
             <Stack gap={4}>
               <Text size="sm">
@@ -578,18 +591,19 @@ function AsistenteCargue({
               <Progress value={Math.round(avance.fraccion * 100)} aria-label="Avance de la subida" />
             </Stack>
           )}
-          {error && <Alert color="red">{error}</Alert>}
+          {v.resumen}
           <Group justify="flex-end">
+            {motivoSubir && (
+              <Text size="sm" c="dimmed" id={idMotivo}>
+                {motivoSubir}
+              </Text>
+            )}
             <Button variant="default" onClick={cancelar}>
               {subir.isPending ? 'Cancelar la subida' : 'Cancelar'}
             </Button>
-            <Button
-              disabled={!archivo || !formatoAceptado(archivo.name) || grande}
-              loading={subir.isPending}
-              onClick={() => archivo && subir.mutate(archivo)}
-            >
+            <BotonConMotivo motivo={motivoSubir} idMotivo={idMotivo} loading={subir.isPending} onClick={() => archivo && subir.mutate(archivo)}>
               Subir
-            </Button>
+            </BotonConMotivo>
           </Group>
         </Stack>
       )}
@@ -626,7 +640,11 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
   const [plantilla, setPlantilla] = useState(false);
   const [nombrePlantilla, setNombrePlantilla] = useState('');
   const [aReemplazar, setAReemplazar] = useState<Reemplazo | null>(null);
-  const [errorReemplazo, setErrorReemplazo] = useState<string | null>(null);
+  const v = useValidacion({
+    etiquetas: { periodoDesde: 'Periodo declarado: desde', periodoHasta: 'Hasta', nombrePlantilla: 'Nombre de la plantilla' },
+    testid: 'error-mapeo',
+  });
+  const idMotivo = useId();
   const m = q.data;
   // Lo elegido por el usuario o, mientras no cambie nada, la propuesta del servidor
   const columnas = elegidas ?? m?.propuesta ?? null;
@@ -657,10 +675,12 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
         },
       }),
     onSuccess: alConfirmar,
+    onError: (e) => v.errorServidor(e, 'No se pudo confirmar el mapeo.'),
   });
   const descartar = useMutation({
     mutationFn: () => api<Cargue>(`/api/analitica/cargues/${id}`, { metodo: 'DELETE' }),
     onSuccess: alDescartar,
+    onError: (e) => v.errorServidor(e, 'No se pudo descartar el cargue.'),
   });
 
   /** Con «Reemplazar el periodo» se muestra antes qué se deja de ver (cargues y registros del periodo declarado). */
@@ -669,11 +689,11 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
       confirmar.mutate();
       return;
     }
-    setErrorReemplazo(null);
+    v.reiniciar();
     try {
       setAReemplazar(await api<Reemplazo>(rutaReemplazo(id, desde, hasta)));
     } catch (e) {
-      setErrorReemplazo(mensajeError(e, 'No se pudo consultar qué se reemplaza.'));
+      v.errorServidor(e, 'No se pudo consultar qué se reemplaza.');
     }
   }
 
@@ -681,13 +701,21 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
   if (!m || !columnas) return <Loader />;
   const filasVista = elegidas === null ? m.vistaPrevia : (vista.data?.vistaPrevia ?? m.vistaPrevia);
   const avisoVista = elegidas === null ? m.avisoVistaPrevia : (vista.data?.avisoVistaPrevia ?? null);
+  const motivoConfirmar =
+    problemas.length > 0
+      ? 'Corrija el mapeo de columnas indicado arriba.'
+      : !periodoOk
+        ? 'Corrija el periodo declarado.'
+        : faltaPeriodo
+          ? 'Para reemplazar, indique el periodo declarado (desde y hasta).'
+          : null;
   const opciones = m.campos.map((c) => ({
     value: c.clave,
     label: c.tipo === 'obligatorio' ? `${c.etiqueta} *` : c.etiqueta,
   }));
 
   return (
-    <Stack>
+    <Stack ref={v.ref}>
       <Text size="sm">
         Asigne cada columna de «{m.nombreArchivo}» a un campo del modelo (* obligatorio; medicamento o CUM: basta uno). Las columnas con datos
         personales se descartan o se seudonimizan.{m.plantilla ? ` Se propuso la plantilla «${m.plantilla.nombre}».` : ''}
@@ -697,7 +725,7 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
           {m.avisos.join('. ')}.
         </Alert>
       )}
-      <ScrollArea h={260}>
+      <TablaAdaptable>
         <Table withTableBorder data-testid="mapeo">
           <Table.Thead>
             <Table.Tr>
@@ -712,7 +740,7 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
                 <Table.Td>
                   {e}
                   {m.personales[i] && (
-                    <Badge ml={6} size="xs" color="grape" variant="light">
+                    <Badge ml={6} size="xs" color="orange" variant="light">
                       dato personal
                     </Badge>
                   )}
@@ -736,12 +764,12 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
             ))}
           </Table.Tbody>
         </Table>
-      </ScrollArea>
+      </TablaAdaptable>
       <Text size="sm" fw={500}>
         Vista previa ({filasVista.length} filas; en claro solo las columnas asignadas a un campo que no es personal)
       </Text>
       {avisoVista && <Alert color="yellow">{avisoVista}</Alert>}
-      <ScrollArea h={180}>
+      <TablaAdaptable>
         <Table striped withTableBorder fz="xs" data-testid="vista-previa">
           <Table.Thead>
             <Table.Tr>
@@ -760,7 +788,7 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
             ))}
           </Table.Tbody>
         </Table>
-      </ScrollArea>
+      </TablaAdaptable>
       <Radio.Group label="Modo" value={modo} onChange={(v) => setModo(v as 'agregar' | 'reemplazar')}>
         <Group mt={4}>
           <Radio value="agregar" label="Agregar (los registros ya cargados se rechazan como «Ya cargado»)" />
@@ -772,16 +800,24 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
           label={modo === 'reemplazar' ? 'Periodo declarado: desde' : 'Periodo declarado (opcional): desde'}
           type="date"
           value={desde}
-          onChange={(e) => setDesde(e.currentTarget.value)}
+          onChange={(e) => {
+            setDesde(e.currentTarget.value);
+            v.limpiar('periodoDesde');
+          }}
           required={modo === 'reemplazar'}
+          error={v.error('periodoDesde')}
           w={230}
         />
         <TextInput
           label="Hasta"
           type="date"
           value={hasta}
-          onChange={(e) => setHasta(e.currentTarget.value)}
+          onChange={(e) => {
+            setHasta(e.currentTarget.value);
+            v.limpiar('periodoHasta');
+          }}
           required={modo === 'reemplazar'}
+          error={v.error('periodoHasta')}
           w={170}
         />
       </Group>
@@ -797,7 +833,11 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
             label="Nombre de la plantilla"
             placeholder="Ej.: Insumo mensual del OPL"
             value={nombrePlantilla}
-            onChange={(e) => setNombrePlantilla(e.currentTarget.value)}
+            onChange={(e) => {
+              setNombrePlantilla(e.currentTarget.value);
+              v.limpiar('nombrePlantilla');
+            }}
+            error={v.error('nombrePlantilla')}
           />
         )}
       </Group>
@@ -806,21 +846,21 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
           {problemas.join('. ')}.
         </Alert>
       )}
-      {confirmar.error && <Alert color="red">{confirmar.error.message}</Alert>}
-      {descartar.error && <Alert color="red">{descartar.error.message}</Alert>}
-      {errorReemplazo && <Alert color="red">{errorReemplazo}</Alert>}
+      {v.resumen}
       <Group justify="space-between">
         <Button color="red" variant="subtle" loading={descartar.isPending} onClick={() => descartar.mutate()}>
           Descartar cargue
         </Button>
-        <Button
-          disabled={problemas.length > 0 || !periodoOk || faltaPeriodo}
-          loading={confirmar.isPending}
-          onClick={procesar}
-          data-testid="confirmar-mapeo"
-        >
-          Confirmar y procesar
-        </Button>
+        <Group gap="sm">
+          {motivoConfirmar && (
+            <Text size="sm" c="dimmed" id={idMotivo}>
+              {motivoConfirmar}
+            </Text>
+          )}
+          <BotonConMotivo motivo={motivoConfirmar} idMotivo={idMotivo} loading={confirmar.isPending} onClick={procesar} data-testid="confirmar-mapeo">
+            Confirmar y procesar
+          </BotonConMotivo>
+        </Group>
       </Group>
       <Modal opened={aReemplazar !== null} onClose={() => setAReemplazar(null)} title="Reemplazar el periodo" data-testid="confirmar-reemplazo">
         {aReemplazar && (
@@ -833,7 +873,7 @@ function PasoMapeo({ id, alConfirmar, alDescartar }: { id: number; alConfirmar: 
                 ? 'Ningún cargue aplicado de esta fuente queda dentro del periodo: no se oculta nada.'
                 : `Dejarán de verse en los cortes posteriores ${aReemplazar.cargues.length} cargue(s) aplicado(s) (${aReemplazar.cargues
                     .map((x) => `#${x}`)
-                    .join(', ')}) con ${cifra(aReemplazar.registros)} registros. En los cortes anteriores se siguen viendo.`}
+                    .join(', ')}) con ${conteo(aReemplazar.registros)} registros. En los cortes anteriores se siguen viendo.`}
             </Text>
             <Group justify="flex-end">
               <Button variant="default" onClick={() => setAReemplazar(null)}>
@@ -877,7 +917,7 @@ function PasoAvance({ id, alVer }: { id: number; alVer: (id: number) => void }) 
       {!terminado(c) && <AvanceCargue c={c} />}
       {terminado(c) && (
         <Text size="sm">
-          Recibidos {cifra(c.recibidos)} · procesados {cifra(c.procesados)} · rechazados {cifra(c.rechazados)}
+          Recibidos {conteo(c.recibidos)} · procesados {conteo(c.procesados)} · rechazados {conteo(c.rechazados)}
         </Text>
       )}
       <Group justify="flex-end">

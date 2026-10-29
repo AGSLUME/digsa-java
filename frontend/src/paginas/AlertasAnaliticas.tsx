@@ -23,7 +23,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { TACTIL } from '../analitica/GraficosAnalitica';
 import {
@@ -44,6 +44,14 @@ import {
   type ParametroAlerta,
 } from '../analitica/riesgo';
 import { api, descargar, ErrorApi, subirArchivos } from '../shared/api';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { conteo } from '../shared/formato';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
+import { useValidacion } from '../shared/validacion';
+
+const TITULO = 'Alertas analíticas';
+const FUENTE = 'Anexo 5 · 14.7';
 
 /** Detalle de una alerta: contexto, análisis técnico (P4), registros de origen y validación humana. */
 function DetalleAlertaVista({ id }: { id: number }) {
@@ -52,13 +60,17 @@ function DetalleAlertaVista({ id }: { id: number }) {
   const [a, setA] = useState<EstadoAlerta | null>(null);
   const [nota, setNota] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const v = useValidacion({ etiquetas: { estado: 'Pasar a', nota: 'Nota' }, testid: 'error-estado-alerta' });
+  const idMotivo = useId();
   if (d.isLoading) return <Loader />;
   if (d.error || !d.data) return <Alert color="red">{d.error instanceof ErrorApi ? d.error.message : 'No se pudo abrir la alerta.'}</Alert>;
   const x = d.data;
   const problema = a ? problemaNota(a, nota) : null;
+  const motivo = !a ? 'Elija el nuevo estado en «Pasar a».' : problema;
   const cambiar = async () => {
     if (!a) return;
     setEnviando(true);
+    v.reiniciar();
     try {
       await api(`/api/analitica/alertas/${id}/estado`, { cuerpo: { estado: a, nota } });
       notifications.show({ color: 'green', message: `Alerta ${id}: ${NOMBRE_ESTADO[a]}.` });
@@ -66,7 +78,7 @@ function DetalleAlertaVista({ id }: { id: number }) {
       setNota('');
       await cliente.invalidateQueries({ queryKey: ['analitica', 'alertas'] });
     } catch (e) {
-      notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : 'No se pudo cambiar el estado.' });
+      v.errorServidor(e, 'No se pudo cambiar el estado.');
     } finally {
       setEnviando(false);
     }
@@ -78,41 +90,45 @@ function DetalleAlertaVista({ id }: { id: number }) {
         <Badge variant="light">{NOMBRE_ESTADO[x.estado]}</Badge>
         <Badge variant="outline">Parámetros v{x.parametrosVersion}</Badge>
       </Group>
-      <Table fz="sm" withTableBorder>
-        <Table.Tbody>
-          {[
-            ['Tipo', x.tipoNombre],
-            ['Nivel', x.nivelTexto],
-            ['Dimensión', `${x.dimensionTexto} · ${x.valorTexto}`],
-            ['Periodo', x.periodo],
-            ['Umbral', x.umbralTexto],
-            ['Valor observado', x.observadoTexto],
-            ['Referencia', x.referenciaTexto],
-            ['Registros', x.registrosTexto],
-            ['Pacientes (agregado)', x.pacientesTexto],
-            ['Gasto involucrado', x.gastoTexto],
-            ['Corte', `nació en el cargue ${x.corte}; cifras del cargue ${x.corteCifras} (su última evaluación)`],
-            ['Generada', x.generada],
-            [
-              'Aviso por correo',
-              x.aviso === 'pendiente'
-                ? 'Pendiente: el aviso falló y se reintenta'
-                : x.aviso === 'enviado'
-                  ? 'Enviado'
-                  : x.aviso === 'agrupado'
-                    ? 'En el resumen de la ejecución (periodo anterior)'
-                    : 'No aplica',
-            ],
-          ].map(([k, v]) => (
-            <Table.Tr key={k}>
-              <Table.Th w={180}>{k}</Table.Th>
-              <Table.Td>{v}</Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
+      <TablaAdaptable>
+        <Table fz="sm" withTableBorder>
+          <Table.Tbody>
+            {[
+              ['Tipo', x.tipoNombre],
+              ['Nivel', x.nivelTexto],
+              ['Dimensión', `${x.dimensionTexto} · ${x.valorTexto}`],
+              ['Periodo', x.periodo],
+              ['Umbral', x.umbralTexto],
+              ['Valor observado', x.observadoTexto],
+              ['Referencia', x.referenciaTexto],
+              ['Registros', x.registrosTexto],
+              ['Pacientes (agregado)', x.pacientesTexto],
+              ['Gasto involucrado', x.gastoTexto],
+              ['Corte', `nació en el cargue ${x.corte}; cifras del cargue ${x.corteCifras} (su última evaluación)`],
+              ['Generada', x.generada],
+              [
+                'Aviso por correo',
+                x.aviso === 'pendiente'
+                  ? 'Pendiente: el aviso falló y se reintenta'
+                  : x.aviso === 'enviado'
+                    ? 'Enviado'
+                    : x.aviso === 'agrupado'
+                      ? 'En el resumen de la ejecución (periodo anterior)'
+                      : 'No aplica',
+              ],
+            ].map(([k, v]) => (
+              <Table.Tr key={k}>
+                <Table.Th w={180}>{k}</Table.Th>
+                <Table.Td>{v}</Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      </TablaAdaptable>
       <Card withBorder padding="sm">
-        <Title order={5}>Análisis técnico</Title>
+        <Title order={3} size="h5">
+          Análisis técnico
+        </Title>
         <Text size="sm" mt={4}>
           <b>Causa:</b> {x.causa}
         </Text>
@@ -138,15 +154,21 @@ function DetalleAlertaVista({ id }: { id: number }) {
         </Text>
       )}
       {x.puedeValidar && siguientes(x.estado).length > 0 && (
-        <Card withBorder padding="sm">
-          <Title order={5}>Validación humana</Title>
+        <Card withBorder padding="sm" ref={v.ref}>
+          <Title order={3} size="h5">
+            Validación humana
+          </Title>
           <Group align="flex-end" mt="xs">
             <Select
               label="Pasar a"
               w={200}
               data={siguientes(x.estado).map((s) => ({ value: s, label: NOMBRE_ESTADO[s] }))}
               value={a}
-              onChange={(v) => setA(v as EstadoAlerta | null)}
+              onChange={(x) => {
+                setA(x as EstadoAlerta | null);
+                v.limpiar('estado');
+              }}
+              error={v.error('estado')}
               data-testid="nuevo-estado"
             />
           </Group>
@@ -154,21 +176,34 @@ function DetalleAlertaVista({ id }: { id: number }) {
             label="Nota"
             description="Obligatoria para validar o descartar (mínimo 10 caracteres). No escriba nombres, documentos ni otros datos personales."
             value={nota}
-            onChange={(e) => setNota(e.currentTarget.value)}
+            onChange={(e) => {
+              setNota(e.currentTarget.value);
+              v.limpiar('nota');
+            }}
             autosize
             minRows={2}
             mt="xs"
-            error={a && nota ? problema : null}
+            error={(a && nota ? problema : null) ?? v.error('nota')}
             data-testid="nota-estado"
           />
-          <Button mt="xs" disabled={!a || !!problema} loading={enviando} onClick={cambiar} data-testid="guardar-estado">
-            Guardar
-          </Button>
+          {v.resumen}
+          <Group mt="xs" gap="sm">
+            <BotonConMotivo motivo={motivo} idMotivo={idMotivo} loading={enviando} onClick={cambiar} data-testid="guardar-estado">
+              Guardar
+            </BotonConMotivo>
+            {motivo && (
+              <Text size="sm" c="dimmed" id={idMotivo}>
+                {motivo}
+              </Text>
+            )}
+          </Group>
         </Card>
       )}
       {x.historial.length > 0 && (
         <Stack gap={2}>
-          <Title order={6}>Historial</Title>
+          <Title order={3} size="h6">
+            Historial
+          </Title>
           {x.historial.map((h, i) => (
             <Text key={i} size="xs">
               {h.fecha} · {h.responsable}: {NOMBRE_ESTADO[h.de as EstadoAlerta] ?? h.de} → {NOMBRE_ESTADO[h.a as EstadoAlerta] ?? h.a}
@@ -211,6 +246,8 @@ function Consola({ catalogo }: { catalogo: CatalogoAlertas }) {
   const [abierta, setAbierta] = useState<number | null>(null);
   const q = consultaConsola(filtros, pagina);
   const lista = useQuery({ queryKey: ['analitica', 'alertas', 'lista', q], queryFn: () => api<ListaAlertas>(`/api/analitica/alertas?${q}`) });
+  // El error de una descarga queda fijo junto a los filtros (Anexo 5 num. 2.4)
+  const v = useValidacion({ testid: 'error-descarga-alertas' });
   const poner = (k: FiltroConsola, v: string | null) => {
     const f = { ...filtros, [k]: v ?? '' };
     setFiltros(f);
@@ -218,16 +255,17 @@ function Consola({ catalogo }: { catalogo: CatalogoAlertas }) {
     setBusqueda(new URLSearchParams(consultaConsola(f)), { replace: true });
   };
   const bajar = async (formato: string) => {
+    v.reiniciar();
     try {
       await descargar(`/api/analitica/alertas/descarga?${consultaConsola(filtros)}&formato=${formato}`);
     } catch (e) {
-      notifications.show({ color: 'red', message: e instanceof ErrorApi ? e.message : 'No se pudo descargar.' });
+      v.errorServidor(e, 'No se pudo descargar.');
     }
   };
   const l = lista.data;
   return (
     <Stack>
-      <Card withBorder>
+      <Card withBorder ref={v.ref}>
         <Group align="flex-end" wrap="wrap" gap="xs">
           <Select
             label="Tipo"
@@ -275,16 +313,17 @@ function Consola({ catalogo }: { catalogo: CatalogoAlertas }) {
             </Button>
           ))}
         </Group>
+        {v.resumen}
       </Card>
       {lista.error && <Alert color="red">{lista.error instanceof ErrorApi ? lista.error.message : 'No se pudo consultar la consola.'}</Alert>}
       {lista.isLoading && <Loader />}
       {l && (
         <>
           <Text size="sm" c="dimmed">
-            {l.total} alertas · ordenadas por prioridad (severidad y gasto involucrado)
+            {conteo(l.total)} alertas · ordenadas por prioridad (severidad y gasto involucrado)
           </Text>
-          <Table.ScrollContainer minWidth={980}>
-            <Table striped withTableBorder fz="xs" aria-label="Alertas tempranas" data-testid="tabla-alertas">
+          <TablaAdaptable>
+            <Table striped withTableBorder fz="xs" miw={980} aria-label="Alertas tempranas" data-testid="tabla-alertas">
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Severidad</Table.Th>
@@ -326,10 +365,10 @@ function Consola({ catalogo }: { catalogo: CatalogoAlertas }) {
                 ))}
               </Table.Tbody>
             </Table>
-          </Table.ScrollContainer>
+          </TablaAdaptable>
           {l.paginas > 1 && <Pagination total={l.paginas} value={l.pagina} onChange={setPagina} />}
           <Card withBorder>
-            <Title order={5} mb="xs">
+            <Title order={2} size="h5" mb="xs">
               Resumen por tipo
             </Title>
             {l.resumen.aviso && (
@@ -337,20 +376,22 @@ function Consola({ catalogo }: { catalogo: CatalogoAlertas }) {
                 {l.resumen.aviso}
               </Alert>
             )}
-            <Table fz="xs" aria-label="Resumen por tipo">
-              <Table.Tbody>
-                {l.resumen.tipos.map((t) => (
-                  <Table.Tr key={t.tipo}>
-                    <Table.Td>{t.nombre}</Table.Td>
-                    <Table.Td>
-                      {t.evaluacion === 'evaluado'
-                        ? `${t.alta} alta · ${t.media} media · ${t.baja} baja`
-                        : (t.motivo ?? t.evaluacion.replace('_', ' '))}
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+            <TablaAdaptable>
+              <Table fz="xs" aria-label="Resumen por tipo">
+                <Table.Tbody>
+                  {l.resumen.tipos.map((t) => (
+                    <Table.Tr key={t.tipo}>
+                      <Table.Td>{t.nombre}</Table.Td>
+                      <Table.Td>
+                        {t.evaluacion === 'evaluado'
+                          ? `${conteo(t.alta)} alta · ${conteo(t.media)} media · ${conteo(t.baja)} baja`
+                          : (t.motivo ?? t.evaluacion.replace('_', ' '))}
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </TablaAdaptable>
             {noEvaluados(l.resumen.tipos).length > 0 && (
               <Text size="xs" c="dimmed" mt="xs">
                 Un tipo sin su fuente o su campo no calla: se informa como «no evaluado» con el motivo.
@@ -391,17 +432,19 @@ function Ejecuciones({ catalogo }: { catalogo: CatalogoAlertas }) {
     // Solo mientras haya una corrida en curso, y nunca en bucle sobre un error
     refetchInterval: (q) => intervaloEjecuciones(q.state.data, !!q.state.error),
   });
+  const v = useValidacion({ testid: 'error-ejecutar' });
   const ejecutar = async () => {
+    v.reiniciar();
     try {
       await api('/api/analitica/alertas/ejecutar', { metodo: 'POST', cuerpo: {} });
       notifications.show({ color: 'green', message: 'Motor en ejecución sobre el corte vigente.' });
       await cliente.invalidateQueries({ queryKey: ['analitica', 'alertas'] });
     } catch (x) {
-      notifications.show({ color: 'red', message: x instanceof ErrorApi ? x.message : 'No se pudo ejecutar el motor.' });
+      v.errorServidor(x, 'No se pudo ejecutar el motor.');
     }
   };
   return (
-    <Stack>
+    <Stack ref={v.ref}>
       {catalogo.puedeEjecutar && (
         <Group>
           <Button onClick={ejecutar} data-testid="ejecutar-motor">
@@ -412,10 +455,11 @@ function Ejecuciones({ catalogo }: { catalogo: CatalogoAlertas }) {
           </Text>
         </Group>
       )}
+      {v.resumen}
       {e.error && <Alert color="red">{e.error instanceof ErrorApi ? e.error.message : 'No se pudieron consultar las ejecuciones.'}</Alert>}
       {e.isLoading && <Loader />}
-      <Table.ScrollContainer minWidth={820}>
-        <Table fz="xs" withTableBorder aria-label="Ejecuciones del motor">
+      <TablaAdaptable>
+        <Table fz="xs" withTableBorder miw={820} aria-label="Ejecuciones del motor">
           <Table.Thead>
             <Table.Tr>
               <Table.Th>N.º</Table.Th>
@@ -444,17 +488,17 @@ function Ejecuciones({ catalogo }: { catalogo: CatalogoAlertas }) {
                   <Table.Td>{x.corte}</Table.Td>
                   <Table.Td>{x.inicio}</Table.Td>
                   <Table.Td>{x.estado}</Table.Td>
-                  <Table.Td>{x.nuevas}</Table.Td>
-                  <Table.Td>{x.actualizadas}</Table.Td>
-                  <Table.Td>{x.avisos}</Table.Td>
-                  <Table.Td>{x.duracionMs === null ? '—' : `${x.duracionMs} ms`}</Table.Td>
+                  <Table.Td>{conteo(x.nuevas)}</Table.Td>
+                  <Table.Td>{conteo(x.actualizadas)}</Table.Td>
+                  <Table.Td>{conteo(x.avisos)}</Table.Td>
+                  <Table.Td>{x.duracionMs === null ? '—' : `${conteo(x.duracionMs)} ms`}</Table.Td>
                   <Table.Td>{[x.error, ...fallidos].filter((s) => s).join(' · ') || '—'}</Table.Td>
                 </Table.Tr>
               );
             })}
           </Table.Tbody>
         </Table>
-      </Table.ScrollContainer>
+      </TablaAdaptable>
     </Stack>
   );
 }
@@ -472,7 +516,19 @@ function EditorParametro({ p, puede }: { p: ParametroAlerta; puede: boolean }) {
       ),
     enabled: historial,
   });
+  const val = useValidacion({
+    etiquetas: {
+      baja: `Baja (${p.unidad})`,
+      media: 'Media',
+      alta: 'Alta',
+      ventana: 'Ventana (meses)',
+      niveles: 'Niveles',
+      plantilla: 'Plantilla de recomendación',
+    },
+    testid: `error-parametro-${p.tipo}`,
+  });
   const guardar = async () => {
+    val.reiniciar();
     try {
       const r = await api<{ version: number; cambios: boolean }>(`/api/analitica/alertas/parametros/${p.tipo}`, { metodo: 'PUT', cuerpo: v });
       notifications.show({
@@ -481,11 +537,16 @@ function EditorParametro({ p, puede }: { p: ParametroAlerta; puede: boolean }) {
       });
       await cliente.invalidateQueries({ queryKey: ['analitica', 'alertas'] });
     } catch (e) {
-      notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : 'No se pudieron guardar los parámetros.' });
+      val.errorServidor(e, 'No se pudieron guardar los parámetros.');
     }
   };
+  /** Cambia un parámetro y quita la marca del servidor sobre ese campo. */
+  const poner = (campo: string, cambio: Partial<typeof v>) => {
+    setV({ ...v, ...cambio });
+    val.limpiar(campo);
+  };
   return (
-    <Card withBorder padding="sm" data-testid={`parametro-${p.tipo}`}>
+    <Card withBorder padding="sm" data-testid={`parametro-${p.tipo}`} ref={val.ref}>
       <Group justify="space-between">
         <Text fw={600}>{p.nombre}</Text>
         <Text size="xs" c="dimmed">
@@ -499,16 +560,25 @@ function EditorParametro({ p, puede }: { p: ParametroAlerta; puede: boolean }) {
           w={110}
           value={v.baja}
           disabled={!puede}
-          onChange={(e) => setV({ ...v, baja: e.currentTarget.value })}
+          onChange={(e) => poner('baja', { baja: e.currentTarget.value })}
+          error={val.error('baja')}
           data-testid={`umbral-baja-${p.tipo}`}
         />
-        <TextInput label="Media" w={100} value={v.media} disabled={!puede} onChange={(e) => setV({ ...v, media: e.currentTarget.value })} />
+        <TextInput
+          label="Media"
+          w={100}
+          value={v.media}
+          disabled={!puede}
+          onChange={(e) => poner('media', { media: e.currentTarget.value })}
+          error={val.error('media')}
+        />
         <TextInput
           label="Alta"
           w={100}
           value={v.alta ?? ''}
           disabled={!puede}
-          onChange={(e) => setV({ ...v, alta: e.currentTarget.value || null })}
+          onChange={(e) => poner('alta', { alta: e.currentTarget.value || null })}
+          error={val.error('alta')}
         />
         <NumberInput
           label="Ventana (meses)"
@@ -517,7 +587,8 @@ function EditorParametro({ p, puede }: { p: ParametroAlerta; puede: boolean }) {
           max={24}
           value={v.ventana}
           disabled={!puede}
-          onChange={(x) => setV({ ...v, ventana: Number(x) || 1 })}
+          onChange={(x) => poner('ventana', { ventana: Number(x) || 1 })}
+          error={val.error('ventana')}
         />
         <TextInput
           label="Niveles"
@@ -526,14 +597,14 @@ function EditorParametro({ p, puede }: { p: ParametroAlerta; puede: boolean }) {
           value={v.niveles.join(', ')}
           disabled={!puede}
           onChange={(e) =>
-            setV({
-              ...v,
+            poner('niveles', {
               niveles: e.currentTarget.value
                 .split(',')
                 .map((s) => s.trim())
                 .filter((s) => s),
             })
           }
+          error={val.error('niveles')}
         />
       </Group>
       <Textarea
@@ -543,8 +614,10 @@ function EditorParametro({ p, puede }: { p: ParametroAlerta; puede: boolean }) {
         autosize
         minRows={2}
         mt="xs"
-        onChange={(e) => setV({ ...v, plantilla: e.currentTarget.value })}
+        onChange={(e) => poner('plantilla', { plantilla: e.currentTarget.value })}
+        error={val.error('plantilla')}
       />
+      {val.resumen}
       <Group mt="xs">
         {puede && (
           <Button size="xs" onClick={guardar} data-testid={`guardar-parametro-${p.tipo}`}>
@@ -600,20 +673,24 @@ function Referencias({ catalogo }: { catalogo: CatalogoAlertas }) {
   const [fuente, setFuente] = useState('');
   const [archivo, setArchivo] = useState<File | null>(null);
   const [ficticio, setFicticio] = useState(false);
+  const v = useValidacion({ etiquetas: { fuente: 'Fuente y edición', archivo: 'Archivo CSV' }, testid: 'error-referencia' });
+  const idMotivo = useId();
+  const motivo = !archivo ? 'Seleccione el archivo CSV.' : fuente.trim().length < 3 ? 'Escriba la fuente y su edición (mínimo 3 caracteres).' : null;
   const cargar = async () => {
     if (!archivo || !lista) return;
+    v.reiniciar();
     try {
       await subirArchivos(`/api/analitica/alertas/referencias/${lista}`, { fuente, ficticio: String(ficticio) }, [archivo], 'archivo');
       notifications.show({ color: 'green', message: 'Referencia cargada; se usa en la próxima ejecución del motor.' });
       await cliente.invalidateQueries({ queryKey: ['analitica', 'alertas', 'referencias'] });
     } catch (e) {
-      notifications.show({ color: 'red', autoClose: 10000, message: e instanceof ErrorApi ? e.message : 'No se pudo cargar la referencia.' });
+      v.errorServidor(e, 'No se pudo cargar la referencia.');
     }
   };
   return (
     <Stack>
       {catalogo.puedeParametrizar && (
-        <Card withBorder>
+        <Card withBorder ref={v.ref}>
           <Group align="flex-end" wrap="wrap">
             <Select
               label="Lista"
@@ -623,13 +700,38 @@ function Referencias({ catalogo }: { catalogo: CatalogoAlertas }) {
               onChange={setLista}
               allowDeselect={false}
             />
-            <TextInput label="Fuente y edición" w={320} value={fuente} onChange={(e) => setFuente(e.currentTarget.value)} />
-            <FileInput label="Archivo CSV" w={240} value={archivo} onChange={setArchivo} accept=".csv,text/csv" />
+            <TextInput
+              label="Fuente y edición"
+              w={320}
+              value={fuente}
+              onChange={(e) => {
+                setFuente(e.currentTarget.value);
+                v.limpiar('fuente');
+              }}
+              error={v.error('fuente')}
+            />
+            <FileInput
+              label="Archivo CSV"
+              w={240}
+              value={archivo}
+              onChange={(f) => {
+                setArchivo(f);
+                v.limpiar('archivo');
+              }}
+              error={v.error('archivo')}
+              accept=".csv,text/csv"
+            />
             <Checkbox label="Datos de ejemplo (ficticios)" checked={ficticio} onChange={(e) => setFicticio(e.currentTarget.checked)} />
-            <Button disabled={!archivo || fuente.trim().length < 3} onClick={cargar}>
+            <BotonConMotivo motivo={motivo} idMotivo={idMotivo} onClick={cargar}>
               Cargar versión
-            </Button>
+            </BotonConMotivo>
           </Group>
+          {motivo && (
+            <Text size="sm" c="dimmed" mt="xs" id={idMotivo}>
+              {motivo}
+            </Text>
+          )}
+          {v.resumen}
           <Text size="xs" c="dimmed" mt="xs">
             interacciones: principio1;principio2;nota · indicaciones: ATC;CIE-10;nota · huerfanas: CIE-10;nota. Sin fuente, el tipo queda «no
             evaluado».
@@ -637,32 +739,34 @@ function Referencias({ catalogo }: { catalogo: CatalogoAlertas }) {
         </Card>
       )}
       {r.error && <Alert color="red">{r.error instanceof ErrorApi ? r.error.message : 'No se pudieron consultar las referencias.'}</Alert>}
-      <Table fz="xs" withTableBorder aria-label="Referencias cargadas">
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Lista</Table.Th>
-            <Table.Th>Versión</Table.Th>
-            <Table.Th>Fuente</Table.Th>
-            <Table.Th>Filas</Table.Th>
-            <Table.Th>Ejemplo</Table.Th>
-            <Table.Th>Vigente</Table.Th>
-            <Table.Th>Cargada</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {(r.data ?? []).map((x) => (
-            <Table.Tr key={x.id}>
-              <Table.Td>{x.lista}</Table.Td>
-              <Table.Td>v{x.version}</Table.Td>
-              <Table.Td>{x.fuente}</Table.Td>
-              <Table.Td>{x.filas} filas</Table.Td>
-              <Table.Td>{x.ficticio ? 'Datos de ejemplo' : ''}</Table.Td>
-              <Table.Td>{x.vigente ? 'Vigente' : ''}</Table.Td>
-              <Table.Td>{x.cargada}</Table.Td>
+      <TablaAdaptable>
+        <Table fz="xs" withTableBorder aria-label="Referencias cargadas">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Lista</Table.Th>
+              <Table.Th>Versión</Table.Th>
+              <Table.Th>Fuente</Table.Th>
+              <Table.Th>Filas</Table.Th>
+              <Table.Th>Ejemplo</Table.Th>
+              <Table.Th>Vigente</Table.Th>
+              <Table.Th>Cargada</Table.Th>
             </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
+          </Table.Thead>
+          <Table.Tbody>
+            {(r.data ?? []).map((x) => (
+              <Table.Tr key={x.id}>
+                <Table.Td>{x.lista}</Table.Td>
+                <Table.Td>v{x.version}</Table.Td>
+                <Table.Td>{x.fuente}</Table.Td>
+                <Table.Td>{conteo(x.filas)} filas</Table.Td>
+                <Table.Td>{x.ficticio ? 'Datos de ejemplo' : ''}</Table.Td>
+                <Table.Td>{x.vigente ? 'Vigente' : ''}</Table.Td>
+                <Table.Td>{x.cargada}</Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      </TablaAdaptable>
     </Stack>
   );
 }
@@ -677,26 +781,28 @@ export function AlertasAnaliticas() {
     queryKey: ['analitica', 'alertas', 'catalogo'],
     queryFn: () => api<CatalogoAlertas>('/api/analitica/alertas/catalogo'),
   });
-  if (catalogo.isLoading) {
+  if (catalogo.isLoading || catalogo.error || !catalogo.data) {
     return (
-      <Center mih={200}>
-        <Loader />
-      </Center>
+      <Stack>
+        <EncabezadoPagina titulo={TITULO} fuente={FUENTE} />
+        {catalogo.isLoading ? (
+          <Center mih={200}>
+            <Loader />
+          </Center>
+        ) : (
+          <Alert color="red">{catalogo.error instanceof ErrorApi ? catalogo.error.message : 'No se pudo abrir la consola de alertas.'}</Alert>
+        )}
+      </Stack>
     );
-  }
-  if (catalogo.error || !catalogo.data) {
-    return <Alert color="red">{catalogo.error instanceof ErrorApi ? catalogo.error.message : 'No se pudo abrir la consola de alertas.'}</Alert>;
   }
   const c = catalogo.data;
   return (
     <Stack>
-      <div>
-        <Title order={2}>Alertas analíticas</Title>
-        <Text c="dimmed" size="sm">
-          Alertas tempranas del motor determinista: contexto, análisis técnico y validación humana. Información agregada, sin datos que identifiquen
-          pacientes.
-        </Text>
-      </div>
+      <EncabezadoPagina
+        titulo={TITULO}
+        descripcion="Alertas tempranas del motor determinista: contexto, análisis técnico y validación humana. Información agregada, sin datos que identifiquen pacientes."
+        fuente={FUENTE}
+      />
       <Tabs defaultValue="consola" keepMounted={false}>
         <Tabs.List>
           <Tabs.Tab value="consola">Consola</Tabs.Tab>

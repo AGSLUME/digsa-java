@@ -596,10 +596,11 @@ class ServicioCargues {
             throw ErrorNegocio.validacion("Modo no válido: agregar o reemplazar.");
         }
         if ("reemplazar".equals(modo) && (conf.periodoDesde() == null || conf.periodoHasta() == null)) {
-            throw ErrorNegocio.validacion("Para reemplazar el periodo indique el periodo declarado (desde y hasta).");
+            throw ErrorNegocio.validacion("Para reemplazar el periodo indique el periodo declarado (desde y hasta).",
+                    conf.periodoDesde() == null ? "periodoDesde" : "periodoHasta");
         }
         if (conf.periodoDesde() != null && conf.periodoHasta() != null && conf.periodoDesde().isAfter(conf.periodoHasta())) {
-            throw ErrorNegocio.validacion("El periodo declarado no es válido (desde después de hasta).");
+            throw ErrorNegocio.validacion("El periodo declarado no es válido (desde después de hasta).", "periodoDesde");
         }
         List<String> claves = mapeo.stream().map(Campo::clave).toList();
         Long plantillaId;
@@ -607,7 +608,7 @@ class ServicioCargues {
         if (Boolean.TRUE.equals(conf.guardarPlantilla())) {
             String nombre = conf.nombrePlantilla() == null || conf.nombrePlantilla().isBlank() ? "Plantilla del cargue " + id : conf.nombrePlantilla().strip();
             if (nombre.length() > 120) {
-                throw ErrorNegocio.validacion("El nombre de la plantilla es muy largo (máximo 120).");
+                throw ErrorNegocio.validacion("El nombre de la plantilla es muy largo (máximo 120).", "nombrePlantilla");
             }
             plantillaId = jdbc.sql("""
                     INSERT INTO ana_mapeo_plantillas (nombre, firma_encabezado, encabezados, mapeo, creado_por, creado, actualizado)
@@ -648,7 +649,7 @@ class ServicioCargues {
     Map<String, Object> reemplazo(long id, LocalDate desde, LocalDate hasta, UsuarioSesion quien) {
         Cargue c = propio(id, quien, "mapeo");
         if (desde == null || hasta == null || desde.isAfter(hasta)) {
-            throw ErrorNegocio.validacion("Indique un periodo declarado válido (desde y hasta).");
+            throw ErrorNegocio.validacion("Indique un periodo declarado válido (desde y hasta).", hasta == null && desde != null ? "periodoHasta" : "periodoDesde");
         }
         List<Long> ids = ProcesadorCargues.objetivosReemplazo(jdbc, c.fuente(), id, desde, hasta);
         long registros = ids.isEmpty() ? 0 : jdbc.sql("SELECT coalesce(sum(procesados), 0) FROM ana_cargues WHERE id = ANY(:ids)")

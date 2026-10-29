@@ -148,7 +148,7 @@ public class HomologacionApi {
             try {
                 corte = LocalDate.parse(fechaCorte.strip());
             } catch (DateTimeParseException e) {
-                throw ErrorNegocio.validacion("Fecha de actualización de la fuente no válida (aaaa-mm-dd).");
+                throw ErrorNegocio.validacion("Fecha de actualización de la fuente no válida (aaaa-mm-dd).", "fechaCorte");
             }
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(referencias.cargar(codigo, archivo, corte, ejemplo, quien(), Responsable.actual()));

@@ -2,7 +2,6 @@ import {
   Alert,
   Badge,
   Button,
-  Card,
   Checkbox,
   Drawer,
   FileInput,
@@ -11,7 +10,6 @@ import {
   Modal,
   Pagination,
   Progress,
-  ScrollArea,
   Select,
   SimpleGrid,
   Stack,
@@ -25,8 +23,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type ReactNode } from 'react';
-import { cifra, fechaHora } from '../analitica/cargues';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import {
   AVISO_TABLEROS,
   colorEstado,
@@ -37,7 +34,6 @@ import {
   esConflicto,
   estadoDevolucion,
   ESTADOS,
-  fechaCorta,
   fuenteTexto,
   leerEntradas,
   MAX_MOTIVO,
@@ -45,7 +41,6 @@ import {
   motivoVersion,
   NOMBRE_ESTADO,
   NOMBRE_PARAMETRO,
-  porcentaje,
   problemaCargue,
   problemaMotivo,
   problemaParametro,
@@ -66,15 +61,17 @@ import {
   type VersionFuente,
 } from '../analitica/homologacion';
 import { api, descargar, ErrorApi, subirArchivos } from '../shared/api';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { conteo, fecha as fechaCorta, fechaHora, hoyBogota, porcentaje } from '../shared/formato';
+import { Kpi } from '../shared/Kpi';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
+import { useValidacion } from '../shared/validacion';
 
 const CLAVE = ['homologacion'];
 
 function mensajeError(e: unknown, defecto: string): string {
   return e instanceof ErrorApi ? e.message : defecto;
-}
-
-function hoy(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 }
 
 /**
@@ -99,6 +96,7 @@ export function Homologacion() {
     refetchInterval: (q) => (q.state.data?.estado === 'en_curso' || siguiendo ? 1500 : false),
   });
   const enCurso = actual.data?.estado === 'en_curso';
+  const idEnCurso = useId();
   useEffect(() => {
     const a = actual.data;
     if (!siguiendo || !a || a.estado === 'en_curso') return;
@@ -124,34 +122,39 @@ export function Homologacion() {
     },
   });
   const r = resumen.data;
+  const motivoReejecutar = enCurso ? 'Ya hay una re-ejecución en curso: espere a que termine.' : null;
   return (
     <Stack>
-      <Group justify="space-between" align="flex-start">
-        <div>
-          <Title order={3}>Homologación</Title>
-          <Text size="sm" c="dimmed">
-            Homologación del insumo del OPL contra las referencias oficiales (CUM del INVIMA, CIE-10 de SISPRO y listas normativas), con reglas
-            deterministas versionadas y tabla maestra trazable. La IA solo sugiere: toda decisión es humana.
-          </Text>
-        </div>
-        <Group>
-          {r?.datosDeEjemplo && (
-            <Badge color="orange" size="lg" data-testid="datos-ejemplo">
-              Datos de ejemplo
-            </Badge>
-          )}
-          {r?.vigente && (
-            <Badge variant="light" size="lg" data-testid="version-vigente">
-              Tabla maestra v{r.vigente.numero}
-            </Badge>
-          )}
-          {r?.puedeOperar && (
-            <Button onClick={() => setConfirmar(true)} loading={reejecutar.isPending} disabled={enCurso} data-testid="reejecutar">
-              Re-ejecutar homologación
-            </Button>
-          )}
-        </Group>
-      </Group>
+      <EncabezadoPagina
+        titulo="Homologación"
+        descripcion="Homologación del insumo del OPL contra las referencias oficiales (CUM del INVIMA, CIE-10 de SISPRO y listas normativas), con reglas deterministas versionadas y tabla maestra trazable. La IA solo sugiere: toda decisión es humana."
+        fuente="Anexo 5 · 4.7.2"
+        acciones={
+          <>
+            {r?.datosDeEjemplo && (
+              <Badge color="orange" size="lg" data-testid="datos-ejemplo">
+                Datos de ejemplo
+              </Badge>
+            )}
+            {r?.vigente && (
+              <Badge variant="light" size="lg" data-testid="version-vigente">
+                Tabla maestra v{r.vigente.numero}
+              </Badge>
+            )}
+            {r?.puedeOperar && (
+              <BotonConMotivo
+                onClick={() => setConfirmar(true)}
+                loading={reejecutar.isPending}
+                motivo={motivoReejecutar}
+                idMotivo={idEnCurso}
+                data-testid="reejecutar"
+              >
+                Re-ejecutar homologación
+              </BotonConMotivo>
+            )}
+          </>
+        }
+      />
       {r?.desactualizada && (
         // Revisión A2: la homologación del cargue es incremental; los datos que ya estaban conservan su fila hasta re-ejecutar
         <Alert color="orange" title="La tabla maestra está desactualizada" data-testid="aviso-desactualizada">
@@ -159,9 +162,15 @@ export function Homologacion() {
             <Text size="sm">{r.desactualizada.motivo}</Text>
             {r.puedeOperar ? (
               <Group>
-                <Button size="xs" onClick={() => setConfirmar(true)} disabled={enCurso} data-testid="reejecutar-desactualizada">
+                <BotonConMotivo
+                  size="xs"
+                  onClick={() => setConfirmar(true)}
+                  motivo={motivoReejecutar}
+                  idMotivo={idEnCurso}
+                  data-testid="reejecutar-desactualizada"
+                >
                   Re-ejecutar la homologación
-                </Button>
+                </BotonConMotivo>
               </Group>
             ) : (
               <Text size="sm" c="dimmed">
@@ -172,7 +181,7 @@ export function Homologacion() {
         </Alert>
       )}
       {enCurso && actual.data && (
-        <Alert color="blue" data-testid="reejecucion-en-curso">
+        <Alert color="blue" data-testid="reejecucion-en-curso" id={idEnCurso}>
           <Stack gap={4}>
             <Text size="sm">
               Re-ejecución en curso ({actual.data.responsable}): {actual.data.fase ?? 'en cola'} · {actual.data.porcentaje} %
@@ -242,24 +251,26 @@ export function Homologacion() {
               Versión v{resultado.numero} creada. {resultado.cambios} datos originales cambiaron de estado ({resultado.filas} filas nuevas o
               cambiadas).
             </Text>
-            <Table withTableBorder>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Estado</Table.Th>
-                  <Table.Th ta="right">Antes</Table.Th>
-                  <Table.Th ta="right">Después</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {ESTADOS.map((e) => (
-                  <Table.Tr key={e.codigo}>
-                    <Table.Td>{e.texto}</Table.Td>
-                    <Table.Td ta="right">{cifra(resultado.antes[e.codigo])}</Table.Td>
-                    <Table.Td ta="right">{cifra(resultado.despues[e.codigo])}</Table.Td>
+            <TablaAdaptable>
+              <Table withTableBorder>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Estado</Table.Th>
+                    <Table.Th ta="right">Antes</Table.Th>
+                    <Table.Th ta="right">Después</Table.Th>
                   </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+                </Table.Thead>
+                <Table.Tbody>
+                  {ESTADOS.map((e) => (
+                    <Table.Tr key={e.codigo}>
+                      <Table.Td>{e.texto}</Table.Td>
+                      <Table.Td ta="right">{conteo(resultado.antes[e.codigo])}</Table.Td>
+                      <Table.Td ta="right">{conteo(resultado.despues[e.codigo])}</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </TablaAdaptable>
           </Stack>
         )}
       </Modal>
@@ -297,6 +308,7 @@ function PestanaCalidad({ resumen }: { resumen: Resumen | undefined }) {
   const filtro = { version: f.version ? Number(f.version) : null, cargue: f.cargue, fuente: f.fuente, desde: f.desde, hasta: f.hasta };
   const q = consultaCalidad(filtro);
   const cargueMal = problemaCargue(f.cargue);
+  const idCargue = useId();
   const calidad = useQuery({
     queryKey: [...CLAVE, 'calidad', q],
     queryFn: () => api<Calidad>('/api/homologacion/calidad' + q),
@@ -317,6 +329,7 @@ function PestanaCalidad({ resumen }: { resumen: Resumen | undefined }) {
           w={300}
         />
         <TextInput
+          id={idCargue}
           label="Cargue"
           placeholder="Todos"
           value={f.cargue}
@@ -338,20 +351,22 @@ function PestanaCalidad({ resumen }: { resumen: Resumen | undefined }) {
         />
         <TextInput label="Desde (mes)" type="month" value={f.desde} onChange={(e) => setF({ ...f, desde: e.currentTarget.value })} w={160} />
         <TextInput label="Hasta (mes)" type="month" value={f.hasta} onChange={(e) => setF({ ...f, hasta: e.currentTarget.value })} w={160} />
-        <Button
+        <BotonConMotivo
           variant="default"
-          disabled={cargueMal !== null}
+          motivo={cargueMal}
+          idMotivo={`${idCargue}-error`}
           onClick={() => exportar('/api/homologacion/calidad/exportar' + consultaCalidad({ ...filtro, formato: 'csv' }), setError)}
         >
           Exportar CSV
-        </Button>
-        <Button
+        </BotonConMotivo>
+        <BotonConMotivo
           variant="default"
-          disabled={cargueMal !== null}
+          motivo={cargueMal}
+          idMotivo={`${idCargue}-error`}
           onClick={() => exportar('/api/homologacion/calidad/exportar' + consultaCalidad({ ...filtro, formato: 'xlsx' }), setError)}
         >
           Exportar Excel
-        </Button>
+        </BotonConMotivo>
       </Group>
       {error && <Alert color="red">{error}</Alert>}
       {calidad.error && <Alert color="red">{calidad.error.message}</Alert>}
@@ -360,31 +375,30 @@ function PestanaCalidad({ resumen }: { resumen: Resumen | undefined }) {
         <>
           <SimpleGrid cols={{ base: 1, xs: 2, md: 3, lg: 6 }} data-testid="kpi-calidad">
             {c.kpis.map((k) => (
-              <Card key={k.estado} withBorder padding="sm" data-testid={`kpi-${k.estado}`}>
-                <Text size="xs" c="dimmed">
-                  {ESTADOS.find((e) => e.codigo === k.estado)?.texto ?? k.texto}
-                </Text>
-                <Text fw={700} size="xl" c={colorEstado(k.estado)} data-testid="porcentaje">
-                  {porcentaje(Number(k.porcentaje))}
-                </Text>
-                <Text size="xs">
-                  {cifra(k.registros)} registros · {cifra(k.origenes)} datos originales
-                </Text>
-              </Card>
+              <Kpi
+                key={k.estado}
+                testid={`kpi-${k.estado}`}
+                titulo={ESTADOS.find((e) => e.codigo === k.estado)?.texto ?? k.texto}
+                valor={<span data-testid="porcentaje">{porcentaje(k.porcentaje)}</span>}
+                color={colorEstado(k.estado)}
+                detalle={`${conteo(k.registros)} registros · ${conteo(k.origenes)} datos originales`}
+              />
             ))}
           </SimpleGrid>
           <Text size="sm" c="dimmed" data-testid="suma-calidad">
-            {cifra(c.registros)} registros de dispensación y {cifra(c.origenes)} datos originales distintos
+            {conteo(c.registros)} registros de dispensación y {conteo(c.origenes)} datos originales distintos
             {c.version ? ` · tabla maestra v${c.version.numero}` : ''} · suma {porcentaje(sumaPorcentajes(c.kpis))}
           </Text>
           {(c.registrosFueraDeVersion ?? 0) > 0 && (
             <Alert color="yellow" data-testid="fuera-de-version">
-              {cifra(c.registrosFueraDeVersion ?? 0)} registros tienen un dato original que no existía en la versión elegida (llegó después): no
+              {conteo(c.registrosFueraDeVersion ?? 0)} registros tienen un dato original que no existía en la versión elegida (llegó después): no
               entran en los porcentajes. Elija una versión más reciente para verlos.
             </Alert>
           )}
-          <Title order={5}>Calidad por cargue (válidos, rechazados, duplicados, consistencia y oportunidad)</Title>
-          <ScrollArea>
+          <Title order={2} size="h5">
+            Calidad por cargue (válidos, rechazados, duplicados, consistencia y oportunidad)
+          </Title>
+          <TablaAdaptable>
             <Table withTableBorder striped miw={900} data-testid="indicadores-cargue">
               <Table.Thead>
                 <Table.Tr>
@@ -404,12 +418,12 @@ function PestanaCalidad({ resumen }: { resumen: Resumen | undefined }) {
                     <Table.Td>{x.cargue}</Table.Td>
                     <Table.Td>{fechaHora(x.aplicadoEn)}</Table.Td>
                     <Table.Td>{x.fuente}</Table.Td>
-                    <Table.Td ta="right">{cifra(x.validos)}</Table.Td>
+                    <Table.Td ta="right">{conteo(x.validos)}</Table.Td>
                     <Table.Td ta="right" c={x.rechazados > 0 ? 'red' : undefined}>
-                      {cifra(x.rechazados)}
+                      {conteo(x.rechazados)}
                     </Table.Td>
-                    <Table.Td ta="right">{cifra(x.duplicados)}</Table.Td>
-                    <Table.Td ta="right">{porcentaje(Number(x.consistencia))}</Table.Td>
+                    <Table.Td ta="right">{conteo(x.duplicados)}</Table.Td>
+                    <Table.Td ta="right">{porcentaje(x.consistencia)}</Table.Td>
                     <Table.Td ta="right" c={x.oportunidadCumple === false ? 'red' : undefined}>
                       {x.oportunidadHoras === null ? '—' : `${x.oportunidadHoras} h (máx. ${c.oportunidadMaximaHoras} h)`}
                     </Table.Td>
@@ -417,7 +431,7 @@ function PestanaCalidad({ resumen }: { resumen: Resumen | undefined }) {
                 ))}
               </Table.Tbody>
             </Table>
-          </ScrollArea>
+          </TablaAdaptable>
           {c.cie10.length > 0 && (
             <Text size="sm">
               CIE-10 (códigos distintos):{' '}
@@ -459,7 +473,9 @@ function SeguimientoOpl() {
   return (
     <Stack gap="xs" data-testid="seguimiento-opl">
       <Group justify="space-between">
-        <Title order={5}>Seguimiento de las devoluciones al OPL</Title>
+        <Title order={2} size="h5">
+          Seguimiento de las devoluciones al OPL
+        </Title>
         <Button variant="default" size="xs" onClick={() => exportar('/api/homologacion/devoluciones/exportar?formato=csv', setError)}>
           Exportar para el OPL (todas)
         </Button>
@@ -470,7 +486,7 @@ function SeguimientoOpl() {
       {d && d.filas.length === 0 && <Text c="dimmed">No hay devoluciones.</Text>}
       {d && d.total > d.filas.length && (
         <Text size="sm" c="dimmed" data-testid="devoluciones-parcial">
-          Se muestran las {cifra(d.filas.length)} más recientes de {cifra(d.total)}; la exportación las trae todas.
+          Se muestran las {conteo(d.filas.length)} más recientes de {conteo(d.total)}; la exportación las trae todas.
         </Text>
       )}
       {d && d.abiertas.length > 0 && (
@@ -480,7 +496,7 @@ function SeguimientoOpl() {
         <Text size="sm">Corregidas por mes: {d.correccionesPorMes.map((a) => `${a.mes}: ${a.corregidas}`).join(' · ')}</Text>
       )}
       {d && d.filas.length > 0 && (
-        <ScrollArea>
+        <TablaAdaptable>
           <Table withTableBorder miw={800}>
             <Table.Thead>
               <Table.Tr>
@@ -507,7 +523,7 @@ function SeguimientoOpl() {
               ))}
             </Table.Tbody>
           </Table>
-        </ScrollArea>
+        </TablaAdaptable>
       )}
     </Stack>
   );
@@ -600,7 +616,7 @@ function PestanaTabla({ resumen }: { resumen: Resumen | undefined }) {
       {t && t.filas.length > 0 && (
         <>
           <Text size="sm" c="dimmed">
-            {cifra(t.total)} datos originales · tabla maestra v{t.version?.numero}
+            {conteo(t.total)} datos originales · tabla maestra v{t.version?.numero}
           </Text>
           <TablaMaestra filas={t.filas} alVer={setVer} />
           {t.paginas > 1 && <Pagination total={t.paginas} value={pagina} onChange={setPagina} />}
@@ -615,7 +631,7 @@ function PestanaTabla({ resumen }: { resumen: Resumen | undefined }) {
 
 function TablaMaestra({ filas, alVer, accion }: { filas: FilaMaestra[]; alVer: (id: number) => void; accion?: string }) {
   return (
-    <ScrollArea>
+    <TablaAdaptable>
       <Table striped withTableBorder miw={1100} data-testid="tabla-maestra">
         <Table.Thead>
           <Table.Tr>
@@ -688,7 +704,7 @@ function TablaMaestra({ filas, alVer, accion }: { filas: FilaMaestra[]; alVer: (
           ))}
         </Table.Tbody>
       </Table>
-    </ScrollArea>
+    </TablaAdaptable>
   );
 }
 
@@ -719,7 +735,9 @@ function DetalleRegistro({ origenId, version }: { origenId: number; version: num
         <Text fw={700}>{d.original.descripcion ?? d.original.cum}</Text>
         <Badge color={colorEstado(d.estado)}>{d.estadoTexto}</Badge>
       </Group>
-      <Title order={6}>Dato original (OPL)</Title>
+      <Title order={3} size="h6">
+        Dato original (OPL)
+      </Title>
       <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs">
         <Dato titulo="CUM">{d.original.cum}</Dato>
         <Dato titulo="Principio activo">{d.original.principioActivo}</Dato>
@@ -728,32 +746,40 @@ function DetalleRegistro({ origenId, version }: { origenId: number; version: num
         <Dato titulo="Presentación">{d.original.presentacion}</Dato>
         <Dato titulo="ATC">{d.original.atc}</Dato>
       </SimpleGrid>
-      <Title order={6}>Fuente consultada</Title>
+      <Title order={3} size="h6">
+        Fuente consultada
+      </Title>
       <Text size="sm">{fuenteTexto(d.fuente)}</Text>
-      <Title order={6}>Reglas aplicadas</Title>
-      <Table withTableBorder data-testid="pasos">
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Regla</Table.Th>
-            <Table.Th>Antes</Table.Th>
-            <Table.Th>Después</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {d.reglasAplicadas.map((p, i) => (
-            <Table.Tr key={i}>
-              <Table.Td>{p.regla}</Table.Td>
-              <Table.Td>{p.antes}</Table.Td>
-              <Table.Td>{p.despues}</Table.Td>
+      <Title order={3} size="h6">
+        Reglas aplicadas
+      </Title>
+      <TablaAdaptable>
+        <Table withTableBorder data-testid="pasos">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Regla</Table.Th>
+              <Table.Th>Antes</Table.Th>
+              <Table.Th>Después</Table.Th>
             </Table.Tr>
-          ))}
-          <Table.Tr>
-            <Table.Td fw={700}>{d.regla}</Table.Td>
-            <Table.Td colSpan={2}>{d.causa ?? 'Decide el estado'}</Table.Td>
-          </Table.Tr>
-        </Table.Tbody>
-      </Table>
-      <Title order={6}>Dato homologado</Title>
+          </Table.Thead>
+          <Table.Tbody>
+            {d.reglasAplicadas.map((p, i) => (
+              <Table.Tr key={i}>
+                <Table.Td>{p.regla}</Table.Td>
+                <Table.Td>{p.antes}</Table.Td>
+                <Table.Td>{p.despues}</Table.Td>
+              </Table.Tr>
+            ))}
+            <Table.Tr>
+              <Table.Td fw={700}>{d.regla}</Table.Td>
+              <Table.Td colSpan={2}>{d.causa ?? 'Decide el estado'}</Table.Td>
+            </Table.Tr>
+          </Table.Tbody>
+        </Table>
+      </TablaAdaptable>
+      <Title order={3} size="h6">
+        Dato homologado
+      </Title>
       <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs">
         <Dato titulo="DCI">{d.final?.dci}</Dato>
         <Dato titulo="Nombre comercial">{d.final?.nombreComercial}</Dato>
@@ -766,33 +792,35 @@ function DetalleRegistro({ origenId, version }: { origenId: number; version: num
         <Dato titulo="Registro sanitario">{d.final?.registroSanitario}</Dato>
       </SimpleGrid>
       <Text size="sm">
-        {cifra(d.registros)} registros de dispensación aplicados usan este dato · versión v{d.version.numero}
+        {conteo(d.registros)} registros de dispensación aplicados usan este dato · versión v{d.version.numero}
       </Text>
       {d.cargues.length > 0 && (
-        <Table withTableBorder>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Cargue</Table.Th>
-              <Table.Th>Fuente</Table.Th>
-              <Table.Th>Aplicado</Table.Th>
-              <Table.Th ta="right">Registros</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {d.cargues.map((c) => (
-              <Table.Tr key={c.cargue}>
-                <Table.Td>{c.cargue}</Table.Td>
-                <Table.Td>{c.fuente}</Table.Td>
-                <Table.Td>{fechaHora(c.aplicadoEn)}</Table.Td>
-                <Table.Td ta="right">{cifra(c.registros)}</Table.Td>
+        <TablaAdaptable>
+          <Table withTableBorder>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Cargue</Table.Th>
+                <Table.Th>Fuente</Table.Th>
+                <Table.Th>Aplicado</Table.Th>
+                <Table.Th ta="right">Registros</Table.Th>
               </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+            </Table.Thead>
+            <Table.Tbody>
+              {d.cargues.map((c) => (
+                <Table.Tr key={c.cargue}>
+                  <Table.Td>{c.cargue}</Table.Td>
+                  <Table.Td>{c.fuente}</Table.Td>
+                  <Table.Td>{fechaHora(c.aplicadoEn)}</Table.Td>
+                  <Table.Td ta="right">{conteo(c.registros)}</Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </TablaAdaptable>
       )}
       {(d.carguesTotal ?? 0) > d.cargues.length && (
         <Text size="xs" c="dimmed">
-          Se muestran los {d.cargues.length} cargues más recientes de {cifra(d.carguesTotal ?? 0)}.
+          Se muestran los {d.cargues.length} cargues más recientes de {conteo(d.carguesTotal ?? 0)}.
         </Text>
       )}
       {d.revisiones.length > 0 && (
@@ -841,7 +869,7 @@ function PestanaRevision() {
       {t && t.filas.length > 0 && (
         <>
           <Text size="sm" c="dimmed">
-            {cifra(t.total)} datos originales por revisar
+            {conteo(t.total)} datos originales por revisar
           </Text>
           <TablaMaestra filas={t.filas} alVer={setRevisar} accion="Revisar" />
           {t.paginas > 1 && <Pagination total={t.paginas} value={pagina} onChange={setPagina} />}
@@ -860,7 +888,11 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
   const [cum, setCum] = useState<string | null>(null);
   const [motivo, setMotivo] = useState('');
   const [devolviendo, setDevolviendo] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const v = useValidacion({ etiquetas: { cum: 'CUM del INVIMA para aprobar', motivo: 'Motivo de la devolución' }, testid: 'error-revision' });
+  const idCambio = useId();
+  const idDevolver = useId();
+  const idAprobar = useId();
+  const idExigeCum = useId();
   const [cambio, setCambio] = useState(false);
   const [sugerencia, setSugerencia] = useState<{ mensaje: string; sugerencia?: { cum: string; justificacion: string } | null } | null>(null);
   const terminar = () => {
@@ -871,15 +903,15 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
   const fallo = (e: unknown, defecto: string) => {
     if (esConflicto(e)) {
       setCambio(true);
-      setError(null);
+      v.reiniciar();
       return;
     }
-    setError(mensajeError(e, defecto));
+    v.errorServidor(e, defecto);
   };
   const version = q.data?.version;
   const aprobar = useMutation({
     mutationFn: () => api(`/api/homologacion/revision/${origenId}/aprobar`, { metodo: 'POST', cuerpo: cum ? { cum, version } : { version } }),
-    onMutate: () => setError(null),
+    onMutate: () => v.reiniciar(),
     onSuccess: () => {
       notifications.show({ color: 'green', message: mensajeRevision('aprobar') });
       terminar();
@@ -888,7 +920,7 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
   });
   const devolver = useMutation({
     mutationFn: () => api(`/api/homologacion/revision/${origenId}/devolver`, { metodo: 'POST', cuerpo: { motivo, version } }),
-    onMutate: () => setError(null),
+    onMutate: () => v.reiniciar(),
     onSuccess: () => {
       notifications.show({ color: 'green', message: mensajeRevision('devolver') });
       terminar();
@@ -901,7 +933,7 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
         metodo: 'POST',
       }),
     onSuccess: setSugerencia,
-    onError: (e) => setError(mensajeError(e, 'No se pudo pedir la sugerencia.')),
+    onError: (e) => v.errorServidor(e, 'No se pudo pedir la sugerencia.'),
   });
   const c = q.data;
   if (q.error) return <Alert color="red">{mensajeError(q.error, 'No se pudo abrir el registro.')}</Alert>;
@@ -909,8 +941,17 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
   const problema = problemaMotivo(motivo);
   const ocupado = aprobar.isPending || devolver.isPending || pedirSugerencia.isPending;
   const faltaCum = c.exigeCum === true && !cum;
+  const motivoCambio = cambio ? 'La tabla maestra cambió: vuelva a abrir el registro.' : null;
+  const motivoDevolver = motivoCambio ?? (problema !== null ? `Motivo de la devolución: ${problema}` : null);
+  const motivoAprobar =
+    motivoCambio ??
+    (c.estado === 'homologado'
+      ? 'El registro ya está homologado.'
+      : faltaCum
+        ? 'Elija un CUM vigente del INVIMA para aprobar (registro no válido).'
+        : null);
   return (
-    <Stack data-testid="revision">
+    <Stack data-testid="revision" ref={v.ref}>
       <Group justify="space-between">
         <Text fw={700}>{c.descripcion ?? `Dato ${c.origenId}`}</Text>
         <Badge color={colorEstado(c.estado)}>{NOMBRE_ESTADO[c.estado]}</Badge>
@@ -919,7 +960,7 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
         {c.regla} · {c.causa} · tabla maestra v{c.version}
       </Text>
       {cambio && (
-        <Alert color="orange" data-testid="revision-cambio">
+        <Alert color="orange" data-testid="revision-cambio" id={idCambio}>
           <Group justify="space-between">
             <Text size="sm">La tabla maestra cambió desde que abrió el registro; vuelva a abrirlo y revise de nuevo.</Text>
             <Button
@@ -936,45 +977,51 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
           </Group>
         </Alert>
       )}
-      <Table withTableBorder data-testid="comparacion">
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Campo</Table.Th>
-            <Table.Th>OPL</Table.Th>
-            <Table.Th>INVIMA</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {c.campos.map((x) => (
-            <Table.Tr
-              key={x.campo}
-              style={x.distinto ? { background: 'var(--mantine-color-orange-light)' } : undefined}
-              data-distinto={x.distinto}
-              aria-label={x.distinto ? `${x.campo}: distinto entre el OPL y el INVIMA` : undefined}
-            >
-              <Table.Td>
-                <Group gap={6} wrap="nowrap">
-                  <span>{x.campo}</span>
-                  {x.distinto && (
-                    <Badge color="orange" variant="outline" size="sm" data-testid="campo-distinto">
-                      ≠ Distinto
-                    </Badge>
-                  )}
-                </Group>
-              </Table.Td>
-              <Table.Td>{x.opl ?? '—'}</Table.Td>
-              <Table.Td>{x.invima ?? '—'}</Table.Td>
+      <TablaAdaptable>
+        <Table withTableBorder data-testid="comparacion">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Campo</Table.Th>
+              <Table.Th>OPL</Table.Th>
+              <Table.Th>INVIMA</Table.Th>
             </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
+          </Table.Thead>
+          <Table.Tbody>
+            {c.campos.map((x) => (
+              <Table.Tr
+                key={x.campo}
+                style={x.distinto ? { background: 'var(--lume-warning-bg)' } : undefined}
+                data-distinto={x.distinto}
+                aria-label={x.distinto ? `${x.campo}: distinto entre el OPL y el INVIMA` : undefined}
+              >
+                <Table.Td>
+                  <Group gap={6} wrap="nowrap">
+                    <span>{x.campo}</span>
+                    {x.distinto && (
+                      <Badge color="orange" variant="outline" size="sm" data-testid="campo-distinto">
+                        ≠ Distinto
+                      </Badge>
+                    )}
+                  </Group>
+                </Table.Td>
+                <Table.Td>{x.opl ?? '—'}</Table.Td>
+                <Table.Td>{x.invima ?? '—'}</Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      </TablaAdaptable>
       {c.candidatos.length > 0 && (
         <Select
           label={c.exigeCum ? 'CUM vigente del INVIMA para aprobar (obligatorio: registro no válido)' : 'CUM del INVIMA para aprobar (opcional)'}
           placeholder={c.exigeCum ? 'Elija un CUM vigente' : 'El del INVIMA de la comparación'}
           clearable
           value={cum}
-          onChange={setCum}
+          onChange={(x) => {
+            setCum(x);
+            v.limpiar('cum');
+          }}
+          error={v.error('cum')}
           data={c.candidatos.map((x) => ({
             value: x.cum,
             label: `${x.cum} · ${x.producto ?? ''} · ${x.principios ?? ''} · ${x.forma ?? ''} (${x.conjunto})`,
@@ -982,7 +1029,7 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
         />
       )}
       {faltaCum && (
-        <Text size="sm" c="orange" data-testid="exige-cum">
+        <Text size="sm" c="orange" data-testid="exige-cum" id={idExigeCum}>
           El registro tiene «CUM o registro no válido»: para aprobarlo elija un CUM vigente del INVIMA.
         </Text>
       )}
@@ -1004,7 +1051,7 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
           Sin sugerencia automática
         </Text>
       )}
-      {error && <Alert color="red">{error}</Alert>}
+      {v.resumen}
       <Text size="sm" c="dimmed" data-testid="aviso-tableros">
         Al aprobar o devolver: {AVISO_TABLEROS}.
       </Text>
@@ -1014,26 +1061,59 @@ function Revision({ origenId, alTerminar }: { origenId: number; alTerminar: () =
           description="Describa el problema del dato del medicamento. No escriba datos de pacientes (nombres, documentos, teléfonos ni correos)."
           value={motivo}
           maxLength={MAX_MOTIVO}
-          onChange={(e) => setMotivo(e.currentTarget.value)}
-          error={motivo !== '' ? problema : null}
+          onChange={(e) => {
+            setMotivo(e.currentTarget.value);
+            v.limpiar('motivo');
+          }}
+          error={(motivo !== '' ? problema : null) ?? v.error('motivo')}
           autosize
           minRows={2}
           data-testid="motivo"
         />
       )}
       <Group justify="flex-end">
-        {!devolviendo ? (
-          <Button variant="default" color="red" onClick={() => setDevolviendo(true)} disabled={ocupado || cambio}>
-            Devolver al OPL
-          </Button>
-        ) : (
-          <Button color="red" disabled={problema !== null || ocupado || cambio} loading={devolver.isPending} onClick={() => devolver.mutate()}>
-            Confirmar devolución
-          </Button>
+        {devolviendo && motivoDevolver && (
+          <Text size="sm" c="dimmed" id={idDevolver}>
+            {motivoDevolver}
+          </Text>
         )}
-        <Button onClick={() => aprobar.mutate()} loading={aprobar.isPending} disabled={c.estado === 'homologado' || ocupado || cambio || faltaCum}>
+        {motivoAprobar && !(faltaCum && !cambio) && (
+          <Text size="sm" c="dimmed" id={idAprobar}>
+            {motivoAprobar}
+          </Text>
+        )}
+        {!devolviendo ? (
+          <BotonConMotivo
+            variant="default"
+            color="red"
+            onClick={() => setDevolviendo(true)}
+            disabled={ocupado}
+            motivo={motivoCambio}
+            idMotivo={idCambio}
+          >
+            Devolver al OPL
+          </BotonConMotivo>
+        ) : (
+          <BotonConMotivo
+            color="red"
+            disabled={ocupado && !devolver.isPending}
+            motivo={motivoDevolver}
+            idMotivo={idDevolver}
+            loading={devolver.isPending}
+            onClick={() => devolver.mutate()}
+          >
+            Confirmar devolución
+          </BotonConMotivo>
+        )}
+        <BotonConMotivo
+          onClick={() => aprobar.mutate()}
+          loading={aprobar.isPending}
+          disabled={ocupado && !aprobar.isPending}
+          motivo={motivoAprobar}
+          idMotivo={faltaCum && !cambio ? idExigeCum : idAprobar}
+        >
           Aprobar homologación
-        </Button>
+        </BotonConMotivo>
       </Group>
     </Stack>
   );
@@ -1054,7 +1134,7 @@ function PestanaReglas({ puedeOperar }: { puedeOperar: boolean }) {
         Los cambios crean una versión nueva de la regla o del catálogo con su traza (usuario, fecha, valor anterior y nuevo). Lo ya homologado no
         cambia hasta «Re-ejecutar homologación».
       </Text>
-      <ScrollArea>
+      <TablaAdaptable>
         <Table withTableBorder striped miw={800} data-testid="reglas">
           <Table.Thead>
             <Table.Tr>
@@ -1094,8 +1174,10 @@ function PestanaReglas({ puedeOperar }: { puedeOperar: boolean }) {
             ))}
           </Table.Tbody>
         </Table>
-      </ScrollArea>
-      <Title order={5}>Catálogos</Title>
+      </TablaAdaptable>
+      <Title order={2} size="h5">
+        Catálogos
+      </Title>
       <Group>
         {d.catalogos.map((c) => (
           <Button key={c.tipo} variant="default" onClick={() => setCatalogo(c.tipo)} data-testid={`catalogo-${c.tipo}`}>
@@ -1103,8 +1185,10 @@ function PestanaReglas({ puedeOperar }: { puedeOperar: boolean }) {
           </Button>
         ))}
       </Group>
-      <Title order={5}>Historial de cambios</Title>
-      <ScrollArea>
+      <Title order={2} size="h5">
+        Historial de cambios
+      </Title>
+      <TablaAdaptable>
         <Table withTableBorder miw={800} data-testid="historial">
           <Table.Thead>
             <Table.Tr>
@@ -1135,7 +1219,7 @@ function PestanaReglas({ puedeOperar }: { puedeOperar: boolean }) {
             ))}
           </Table.Tbody>
         </Table>
-      </ScrollArea>
+      </TablaAdaptable>
       <Modal opened={editar !== null} onClose={() => setEditar(null)} title={editar ? `Modificar ${editar.id}` : ''}>
         {editar && <EditarRegla regla={editar} alTerminar={() => setEditar(null)} />}
       </Modal>
@@ -1151,64 +1235,94 @@ function EditarRegla({ regla, alTerminar }: { regla: Regla; alTerminar: () => vo
   const [activa, setActiva] = useState(regla.activa);
   const [orden, setOrden] = useState(String(regla.orden));
   const [parametros, setParametros] = useState<Record<string, string>>(Object.fromEntries(regla.admite.map((p) => [p, regla.parametros[p] ?? '0'])));
-  const [error, setError] = useState<string | null>(null);
-  const [conflicto, setConflicto] = useState(false);
+  const [conflicto, setConflicto] = useState<string | null>(null);
+  const v = useValidacion({
+    etiquetas: { orden: 'Orden', ...Object.fromEntries(regla.admite.map((p) => [p, NOMBRE_PARAMETRO[p] ?? p])) },
+    testid: 'error-regla',
+  });
+  const idMotivo = useId();
   // Se envía la versión de la regla que se abrió: si otra persona la cambió entretanto, 409 y se ofrece recargar
   const guardar = useMutation({
     mutationFn: () =>
       api(`/api/homologacion/reglas/${regla.id}`, { metodo: 'PUT', cuerpo: { activa, orden: Number(orden), parametros, version: regla.version } }),
-    onMutate: () => setError(null),
+    onMutate: () => v.reiniciar(),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: CLAVE });
       alTerminar();
     },
     onError: (e) => {
-      setConflicto(esConflicto(e));
-      setError(mensajeError(e, 'No se pudo guardar la regla.'));
+      if (esConflicto(e)) setConflicto(mensajeError(e, 'La regla cambió.'));
+      else v.errorServidor(e, 'No se pudo guardar la regla.');
     },
   });
   const problemas = Object.entries(parametros)
     .map(([k, v]) => problemaParametro(k, v))
     .filter((x): x is string => x !== null);
   const ordenValido = /^\d+$/.test(orden) && Number(orden) >= 1 && Number(orden) <= 999;
+  const motivo = conflicto
+    ? 'La regla cambió mientras la editaba: recárguela.'
+    : problemas.length > 0 || !ordenValido
+      ? 'Corrija los campos marcados.'
+      : null;
   return (
-    <Stack data-testid="editar-regla">
+    <Stack data-testid="editar-regla" ref={v.ref}>
       <Text size="sm">{regla.nombre}</Text>
-      <Switch label="Activa" checked={activa} disabled={regla.obligatoria} onChange={(e) => setActiva(e.currentTarget.checked)} />
-      <TextInput label="Orden" value={orden} onChange={(e) => setOrden(e.currentTarget.value)} error={ordenValido ? null : 'Entre 1 y 999'} />
+      <Switch
+        label="Activa"
+        description={regla.obligatoria ? 'Regla obligatoria: no se puede desactivar.' : undefined}
+        checked={activa}
+        disabled={regla.obligatoria}
+        onChange={(e) => setActiva(e.currentTarget.checked)}
+      />
+      <TextInput
+        label="Orden"
+        value={orden}
+        onChange={(e) => {
+          setOrden(e.currentTarget.value);
+          v.limpiar('orden');
+        }}
+        error={(ordenValido ? null : 'Entre 1 y 999') ?? v.error('orden')}
+      />
       {regla.admite.map((p) => (
         <TextInput
           key={p}
           label={NOMBRE_PARAMETRO[p] ?? p}
           value={parametros[p] ?? ''}
-          onChange={(e) => setParametros({ ...parametros, [p]: e.currentTarget.value })}
-          error={problemaParametro(p, parametros[p] ?? '')}
+          onChange={(e) => {
+            setParametros({ ...parametros, [p]: e.currentTarget.value });
+            v.limpiar(p);
+          }}
+          error={problemaParametro(p, parametros[p] ?? '') ?? v.error(p)}
           data-testid={`parametro-${p}`}
         />
       ))}
-      {error && (
-        <Alert color={conflicto ? 'orange' : 'red'} data-testid={conflicto ? 'regla-conflicto' : undefined}>
+      {conflicto && (
+        <Alert color="orange" data-testid="regla-conflicto">
           <Group justify="space-between">
-            <Text size="sm">{error}</Text>
-            {conflicto && (
-              <Button
-                size="xs"
-                variant="light"
-                onClick={() => {
-                  qc.invalidateQueries({ queryKey: CLAVE });
-                  alTerminar();
-                }}
-              >
-                Recargar
-              </Button>
-            )}
+            <Text size="sm">{conflicto}</Text>
+            <Button
+              size="xs"
+              variant="light"
+              onClick={() => {
+                qc.invalidateQueries({ queryKey: CLAVE });
+                alTerminar();
+              }}
+            >
+              Recargar
+            </Button>
           </Group>
         </Alert>
       )}
+      {v.resumen}
       <Group justify="flex-end">
-        <Button onClick={() => guardar.mutate()} loading={guardar.isPending} disabled={problemas.length > 0 || !ordenValido || conflicto}>
+        {motivo && (
+          <Text size="sm" c="dimmed" id={idMotivo}>
+            {motivo}
+          </Text>
+        )}
+        <BotonConMotivo onClick={() => guardar.mutate()} loading={guardar.isPending} motivo={motivo} idMotivo={idMotivo}>
           Guardar
-        </Button>
+        </BotonConMotivo>
       </Group>
     </Stack>
   );
@@ -1221,20 +1335,21 @@ function EditarCatalogo({ tipo, puedeOperar, alTerminar }: { tipo: string; puede
     queryFn: () => api<{ tipo: string; nombre: string; version: number; entradas: EntradaCatalogo[] }>(`/api/homologacion/catalogos/${tipo}`),
   });
   const [texto, setTexto] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [conflicto, setConflicto] = useState(false);
+  const [conflicto, setConflicto] = useState<string | null>(null);
+  const v = useValidacion({ etiquetas: { entradas: 'Entradas del catálogo' }, testid: 'error-catalogo' });
+  const idMotivo = useId();
   // Se envía la versión del catálogo que se abrió: si otra persona lo cambió entretanto, 409 y se ofrece recargar
   const guardar = useMutation({
     mutationFn: (entradas: EntradaCatalogo[]) =>
       api(`/api/homologacion/catalogos/${tipo}`, { metodo: 'PUT', cuerpo: { entradas, version: q.data?.version } }),
-    onMutate: () => setError(null),
+    onMutate: () => v.reiniciar(),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: CLAVE });
       alTerminar();
     },
     onError: (e) => {
-      setConflicto(esConflicto(e));
-      setError(mensajeError(e, 'No se pudo guardar el catálogo.'));
+      if (esConflicto(e)) setConflicto(mensajeError(e, 'El catálogo cambió.'));
+      else v.errorServidor(e, 'No se pudo guardar el catálogo.');
     },
   });
   const c = q.data;
@@ -1242,8 +1357,15 @@ function EditarCatalogo({ tipo, puedeOperar, alTerminar }: { tipo: string; puede
   if (!c) return <Loader />;
   const actual = texto ?? escribirEntradas(tipo, c.entradas);
   const leido = leerEntradas(tipo, actual);
+  const motivo = conflicto
+    ? 'El catálogo cambió mientras lo editaba: recárguelo.'
+    : leido.errores.length > 0
+      ? 'Corrija las entradas indicadas.'
+      : texto === null
+        ? 'No hay cambios en el catálogo.'
+        : null;
   return (
-    <Stack>
+    <Stack ref={v.ref}>
       <Text fw={600}>
         {c.nombre} · versión {c.version}
       </Text>
@@ -1253,7 +1375,12 @@ function EditarCatalogo({ tipo, puedeOperar, alTerminar }: { tipo: string; puede
       </Text>
       <Textarea
         value={actual}
-        onChange={(e) => setTexto(e.currentTarget.value)}
+        onChange={(e) => {
+          setTexto(e.currentTarget.value);
+          v.limpiar('entradas');
+        }}
+        aria-label="Entradas del catálogo"
+        error={v.error('entradas')}
         autosize
         minRows={8}
         maxRows={20}
@@ -1261,36 +1388,36 @@ function EditarCatalogo({ tipo, puedeOperar, alTerminar }: { tipo: string; puede
         data-testid="catalogo-texto"
       />
       {leido.errores.length > 0 && <Alert color="yellow">{leido.errores.slice(0, 5).join(' · ')}</Alert>}
-      {error && (
-        <Alert color={conflicto ? 'orange' : 'red'} data-testid={conflicto ? 'catalogo-conflicto' : undefined}>
+      {conflicto && (
+        <Alert color="orange" data-testid="catalogo-conflicto">
           <Group justify="space-between">
-            <Text size="sm">{error}</Text>
-            {conflicto && (
-              <Button
-                size="xs"
-                variant="light"
-                onClick={() => {
-                  setConflicto(false);
-                  setError(null);
-                  setTexto(null);
-                  qc.invalidateQueries({ queryKey: [...CLAVE, 'catalogo', tipo] });
-                }}
-              >
-                Recargar
-              </Button>
-            )}
+            <Text size="sm">{conflicto}</Text>
+            <Button
+              size="xs"
+              variant="light"
+              onClick={() => {
+                setConflicto(null);
+                v.reiniciar();
+                setTexto(null);
+                qc.invalidateQueries({ queryKey: [...CLAVE, 'catalogo', tipo] });
+              }}
+            >
+              Recargar
+            </Button>
           </Group>
         </Alert>
       )}
+      {v.resumen}
       {puedeOperar && (
         <Group justify="flex-end">
-          <Button
-            disabled={leido.errores.length > 0 || texto === null || conflicto}
-            loading={guardar.isPending}
-            onClick={() => guardar.mutate(leido.entradas)}
-          >
+          {motivo && (
+            <Text size="sm" c="dimmed" id={idMotivo}>
+              {motivo}
+            </Text>
+          )}
+          <BotonConMotivo motivo={motivo} idMotivo={idMotivo} loading={guardar.isPending} onClick={() => guardar.mutate(leido.entradas)}>
             Guardar versión nueva
-          </Button>
+          </BotonConMotivo>
         </Group>
       )}
     </Stack>
@@ -1331,7 +1458,7 @@ function PestanaFuentes({ puedeOperar }: { puedeOperar: boolean }) {
         consulta internet durante la homologación. Una versión validada solo entra en uso al publicarla.
       </Text>
       {error && <Alert color="red">{error}</Alert>}
-      <ScrollArea>
+      <TablaAdaptable>
         <Table withTableBorder striped miw={1000} data-testid="fuentes">
           <Table.Thead>
             <Table.Tr>
@@ -1363,7 +1490,7 @@ function PestanaFuentes({ puedeOperar }: { puedeOperar: boolean }) {
                   {f.publicada ? (
                     <Stack gap={2}>
                       <Text size="sm">
-                        v{f.publicada.numero} · corte {fechaCorta(f.publicada.fechaCorte)} · {cifra(f.publicada.filasValidas)} registros
+                        v{f.publicada.numero} · corte {fechaCorta(f.publicada.fechaCorte)} · {conteo(f.publicada.filasValidas)} registros
                       </Text>
                       {f.publicada.ejemplo && (
                         <Badge size="xs" color="orange">
@@ -1418,13 +1545,13 @@ function PestanaFuentes({ puedeOperar }: { puedeOperar: boolean }) {
             ))}
           </Table.Tbody>
         </Table>
-      </ScrollArea>
+      </TablaAdaptable>
       <Modal opened={porPublicar !== null} onClose={() => setPorPublicar(null)} title="Publicar la versión">
         {porPublicar && (
           <Stack data-testid="confirmar-publicar">
             <Text size="sm">
               {porPublicar.fuente.nombre}: la versión v{porPublicar.version.numero} (corte {fechaCorta(porPublicar.version.fechaCorte)},{' '}
-              {cifra(porPublicar.version.filasValidas)} registros) pasa a ser la vigente
+              {conteo(porPublicar.version.filasValidas)} registros) pasa a ser la vigente
               {porPublicar.fuente.publicada ? ` y la v${porPublicar.fuente.publicada.numero} queda «reemplazada»` : ''}. La usan los cargues y las
               re-ejecuciones siguientes.
             </Text>
@@ -1451,41 +1578,60 @@ function PestanaFuentes({ puedeOperar }: { puedeOperar: boolean }) {
 
 function CargarFuente({ fuente, alTerminar }: { fuente: Fuente; alTerminar: () => void }) {
   const [archivo, setArchivo] = useState<File | null>(null);
-  const [fecha, setFecha] = useState('');
+  const [fechaCorte, setFechaCorte] = useState('');
   const [ejemplo, setEjemplo] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const v = useValidacion({
+    etiquetas: { archivo: 'Archivo descargado', fechaCorte: 'Fecha de actualización de la fuente' },
+    testid: 'error-cargar-fuente',
+  });
+  const idMotivo = useId();
   const [resultado, setResultado] = useState<VersionFuente | null>(null);
   const subir = useMutation({
     onMutate: () => {
       setResultado(null);
-      setError(null);
+      v.reiniciar();
     },
     mutationFn: () =>
       subirArchivos<VersionFuente>(
         `/api/homologacion/fuentes/${fuente.codigo}/versiones`,
-        { fechaCorte: fecha, ejemplo: String(ejemplo) },
+        { fechaCorte, ejemplo: String(ejemplo) },
         archivo ? [archivo] : [],
         'archivo',
       ),
-    onSuccess: (v) => {
-      setResultado(v);
-      setError(null);
+    onSuccess: (x) => {
+      setResultado(x);
+      v.reiniciar();
       alTerminar();
     },
     onError: (e) => {
-      setError(mensajeError(e, 'No se pudo cargar el archivo.'));
+      v.errorServidor(e, 'No se pudo cargar el archivo.');
       alTerminar();
     },
   });
-  const problemas = problemasCarga(archivo, fecha, hoy());
+  const problemas = problemasCarga(archivo, fechaCorte, hoyBogota());
+  const motivo = problemas.length > 0 ? problemas.join(' ') : null;
   return (
-    <Stack data-testid="cargar-fuente">
-      <FileInput label="Archivo descargado" placeholder="CSV, TXT, xlsx, .gz o .zip" value={archivo} onChange={setArchivo} clearable />
+    <Stack data-testid="cargar-fuente" ref={v.ref}>
+      <FileInput
+        label="Archivo descargado"
+        placeholder="CSV, TXT, xlsx, .gz o .zip"
+        value={archivo}
+        onChange={(f) => {
+          setArchivo(f);
+          v.limpiar('archivo');
+        }}
+        error={v.error('archivo')}
+        clearable
+      />
       <TextInput
         label="Fecha de actualización de la fuente"
         type="date"
-        value={fecha}
-        onChange={(e) => setFecha(e.currentTarget.value)}
+        value={fechaCorte}
+        onChange={(e) => {
+          setFechaCorte(e.currentTarget.value);
+          v.limpiar('fechaCorte');
+        }}
+        error={v.error('fechaCorte')}
         description="rowsUpdatedAt de datos.gov.co o la mayor Fecha_Actualizacion de SISPRO"
       />
       <Checkbox
@@ -1493,11 +1639,10 @@ function CargarFuente({ fuente, alTerminar }: { fuente: Fuente; alTerminar: () =
         checked={ejemplo}
         onChange={(e) => setEjemplo(e.currentTarget.checked)}
       />
-      {problemas.length > 0 && (archivo || fecha) && <Alert color="yellow">{problemas.join(' ')}</Alert>}
-      {error && <Alert color="red">{error}</Alert>}
+      {v.resumen}
       {resultado && (
         <Alert color="green" title={`Versión ${resultado.numero} ${resultado.estado}`}>
-          {cifra(resultado.filasLeidas)} filas leídas · {cifra(resultado.filasValidas)} registros. Revise el informe y publíquela en la tabla de
+          {conteo(resultado.filasLeidas)} filas leídas · {conteo(resultado.filasValidas)} registros. Revise el informe y publíquela en la tabla de
           fuentes.
           <Stack gap={0} mt={4} data-testid="informe-version">
             {Object.entries(resultado.informe).map(([k, v]) => (
@@ -1509,9 +1654,14 @@ function CargarFuente({ fuente, alTerminar }: { fuente: Fuente; alTerminar: () =
         </Alert>
       )}
       <Group justify="flex-end">
-        <Button onClick={() => subir.mutate()} disabled={problemas.length > 0} loading={subir.isPending}>
+        {motivo && (
+          <Text size="sm" c={archivo || fechaCorte ? 'orange' : 'dimmed'} id={idMotivo}>
+            {motivo}
+          </Text>
+        )}
+        <BotonConMotivo onClick={() => subir.mutate()} motivo={motivo} idMotivo={idMotivo} loading={subir.isPending}>
           Cargar y validar
-        </Button>
+        </BotonConMotivo>
       </Group>
     </Stack>
   );
@@ -1527,7 +1677,8 @@ function EditarLista({ fuente, puedeOperar, alTerminar }: { fuente: Fuente; pued
       ),
   });
   const [filas, setFilas] = useState<Array<{ principioActivo: string; norma: string; fechaNorma: string; observacion: string }> | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const v = useValidacion({ testid: 'error-lista' });
+  const idMotivo = useId();
   const guardar = useMutation({
     mutationFn: () =>
       api(`/api/homologacion/fuentes/${fuente.codigo}/lista`, {
@@ -1538,7 +1689,7 @@ function EditarLista({ fuente, puedeOperar, alTerminar }: { fuente: Fuente; pued
       qc.invalidateQueries({ queryKey: CLAVE });
       alTerminar();
     },
-    onError: (e) => setError(mensajeError(e, 'No se pudo guardar la lista.')),
+    onError: (e) => v.errorServidor(e, 'No se pudo guardar la lista.'),
   });
   if (q.error) return <Alert color="red">{mensajeError(q.error, 'No se pudo leer la lista.')}</Alert>;
   if (!q.data) return <Loader />;
@@ -1547,7 +1698,7 @@ function EditarLista({ fuente, puedeOperar, alTerminar }: { fuente: Fuente; pued
     q.data.map((f) => ({ principioActivo: f.principioActivo, norma: f.norma, fechaNorma: f.fechaNorma ?? '', observacion: f.observacion ?? '' }));
   const cambiar = (i: number, campo: string, valor: string) => setFilas(actuales.map((f, k) => (k === i ? { ...f, [campo]: valor } : f)));
   return (
-    <Stack data-testid="editar-lista">
+    <Stack data-testid="editar-lista" ref={v.ref}>
       {actuales.map((f, i) => (
         <Group key={i} align="end" wrap="wrap">
           <TextInput
@@ -1573,15 +1724,27 @@ function EditarLista({ fuente, puedeOperar, alTerminar }: { fuente: Fuente; pued
           )}
         </Group>
       ))}
-      {error && <Alert color="red">{error}</Alert>}
+      {v.resumen}
       {puedeOperar && (
         <Group justify="space-between">
           <Button variant="default" onClick={() => setFilas([...actuales, { principioActivo: '', norma: '', fechaNorma: '', observacion: '' }])}>
             Agregar principio activo
           </Button>
-          <Button onClick={() => guardar.mutate()} loading={guardar.isPending} disabled={filas === null}>
-            Guardar versión nueva
-          </Button>
+          <Group gap="sm">
+            {filas === null && (
+              <Text size="sm" c="dimmed" id={idMotivo}>
+                No hay cambios en la lista.
+              </Text>
+            )}
+            <BotonConMotivo
+              onClick={() => guardar.mutate()}
+              loading={guardar.isPending}
+              motivo={filas === null ? 'No hay cambios en la lista.' : null}
+              idMotivo={idMotivo}
+            >
+              Guardar versión nueva
+            </BotonConMotivo>
+          </Group>
         </Group>
       )}
     </Stack>
@@ -1595,7 +1758,7 @@ function PestanaTrazabilidad() {
   if (q.error) return <Alert color="red">{q.error.message}</Alert>;
   if (!q.data) return <Loader />;
   return (
-    <ScrollArea>
+    <TablaAdaptable>
       <Table withTableBorder striped miw={900} data-testid="trazabilidad">
         <Table.Thead>
           <Table.Tr>
@@ -1619,6 +1782,6 @@ function PestanaTrazabilidad() {
           ))}
         </Table.Tbody>
       </Table>
-    </ScrollArea>
+    </TablaAdaptable>
   );
 }

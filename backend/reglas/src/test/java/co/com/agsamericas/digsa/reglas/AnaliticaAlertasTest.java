@@ -155,13 +155,23 @@ class AnaliticaAlertasTest {
         m.put("baja", "20");
         assertThat(AnaliticaAlertas.leer(Tipo.INCREMENTO_GASTO, m).baja()).isEqualByComparingTo("20");
         m.put("media", "10");
-        assertThatThrownBy(() -> AnaliticaAlertas.leer(Tipo.INCREMENTO_GASTO, m)).hasMessageContaining("crecientes");
+        assertThatThrownBy(() -> AnaliticaAlertas.leer(Tipo.INCREMENTO_GASTO, m)).hasMessageContaining("crecientes")
+                .isInstanceOfSatisfying(AnaliticaAlertas.ParametroNoValido.class, x -> assertThat(x.campo()).isEqualTo("media"));
         Map<String, Object> n = new LinkedHashMap<>(Map.of("niveles", List.of("planeta")));
-        assertThatThrownBy(() -> AnaliticaAlertas.leer(Tipo.INCREMENTO_GASTO, n)).hasMessageContaining("Nivel no válido");
+        assertThatThrownBy(() -> AnaliticaAlertas.leer(Tipo.INCREMENTO_GASTO, n)).hasMessageContaining("Nivel no válido")
+                .isInstanceOfSatisfying(AnaliticaAlertas.ParametroNoValido.class, x -> assertThat(x.campo()).isEqualTo("niveles"));
+        // El campo del formulario va con el error (Anexo 5 num. 2.4): la interfaz marca el umbral o la ventana que no sirve
+        assertThatThrownBy(() -> AnaliticaAlertas.leer(Tipo.INCREMENTO_GASTO, Map.<String, Object>of("baja", "diez")))
+                .hasMessageContaining("El umbral bajo")
+                .isInstanceOfSatisfying(AnaliticaAlertas.ParametroNoValido.class, x -> assertThat(x.campo()).isEqualTo("baja"));
+        assertThatThrownBy(() -> AnaliticaAlertas.leer(Tipo.INCREMENTO_GASTO, Map.<String, Object>of("ventana", "99")))
+                .hasMessageContaining("La ventana")
+                .isInstanceOfSatisfying(AnaliticaAlertas.ParametroNoValido.class, x -> assertThat(x.campo()).isEqualTo("ventana"));
         Map<String, Object> e = new LinkedHashMap<>(Map.of("extras", Map.of("inventado", 1)));
         assertThatThrownBy(() -> AnaliticaAlertas.leer(Tipo.INCREMENTO_GASTO, e)).hasMessageContaining("desconocido");
         Map<String, Object> t = new LinkedHashMap<>(Map.of("plantilla", " "));
-        assertThatThrownBy(() -> AnaliticaAlertas.leer(Tipo.INCREMENTO_GASTO, t)).hasMessageContaining("plantilla");
+        assertThatThrownBy(() -> AnaliticaAlertas.leer(Tipo.INCREMENTO_GASTO, t)).hasMessageContaining("plantilla")
+                .isInstanceOfSatisfying(AnaliticaAlertas.ParametroNoValido.class, x -> assertThat(x.campo()).isEqualTo("plantilla"));
         Map<String, Object> sinAlta = new LinkedHashMap<>();
         sinAlta.put("alta", null);
         assertThat(AnaliticaAlertas.leer(Tipo.DUPLICIDAD, sinAlta).alta()).isNull();

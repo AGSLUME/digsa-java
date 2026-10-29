@@ -37,6 +37,36 @@ public final class AnaliticaAlertas {
     public static final String NOTA_CORTA = "Escriba el motivo (mínimo " + NOTA_MINIMA + " caracteres)";
     public static final int MAX_PLANTILLA = 500;
 
+    /**
+     * Parámetro no válido con el campo del formulario al que se refiere (baja, media, alta, ventana, niveles o plantilla): la interfaz lo
+     * marca junto al campo (Anexo 5 num. 2.4). Sigue siendo una {@link IllegalArgumentException} con el mismo mensaje.
+     */
+    public static final class ParametroNoValido extends IllegalArgumentException {
+
+        private static final long serialVersionUID = 1L;
+        private final String campo;
+
+        public ParametroNoValido(String campo, String mensaje) {
+            super(mensaje);
+            this.campo = campo;
+        }
+
+        public String campo() {
+            return campo;
+        }
+    }
+
+    /** Lee un campo y, si no es válido, deja dicho cuál es. */
+    private static <T> T enCampo(String campo, java.util.function.Supplier<T> lectura) {
+        try {
+            return lectura.get();
+        } catch (ParametroNoValido e) {
+            throw e;
+        } catch (IllegalArgumentException e) {
+            throw new ParametroNoValido(campo, e.getMessage());
+        }
+    }
+
     /** Tipos de alerta (A4 L650–682; A5 tablero 11). */
     public enum Tipo {
         INCREMENTO_GASTO("incremento_gasto", "Incremento inusual del gasto", "%"),
@@ -274,26 +304,27 @@ public final class AnaliticaAlertas {
             for (Object o : l) {
                 String v = String.valueOf(o);
                 if (!NIVELES.contains(v)) {
-                    throw new IllegalArgumentException("Nivel no válido: «" + Bitacora.cortar(v, 20) + "» (nacional, fuerza o esm).");
+                    throw new ParametroNoValido("niveles", "Nivel no válido: «" + Bitacora.cortar(v, 20) + "» (nacional, fuerza o esm).");
                 }
                 if (!t.nivelesAdmitidos().contains(v)) {
-                    throw new IllegalArgumentException("El nivel «" + v + "» no se evalúa en «" + t.nombre() + "» (niveles admitidos: "
+                    throw new ParametroNoValido("niveles", "El nivel «" + v + "» no se evalúa en «" + t.nombre() + "» (niveles admitidos: "
                             + String.join(", ", t.nivelesAdmitidos()) + ").");
                 }
                 s.add(v);
             }
             if (s.isEmpty()) {
-                throw new IllegalArgumentException("Elija al menos un nivel.");
+                throw new ParametroNoValido("niveles", "Elija al menos un nivel.");
             }
             niveles = NIVELES.stream().filter(s::contains).toList();
         }
-        int ventana = m.get("ventana") == null ? d.ventana() : entero(m.get("ventana"), 1, 24, "La ventana (meses)");
-        BigDecimal baja = numero(m.get("baja"), d.baja(), "El umbral bajo");
-        BigDecimal media = numero(m.get("media"), d.media(), "El umbral medio");
+        int ventana = m.get("ventana") == null ? d.ventana() : enCampo("ventana", () -> entero(m.get("ventana"), 1, 24, "La ventana (meses)"));
+        BigDecimal baja = enCampo("baja", () -> numero(m.get("baja"), d.baja(), "El umbral bajo"));
+        BigDecimal media = enCampo("media", () -> numero(m.get("media"), d.media(), "El umbral medio"));
         BigDecimal alta = m.containsKey("alta") && (m.get("alta") == null || String.valueOf(m.get("alta")).isBlank()) ? null
-                : numero(m.get("alta"), d.alta(), "El umbral alto");
+                : enCampo("alta", () -> numero(m.get("alta"), d.alta(), "El umbral alto"));
         if (baja.signum() <= 0 || media.compareTo(baja) < 0 || alta != null && alta.compareTo(media) < 0) {
-            throw new IllegalArgumentException("Los umbrales deben ser positivos y crecientes: baja ≤ media ≤ alta.");
+            throw new ParametroNoValido(baja.signum() <= 0 ? "baja" : media.compareTo(baja) < 0 ? "media" : "alta",
+                    "Los umbrales deben ser positivos y crecientes: baja ≤ media ≤ alta.");
         }
         Map<String, Object> extras = new LinkedHashMap<>(d.extras());
         if (m.get("extras") instanceof Map<?, ?> e) {
@@ -341,7 +372,7 @@ public final class AnaliticaAlertas {
         }
         String plantilla = m.get("plantilla") == null ? d.plantilla() : String.valueOf(m.get("plantilla")).strip();
         if (plantilla.isEmpty() || plantilla.length() > MAX_PLANTILLA) {
-            throw new IllegalArgumentException("La plantilla de recomendación lleva de 1 a " + MAX_PLANTILLA + " caracteres.");
+            throw new ParametroNoValido("plantilla", "La plantilla de recomendación lleva de 1 a " + MAX_PLANTILLA + " caracteres.");
         }
         return new Parametros(activo, niveles, ventana, baja, media, alta, Map.copyOf(extras), exclusiones, plantilla);
     }

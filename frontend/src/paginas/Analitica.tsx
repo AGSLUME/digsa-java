@@ -1,7 +1,7 @@
 import { Accordion, Alert, Anchor, Badge, Button, Card, Center, Drawer, Group, Loader, Select, SimpleGrid, Stack, Text, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { FiltrosAnalitica } from '../analitica/FiltrosAnalitica';
 import { GraficoTabla, TACTIL, type AccionesFila } from '../analitica/GraficosAnalitica';
@@ -20,47 +20,48 @@ import {
   rutaTablero,
   type CatalogoAnalitica,
   type EstadoAnalitica,
-  type Kpi,
+  type Kpi as KpiTablero,
   type ResultadoTablero,
 } from '../analitica/tableros';
 import { api, descargar, ErrorApi } from '../shared/api';
+import { BotonConMotivo } from '../shared/BotonConMotivo';
+import { EncabezadoPagina } from '../shared/EncabezadoPagina';
+import { Kpi } from '../shared/Kpi';
+import { useValidacion } from '../shared/validacion';
 
 /** Tableros con ranking Top 20 (se puede alternar la métrica del orden). */
 const CON_RANKING = ['atc', 'principio', 'medicamento', 'diagnostico'];
 
-function TarjetaKpi({ k, alRastrear }: { k: Kpi; alRastrear?: (r: Record<string, string>, que: string, metrica?: string) => void }) {
-  return (
-    <Card withBorder padding="sm" data-testid={`kpi-${k.clave}`}>
-      <Text size="xs" c="dimmed">
-        {k.etiqueta}
-      </Text>
-      <Text size="xl" fw={700} style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {k.texto}
-      </Text>
-      {k.textoVariacion && (
-        <Text size="xs" c={k.variacionPct === null ? 'dimmed' : k.variacionPct >= 0 ? 'green.9' : 'red.8'}>
-          {k.textoVariacion}
-        </Text>
-      )}
-      {k.nota && (
-        <Text size="xs" c="dimmed">
-          {k.nota}
-        </Text>
-      )}
-      {alRastrear && k.rastreo && (
-        <Button
-          size="compact-xs"
-          mih={TACTIL}
-          variant="subtle"
-          mt={4}
-          onClick={() => alRastrear(k.rastreo!, k.etiqueta, k.clave)}
-          aria-label={`Rastrear ${k.etiqueta}`}
-        >
-          Rastrear
-        </Button>
-      )}
-    </Card>
-  );
+/** KPI del tablero con la tarjeta común (shared/Kpi): el texto ya viene con el formato 2.4 del servidor; variación, nota y «Rastrear». */
+function TarjetaKpi({ k, alRastrear }: { k: KpiTablero; alRastrear?: (r: Record<string, string>, que: string, metrica?: string) => void }) {
+  const detalle =
+    k.textoVariacion || k.nota || (alRastrear && k.rastreo) ? (
+      <>
+        {k.textoVariacion && (
+          <Text span display="block" fz={12} c={k.variacionPct === null ? 'dimmed' : k.variacionPct >= 0 ? 'green' : 'red'}>
+            {k.textoVariacion}
+          </Text>
+        )}
+        {k.nota && (
+          <Text span display="block" fz={12} c="dimmed">
+            {k.nota}
+          </Text>
+        )}
+        {alRastrear && k.rastreo && (
+          <Button
+            size="compact-xs"
+            mih={TACTIL}
+            variant="subtle"
+            mt={4}
+            onClick={() => alRastrear(k.rastreo!, k.etiqueta, k.clave)}
+            aria-label={`Rastrear ${k.etiqueta}`}
+          >
+            Rastrear
+          </Button>
+        )}
+      </>
+    ) : undefined;
+  return <Kpi titulo={k.etiqueta} valor={k.texto} detalle={detalle} testid={`kpi-${k.clave}`} />;
 }
 
 /**
@@ -92,16 +93,24 @@ export function Analitica() {
   const [traza, setTraza] = useState<{ rastreo: Record<string, string>; que: string; metrica?: string } | null>(null);
   // Formato en descarga (una a la vez: la exportación puede tardar minutos y cada clic repetiría la consulta)
   const [bajando, setBajando] = useState<string | null>(null);
+  // El error de una descarga queda fijo junto a los botones (Anexo 5 num. 2.4)
+  const v = useValidacion({ testid: 'error-descarga-analitica' });
+  const idDescarga = useId();
+  const idReportes = useId();
 
-  if (catalogo.isLoading) {
+  if (catalogo.isLoading || catalogo.error || !catalogo.data) {
     return (
-      <Center mih={200}>
-        <Loader />
-      </Center>
+      <Stack>
+        <EncabezadoPagina titulo="Analítica farmacéutica" fuente="Anexo 4 · 11 · Anexo 5 · 4.7" />
+        {catalogo.isLoading ? (
+          <Center mih={200}>
+            <Loader />
+          </Center>
+        ) : (
+          <Alert color="red">{catalogo.error instanceof ErrorApi ? catalogo.error.message : 'No se pudo abrir la analítica.'}</Alert>
+        )}
+      </Stack>
     );
-  }
-  if (catalogo.error || !catalogo.data) {
-    return <Alert color="red">{catalogo.error instanceof ErrorApi ? catalogo.error.message : 'No se pudo abrir la analítica.'}</Alert>;
   }
   const c = catalogo.data;
   const r = datos.data;
@@ -119,6 +128,7 @@ export function Analitica() {
   const visto = conCorte(estado, r?.metadatos?.corteCargueId);
   const bajar = async (formato: string) => {
     setBajando(formato);
+    v.reiniciar();
     const id = notifications.show({
       loading: true,
       autoClose: false,
@@ -128,13 +138,8 @@ export function Analitica() {
       await descargar(rutaDescarga(visto, formato));
       notifications.update({ id, loading: false, color: 'green', autoClose: 4000, message: 'Descarga lista.' });
     } catch (e) {
-      notifications.update({
-        id,
-        loading: false,
-        color: 'red',
-        autoClose: 10000,
-        message: e instanceof ErrorApi ? e.message : 'No se pudo descargar el tablero.',
-      });
+      notifications.hide(id);
+      v.errorServidor(e, 'No se pudo descargar el tablero.');
     } finally {
       setBajando(null);
     }
@@ -149,6 +154,11 @@ export function Analitica() {
     }
   };
   const ranking = CON_RANKING.includes(estado.tablero);
+  const motivoDescarga = problema
+    ? 'Corrija el periodo de los filtros para descargar.'
+    : r && !r.disponible
+      ? 'Este tablero no tiene cifras para descargar.'
+      : null;
   const extra = (
     <>
       {estado.tablero === 'atc' && (
@@ -181,43 +191,50 @@ export function Analitica() {
   );
 
   return (
-    <Stack>
-      <Group justify="space-between" align="flex-start" wrap="wrap">
-        <div>
-          <Title order={2}>Analítica farmacéutica</Title>
-          <Text c="dimmed" size="sm">
-            Riesgo farmacéutico, cohortes y caracterización del gasto. Información siempre agregada, sin datos que identifiquen pacientes.
-          </Text>
-        </div>
-        <Group gap="xs">
-          {r?.metadatos && (
-            <Badge variant="light" color="gray" size="lg" data-testid="corte">
-              {r.metadatos.corteTexto}
-            </Badge>
-          )}
-          {r?.metadatos && (
-            <Badge variant="light" color="gray" size="lg" data-testid="tabla-maestra">
-              {r.metadatos.tablaMaestra ? `Tabla maestra v${r.metadatos.tablaMaestra}` : 'Sin tabla maestra publicada'}
-            </Badge>
-          )}
-          {['xlsx', 'csv', 'pdf'].map((f) => (
-            <Button
-              key={f}
-              size="xs"
-              mih={TACTIL}
-              variant="default"
-              loading={bajando === f}
-              disabled={!r?.disponible || datos.isFetching || datos.isPlaceholderData || !!problema || (bajando !== null && bajando !== f)}
-              onClick={() => bajar(f)}
-            >
-              Descargar {f === 'xlsx' ? 'Excel' : f.toUpperCase()}
+    <Stack ref={v.ref}>
+      <EncabezadoPagina
+        titulo="Analítica farmacéutica"
+        descripcion="Riesgo farmacéutico, cohortes y caracterización del gasto. Información siempre agregada, sin datos que identifiquen pacientes."
+        fuente="Anexo 4 · 11 · Anexo 5 · 4.7"
+        acciones={
+          <>
+            {r?.metadatos && (
+              <Badge variant="light" color="gray" size="lg" data-testid="corte">
+                {r.metadatos.corteTexto}
+              </Badge>
+            )}
+            {r?.metadatos && (
+              <Badge variant="light" color="gray" size="lg" data-testid="tabla-maestra">
+                {r.metadatos.tablaMaestra ? `Tabla maestra v${r.metadatos.tablaMaestra}` : 'Sin tabla maestra publicada'}
+              </Badge>
+            )}
+            {motivoDescarga && (
+              <Text size="xs" c="dimmed" id={idDescarga}>
+                {motivoDescarga}
+              </Text>
+            )}
+            {['xlsx', 'csv', 'pdf'].map((f) => (
+              <BotonConMotivo
+                key={f}
+                size="xs"
+                mih={TACTIL}
+                variant="default"
+                loading={bajando === f}
+                motivo={motivoDescarga}
+                idMotivo={idDescarga}
+                disabled={!r || datos.isFetching || datos.isPlaceholderData || (bajando !== null && bajando !== f)}
+                onClick={() => bajar(f)}
+              >
+                Descargar {f === 'xlsx' ? 'Excel' : f.toUpperCase()}
+              </BotonConMotivo>
+            ))}
+            <Button size="xs" mih={TACTIL} variant="subtle" disabled={!r?.metadatos} onClick={copiarEnlace}>
+              Copiar enlace
             </Button>
-          ))}
-          <Button size="xs" mih={TACTIL} variant="subtle" disabled={!r?.metadatos} onClick={copiarEnlace}>
-            Copiar enlace
-          </Button>
-        </Group>
-      </Group>
+          </>
+        }
+      />
+      {v.resumen}
 
       <Card withBorder>
         <Group gap={6} wrap="wrap" role="group" aria-label="Tableros">
@@ -263,7 +280,7 @@ export function Analitica() {
       {panelA4 && !problema && (estado.tablero === 'cohortes' ? <PanelCohortes estado={estado} /> : <PanelAtipicos estado={estado} />)}
       {r && !panelA4 && (
         <Stack data-testid="tablero" aria-busy={datos.isFetching} style={{ opacity: problema || datos.isPlaceholderData ? 0.55 : 1 }}>
-          <Title order={3}>{r.titulo}</Title>
+          <Title order={2}>{r.titulo}</Title>
           {r.advertencias.map((a) => (
             <Alert key={a} color="yellow" role="status">
               {a}
@@ -292,7 +309,7 @@ export function Analitica() {
           </SimpleGrid>
           {(r.observaciones.length > 0 || r.noDisponible.length > 0) && (
             <Card withBorder>
-              <Title order={5} mb="xs">
+              <Title order={3} size="h5" mb="xs">
                 Observaciones
               </Title>
               <Stack gap={4}>
@@ -323,21 +340,21 @@ export function Analitica() {
                   <Text size="sm" fw={600} w={64}>
                     {x.codigo}
                   </Text>
-                  <Text size="sm" style={{ flex: 1 }}>
+                  <Text size="sm" style={{ flex: 1 }} id={`${idReportes}-${x.codigo}`}>
                     {x.nombre}
                     {x.nota ? ` · ${x.nota}` : ''}
                   </Text>
                   {x.tablero && (
-                    <Button
+                    <BotonConMotivo
                       size="compact-xs"
                       mih={TACTIL}
                       variant="subtle"
-                      disabled={!x.disponible}
-                      title={x.disponible ? undefined : (x.nota ?? 'No disponible')}
+                      motivo={x.disponible ? null : (x.nota ?? 'No disponible')}
+                      idMotivo={`${idReportes}-${x.codigo}`}
                       onClick={() => cambiar(abrirReporte(estado, x.tablero!, x.parametros))}
                     >
                       {x.disponible ? 'Abrir' : 'No disponible'}
-                    </Button>
+                    </BotonConMotivo>
                   )}
                 </Group>
               ))}

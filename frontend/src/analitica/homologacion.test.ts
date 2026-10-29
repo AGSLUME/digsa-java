@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { fecha as fechaCorta, porcentaje } from '../shared/formato';
 import {
   AVISO_TABLEROS,
   colorEstado,
@@ -9,11 +10,9 @@ import {
   esConflicto,
   estadoDevolucion,
   ESTADOS,
-  fechaCorta,
   fuenteTexto,
   leerEntradas,
   mensajeRevision,
-  porcentaje,
   problemaCargue,
   problemaMotivo,
   problemaParametro,

@@ -1,7 +1,10 @@
-import { Alert, Badge, Button, Card, Center, Group, Loader, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
+import { Alert, Badge, Button, Center, Group, Loader, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, ErrorApi } from '../shared/api';
+import { conteo } from '../shared/formato';
+import { Kpi } from '../shared/Kpi';
+import { TablaAdaptable } from '../shared/TablaAdaptable';
 import { COLOR_SEVERIDAD, filtrosIgnorados, noEvaluados, totalesSeveridad, type Atipicos } from './riesgo';
 import type { EstadoAnalitica } from './tableros';
 
@@ -50,7 +53,7 @@ export function PanelAtipicos({ estado }: { estado: EstadoAnalitica }) {
   return (
     <Stack data-testid="panel-atipicos">
       <Group justify="space-between">
-        <Title order={3}>Comportamientos atípicos</Title>
+        <Title order={2}>Comportamientos atípicos</Title>
         {a.puedeVerConsola && (
           <Button size="xs" variant="subtle" component={Link} to="/analitica/alertas">
             Abrir la consola de alertas
@@ -68,27 +71,13 @@ export function PanelAtipicos({ estado }: { estado: EstadoAnalitica }) {
         </Alert>
       )}
       <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="sm">
-        <Card withBorder padding="sm">
-          <Text size="xs" c="dimmed">
-            Alertas en el alcance
-          </Text>
-          <Text size="xl" fw={700} data-testid="atipicos-total">
-            {a.total}
-          </Text>
-        </Card>
+        <Kpi titulo="Alertas en el alcance" valor={<span data-testid="atipicos-total">{conteo(a.total)}</span>} />
         {(['alta', 'media', 'baja'] as const).map((s) => (
-          <Card key={s} withBorder padding="sm">
-            <Text size="xs" c="dimmed">
-              Severidad {s}
-            </Text>
-            <Text size="xl" fw={700} c={COLOR_SEVERIDAD[s] === 'yellow' ? undefined : COLOR_SEVERIDAD[s]}>
-              {t[s]}
-            </Text>
-          </Card>
+          <Kpi key={s} titulo={`Severidad ${s}`} valor={conteo(t[s])} color={COLOR_SEVERIDAD[s] === 'yellow' ? undefined : COLOR_SEVERIDAD[s]} />
         ))}
       </SimpleGrid>
-      <Table.ScrollContainer minWidth={520}>
-        <Table striped withTableBorder fz="sm" aria-label="Alertas por tipo y severidad">
+      <TablaAdaptable>
+        <Table striped withTableBorder fz="sm" miw={520} aria-label="Alertas por tipo y severidad">
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Tipo</Table.Th>
@@ -101,14 +90,14 @@ export function PanelAtipicos({ estado }: { estado: EstadoAnalitica }) {
             {a.tipos.map((x) => (
               <Table.Tr key={x.tipo}>
                 <Table.Td>{x.nombre}</Table.Td>
-                <Table.Td>{x.alta}</Table.Td>
-                <Table.Td>{x.media}</Table.Td>
-                <Table.Td>{x.baja}</Table.Td>
+                <Table.Td>{conteo(x.alta)}</Table.Td>
+                <Table.Td>{conteo(x.media)}</Table.Td>
+                <Table.Td>{conteo(x.baja)}</Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>
         </Table>
-      </Table.ScrollContainer>
+      </TablaAdaptable>
       {sinEvaluar.length > 0 && (
         <Alert color="gray" title="Tipos no evaluados en la última ejecución">
           {sinEvaluar.map((x) => (
@@ -124,8 +113,8 @@ export function PanelAtipicos({ estado }: { estado: EstadoAnalitica }) {
         </Text>
       )}
       {a.alertas && a.alertas.length > 0 && (
-        <Table.ScrollContainer minWidth={720}>
-          <Table withTableBorder fz="xs" aria-label="Alertas de mayor prioridad">
+        <TablaAdaptable>
+          <Table withTableBorder fz="xs" miw={720} aria-label="Alertas de mayor prioridad">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Severidad</Table.Th>
@@ -155,7 +144,7 @@ export function PanelAtipicos({ estado }: { estado: EstadoAnalitica }) {
               ))}
             </Table.Tbody>
           </Table>
-        </Table.ScrollContainer>
+        </TablaAdaptable>
       )}
     </Stack>
   );

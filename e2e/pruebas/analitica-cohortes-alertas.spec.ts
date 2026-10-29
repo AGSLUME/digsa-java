@@ -12,22 +12,31 @@ const PERIODO = 'desde=2023-01-01&hasta=2023-12-31';
 test.afterEach(async ({ page }) => salir(page));
 
 /**
- * CSV «;» UTF-8 con BOM del año 2023: 12 pacientes con apixabán y rivaroxabán (mismo ATC4 B01AF) a 15 días en mayo (duplicidad
- * terapéutica sembrada) y 6 pacientes con 5 principios activos cada mes de febrero a julio (polimedicados). Único por corrida.
+ * CSV «;» UTF-8 con BOM: 12 pacientes con apixabán y rivaroxabán (mismo ATC4 B01AF) a 15 días en un mes propio de la corrida
+ * (duplicidad terapéutica sembrada) y 6 pacientes con 5 principios activos cada mes de febrero a julio de 2023 (polimedicados). Único por
+ * corrida; devuelve también el mes de la duplicidad.
  */
-function insumo(): { nombre: string; contenido: string } {
+function insumo(): { nombre: string; contenido: string; anio: number; mes: string } {
   const sello = `${Date.now()}`;
   const base = 83_000_000 + (Number(sello.slice(-5)) % 50_000) * 20;
-  const enc = 'TIPO_DOC;NUM_DOC;NOMBRE_PACIENTE;FUERZA;COD_ESM;MODALIDAD;FECHA_DISPENSACION;DESC_MEDICAMENTO;CUM;PRINCIPIO_ACTIVO;ATC;CIE10;CANTIDAD;VALOR_TOTAL;NUM_FORMULA';
+  const enc =
+    'TIPO_DOC;NUM_DOC;NOMBRE_PACIENTE;FUERZA;COD_ESM;MODALIDAD;FECHA_DISPENSACION;DESC_MEDICAMENTO;CUM;PRINCIPIO_ACTIVO;ATC;CIE10;CANTIDAD;VALOR_TOTAL;NUM_FORMULA';
   const filas: string[] = [];
   let n = 0;
   // El mes de la duplicidad cambia en cada corrida: la base de e2e se reutiliza entre navegadores y una alerta ya validada en una
-  // corrida anterior (mismo tipo, ESM y mes) no se reevalúa, así que cada corrida necesita su propia alerta nueva.
-  const mes = String(1 + (Math.floor(Number(sello) / 1000) % 12)).padStart(2, '0');
+  // corrida anterior (mismo tipo, nivel y mes) no se reevalúa, así que cada corrida necesita su propia alerta nueva. Un mes por minuto
+  // entre 2000 y 2023 (288 meses): los navegadores de una verificación corren con decenas de minutos de distancia.
+  const k = Math.floor(Number(sello) / 60_000) % 288;
+  const anio = 2000 + Math.floor(k / 12);
+  const mes = String(1 + (k % 12)).padStart(2, '0');
   for (let i = 0; i < 12; i++) {
     const doc = base + i;
-    filas.push(`CC;${doc};PACIENTE FICTICIO ${i};EJC;BAS02;Dispensación;03/${mes}/2023;APIXABAN 5 MG TABLETA;20019001-1;APIXABAN;B01AF02;I48X;60;150000,00;E2R${sello}${n++}`);
-    filas.push(`CC;${doc};PACIENTE FICTICIO ${i};EJC;BAS02;Dispensación;18/${mes}/2023;RIVAROXABAN 20 MG TABLETA;20019002-1;RIVAROXABAN;B01AF01;I48X;30;114000,00;E2R${sello}${n++}`);
+    filas.push(
+      `CC;${doc};PACIENTE FICTICIO ${i};EJC;BAS02;Dispensación;03/${mes}/${anio};APIXABAN 5 MG TABLETA;20019001-1;APIXABAN;B01AF02;I48X;60;150000,00;E2R${sello}${n++}`,
+    );
+    filas.push(
+      `CC;${doc};PACIENTE FICTICIO ${i};EJC;BAS02;Dispensación;18/${mes}/${anio};RIVAROXABAN 20 MG TABLETA;20019002-1;RIVAROXABAN;B01AF01;I48X;30;114000,00;E2R${sello}${n++}`,
+    );
   }
   const cinco = [
     ['LOSARTAN 50 MG TABLETA', '20010037-1', 'LOSARTAN', 'C09CA01'],
@@ -40,15 +49,20 @@ function insumo(): { nombre: string; contenido: string } {
     const doc = base + 100 + i;
     for (let mes = 2; mes <= 7; mes++) {
       for (const m of cinco) {
-        filas.push(`CC;${doc};PACIENTE FICTICIO P${i};ARC;DMBAQ;Dispensación;10/${String(mes).padStart(2, '0')}/2023;${m[0]};${m[1]};${m[2]};${m[3]};I10X;30;5000,00;E2R${sello}${n++}`);
+        filas.push(
+          `CC;${doc};PACIENTE FICTICIO P${i};ARC;DMBAQ;Dispensación;10/${String(mes).padStart(2, '0')}/2023;${m[0]};${m[1]};${m[2]};${m[3]};I10X;30;5000,00;E2R${sello}${n++}`,
+        );
       }
     }
   }
-  return { nombre: `insumo_riesgo_e2e_${sello}.csv`, contenido: '﻿' + [enc, ...filas].join('\r\n') + '\r\n' };
+  return { nombre: `insumo_riesgo_e2e_${sello}.csv`, contenido: '﻿' + [enc, ...filas].join('\r\n') + '\r\n', anio, mes };
 }
 
-/** Carga el insumo por la API (como la pantalla «Cargues del OPL»), espera a que quede aplicado y a que corra el motor de alertas. */
-async function cargar(page: Page): Promise<number> {
+/**
+ * Carga el insumo por la API (como la pantalla «Cargues del OPL»), espera a que quede aplicado y a que corra el motor de alertas.
+ * Devuelve el corte y el mes de la duplicidad sembrada (primer y último día, para filtrar la consola).
+ */
+async function cargar(page: Page): Promise<{ corte: number; desde: string; hasta: string }> {
   const a = insumo();
   const bytes = new TextEncoder().encode(a.contenido);
   const sha = await page.evaluate(async (texto) => {
@@ -73,7 +87,11 @@ async function cargar(page: Page): Promise<number> {
   expect(parte).toBe(200);
   expect((await api(page, 'POST', `/api/analitica/cargues/${id}/cerrar`)).estado).toBe(200);
   const mapeo = await api<{ propuesta: string[] }>(page, 'GET', `/api/analitica/cargues/${id}/mapeo`);
-  const conf = await api(page, 'POST', `/api/analitica/cargues/${id}/mapeo`, { columnas: mapeo.datos.propuesta, modo: 'agregar', guardarPlantilla: false });
+  const conf = await api(page, 'POST', `/api/analitica/cargues/${id}/mapeo`, {
+    columnas: mapeo.datos.propuesta,
+    modo: 'agregar',
+    guardarPlantilla: false,
+  });
   expect(conf.estado, JSON.stringify(conf.datos)).toBe(202);
   await expect
     .poll(async () => (await api<{ estado: string }>(page, 'GET', `/api/analitica/cargues/${id}`)).datos.estado, { timeout: 120_000 })
@@ -88,7 +106,8 @@ async function cargar(page: Page): Promise<number> {
       { timeout: 180_000 },
     )
     .toBe(true);
-  return id;
+  const ultimo = new Date(Date.UTC(a.anio, Number(a.mes), 0)).getUTCDate();
+  return { corte: id, desde: `${a.anio}-${a.mes}-01`, hasta: `${a.anio}-${a.mes}-${ultimo}` };
 }
 
 async function crearUsuario(page: Page, prefijo: string, perfil: number, extra: Record<string, unknown> = {}): Promise<string> {
@@ -108,7 +127,7 @@ async function crearUsuario(page: Page, prefijo: string, perfil: number, extra: 
 
 test('M8-6 y M8-7: cohortes con su criterio, consola con contexto, umbral con traza y validación humana', async ({ page }) => {
   await ingresar(page, ...ADMIN);
-  const corte = await cargar(page);
+  const { corte, desde, hasta } = await cargar(page);
   const analista = await crearUsuario(page, 'anarie', 10);
   await salir(page);
   await ingresarConClaveInicial(page, analista, INICIAL, 'Analista.Riesgo.2026');
@@ -129,8 +148,9 @@ test('M8-6 y M8-7: cohortes con su criterio, consola con contexto, umbral con tr
   await expect(page.getByTestId('alertas-de-la-cohorte')).toHaveAttribute('href', /\/analitica\/alertas\?cohorte=\d+/);
   await page.keyboard.press('Escape');
 
-  // Comportamientos atípicos (tablero 11): conteos por severidad y la duplicidad sembrada entre las de mayor prioridad
-  await page.getByTestId('chip-atipicos').click();
+  // Comportamientos atípicos (tablero 11) en el mes de la duplicidad sembrada: conteos por severidad
+  await page.goto(`/analitica?t=atipicos&desde=${desde}&hasta=${hasta}&corte=${corte}`);
+  await expect(page.getByTestId('chip-atipicos')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('panel-atipicos')).toBeVisible();
   await expect(page.getByTestId('atipicos-total')).not.toHaveText('0');
 
@@ -139,7 +159,9 @@ test('M8-6 y M8-7: cohortes con su criterio, consola con contexto, umbral con tr
   await expect(page.getByRole('heading', { name: 'Alertas analíticas' })).toBeVisible();
   await page.getByTestId('filtro-tipo').click();
   await page.getByRole('option', { name: 'Duplicidad terapéutica' }).click();
-  // Una duplicidad B01AF todavía abierta (las validadas o descartadas en corridas anteriores ya no ofrecen cambio de estado)
+  // Solo el mes de esta corrida: su duplicidad B01AF es nueva y está abierta (las de corridas anteriores pueden estar validadas)
+  await page.getByLabel('Desde').fill(desde);
+  await page.getByLabel('Hasta').fill(hasta);
   const fila = page
     .getByTestId('alerta-duplicidad_terapeutica')
     .filter({ hasText: 'B01AF' })
@@ -167,7 +189,10 @@ test('M8-6 y M8-7: cohortes con su criterio, consola con contexto, umbral con tr
   await page.keyboard.press('Escape');
 
   // Descartar otra alerta (si la hay en la página) con su motivo
-  const otra = page.getByTestId('tabla-alertas').getByRole('button', { name: /Abrir la alerta/ }).nth(1);
+  const otra = page
+    .getByTestId('tabla-alertas')
+    .getByRole('button', { name: /Abrir la alerta/ })
+    .nth(1);
   if (await otra.isVisible()) {
     await otra.click();
     const d2 = page.getByTestId('detalle-alerta');

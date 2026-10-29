@@ -2,9 +2,11 @@ package co.com.agsamericas.digsa.agenda;
 
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
+import co.com.agsamericas.digsa.plataforma.CatalogoPlantillas;
 import co.com.agsamericas.digsa.plataforma.Correo;
 import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Bitacora;
@@ -62,9 +64,11 @@ public class ServicioNotificacion {
     private final RegistroBitacora bitacora;
     private final TransactionTemplate tx;
     private final Clock reloj;
+    private final CatalogoPlantillas plantillas;
 
     public ServicioNotificacion(RepositorioVisitas visitas, JdbcClient jdbc, EnvioRegistrado correo, ServicioCatalogos catalogos, RegistroBitacora bitacora,
-                                TransactionTemplate tx, Clock reloj) {
+                                TransactionTemplate tx, Clock reloj, CatalogoPlantillas plantillas) {
+        this.plantillas = plantillas;
         this.visitas = visitas;
         this.jdbc = jdbc;
         this.correo = correo;
@@ -105,8 +109,9 @@ public class ServicioNotificacion {
                 .query((rs, n) -> List.of((String[]) rs.getArray(1).getArray())).optional().orElse(List.of());
         agregar(d, faltan, punto, "Contacto del punto", false);
 
-        String asunto = "Notificación de visita de seguimiento " + v.numero() + " · " + v.puntoNombre() + (sufijoAsunto == null ? "" : sufijoAsunto);
-        return new Calculada(d, faltan, corto(asunto, 200), cuerpo(v));
+        // Asunto y cuerpo de la plantilla vigente (módulo Correos: el administrador la puede editar)
+        Plantilla.Renderizada r = plantillas.render(PlantillasAgenda.NOTIFICACION_PREVIA, valores(v, sufijoAsunto));
+        return new Calculada(d, faltan, corto(r.asunto(), 200), r.texto());
     }
 
     private static List<String> correos(Object lista) {
@@ -134,31 +139,32 @@ public class ServicioNotificacion {
         }
     }
 
-    String cuerpo(RepositorioVisitas.Visita v) {
+    /** Valores de la plantilla «Notificación previa de visita» (PlantillasAgenda). */
+    Map<String, String> valores(RepositorioVisitas.Visita v, String sufijoAsunto) {
         String tipo = visitas.tipo(v.tipo()).map(RepositorioVisitas.Tipo::nombre).orElse(v.tipo());
         Map<String, Object> lugar = jdbc.sql("""
                 SELECT m.nombre AS municipio, d.nombre AS departamento, p.direccion FROM puntos p
                 LEFT JOIN par_municipios m ON m.codigo = p.municipio LEFT JOIN par_departamentos d ON d.codigo = m.departamento WHERE p.id = :id""")
                 .param("id", v.puntoId()).query().singleRow();
-        StringBuilder b = new StringBuilder();
-        b.append("Número de la visita: ").append(v.numero()).append('\n');
-        b.append("Fecha: ").append(Plazos.fechaLarga(v.fecha())).append(v.hora() == null ? "" : ", " + HORA.format(v.hora()) + " h").append('\n');
-        b.append("Tipo de visita: ").append(tipo).append('\n');
-        b.append("Unidad de intervención: ").append(v.unidad()).append(" · ").append(v.puntoNombre())
-                .append("ESM".equals(v.unidad()) && v.modalidad() != null ? " (" + v.modalidad() + ")" : "").append('\n');
-        b.append("Municipio: ").append(nulo(lugar.get("municipio"))).append(", ").append(nulo(lugar.get("departamento"))).append('\n');
-        b.append("Dirección: ").append(nulo(lugar.get("direccion"))).append("\n\n");
-        b.append("Alcance específico:\n").append(v.alcance()).append("\n\n");
-        b.append("Equipo auditor:\n");
+        StringBuilder equipo = new StringBuilder();
         for (RepositorioVisitas.Miembro m : visitas.equipo(v.id())) {
-            b.append("- ").append(m.nombre()).append(" · ").append(Reparto.ROLES.getOrDefault(m.rol(), "Otro"))
+            equipo.append("- ").append(m.nombre()).append(" · ").append(Reparto.ROLES.getOrDefault(m.rol(), "Otro"))
                     .append("lider".equals(m.funcion()) ? " (auditor líder)" : "")
                     .append(" · ").append(m.correo())
                     .append(" · documento ").append(m.documento() == null || m.documento().isBlank() ? "sin registrar" : m.documento()).append('\n');
         }
-        b.append("\nLos datos del equipo auditor se comparten solo para el control de ingreso al establecimiento (Ley 1581 de 2012); ")
-                .append("no se pueden usar para otro fin.\n\nInterventoría DIGSA");
-        return b.toString();
+        Map<String, String> r = new java.util.HashMap<>();
+        r.put("numero", v.numero());
+        r.put("punto", v.puntoNombre());
+        r.put("sufijo", sufijoAsunto == null ? "" : sufijoAsunto);
+        r.put("fecha", Plazos.fechaLarga(v.fecha()) + (v.hora() == null ? "" : ", " + HORA.format(v.hora()) + " h"));
+        r.put("tipo", tipo);
+        r.put("unidad", v.unidad() + " · " + v.puntoNombre() + ("ESM".equals(v.unidad()) && v.modalidad() != null ? " (" + v.modalidad() + ")" : ""));
+        r.put("municipio", nulo(lugar.get("municipio")) + ", " + nulo(lugar.get("departamento")));
+        r.put("direccion", nulo(lugar.get("direccion")));
+        r.put("alcance", String.valueOf(v.alcance()));
+        r.put("equipo", equipo.toString());
+        return r;
     }
 
     private static String nulo(Object o) {
@@ -269,7 +275,7 @@ public class ServicioNotificacion {
         }
 
         Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("notificacion_previa", "visita:" + visitaId).reenvio("Se reenvía desde la agenda con «Notificar»."), new Correo.Mensaje(reg.para(), List.of(), reg.asunto(),
-                PlantillaCorreo.marco("Notificación de visita de seguimiento", "<p>" + PlantillaCorreo.texto(reg.cuerpo()) + "</p>"), List.of()));
+                PlantillaCorreo.marco(PlantillasAgenda.NOTIFICACION_PREVIA.titulo(), "<p>" + PlantillaCorreo.texto(reg.cuerpo()) + "</p>"), List.of()));
         // Entrega parcial: si rechazaron a un destinatario obligatorio (DISAN/JEFSA, OPL, DIGSA), la visita no queda notificada
         List<String> rechazados = r.ok() ? r.rechazados() : reg.para();
         long obligatoriosRechazados = rechazados.stream().filter(x -> reg.obligatorios().contains(x.toLowerCase(java.util.Locale.ROOT))).count();

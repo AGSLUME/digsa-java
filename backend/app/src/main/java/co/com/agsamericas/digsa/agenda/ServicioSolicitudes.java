@@ -3,9 +3,10 @@ package co.com.agsamericas.digsa.agenda;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
 import co.com.agsamericas.digsa.plataforma.Almacen;
 import co.com.agsamericas.digsa.plataforma.BandejaSalida;
+import co.com.agsamericas.digsa.plataforma.CatalogoPlantillas;
 import co.com.agsamericas.digsa.plataforma.Correo;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
-import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.plataforma.ValidadorArchivos;
 import co.com.agsamericas.digsa.reglas.Alcance;
@@ -55,9 +56,11 @@ public class ServicioSolicitudes {
     private final RegistroBitacora bitacora;
     private final TransactionTemplate tx;
     private final Clock reloj;
+    private final CatalogoPlantillas plantillas;
 
     public ServicioSolicitudes(JdbcClient jdbc, RepositorioVisitas visitas, ServicioConsultaAgenda consulta, ValidadorArchivos validador, Almacen almacen,
-                               BandejaSalida bandeja, RegistroBitacora bitacora, TransactionTemplate tx, Clock reloj) {
+                               BandejaSalida bandeja, RegistroBitacora bitacora, TransactionTemplate tx, Clock reloj, CatalogoPlantillas plantillas) {
+        this.plantillas = plantillas;
         this.jdbc = jdbc;
         this.visitas = visitas;
         this.consulta = consulta;
@@ -193,11 +196,10 @@ public class ServicioSolicitudes {
         if (para.isEmpty()) {
             return false;
         }
-        String cuerpo = "Nueva solicitud de visita a necesidad N.º " + id + "\n\nEntidad: " + entidad + "\nPunto: " + punto.nombre() + "\nFecha del escrito: "
-                + Plazos.fechaLarga(fecha) + "\nPlazo máximo para la visita: " + Plazos.fechaLarga(limite) + " (5 días hábiles, Anexo 3 p.14)\n\nMotivo:\n"
-                + (motivo.length() > 600 ? motivo.substring(0, 600) + "…" : motivo) + "\n\nAgéndela en la Suite DIGSA › Solicitudes de visita.";
-        bandeja.encolar("solicitud_nueva", "solicitud:" + id, new Correo.Mensaje(para, List.of(), "Solicitud de visita a necesidad N.º " + id + " · " + punto.nombre(),
-                PlantillaCorreo.marco("Solicitud de visita a necesidad", "<p>" + PlantillaCorreo.texto(cuerpo) + "</p>"), List.of()));
+        Plantilla.Renderizada r = plantillas.render(PlantillasAgenda.SOLICITUD_NUEVA, Map.of("id", String.valueOf(id), "entidad", entidad,
+                "punto", punto.nombre(), "fecha", Plazos.fechaLarga(fecha), "limite", Plazos.fechaLarga(limite),
+                "motivo", motivo.length() > 600 ? motivo.substring(0, 600) + "…" : motivo));
+        bandeja.encolar("solicitud_nueva", "solicitud:" + id, new Correo.Mensaje(para, List.of(), r.asunto(), r.html(), List.of()));
         return true;
     }
 
@@ -323,21 +325,18 @@ public class ServicioSolicitudes {
             return "No se avisó al solicitante: está inactivo o no tiene correo válido. Avísele por otro medio.";
         }
         LocalDate fecha = ((java.sql.Date) s.get("fecha_solicitud")).toLocalDate();
-        String asunto = (cancelada ? "Visita a necesidad cancelada " : "Visita a necesidad agendada ") + v.numero() + " · " + v.puntoNombre();
-        String cuerpo = "Cordial saludo, " + s.get("nombre") + ":\n\nLa solicitud de visita a necesidad de " + s.get("entidad") + " del " + Plazos.fechaLarga(fecha)
-                + (cancelada
-                        ? " tenía agendada la visita " + v.numero() + ", que fue cancelada.\nMotivo: " + motivo
-                                + "\n\nLa solicitud vuelve a quedar pendiente para que el coordinador la reprograme; su plazo se sigue contando desde la fecha del escrito."
-                        : " quedó agendada:\n\n- Visita N.º: " + v.numero() + "\n- Punto: " + v.puntoNombre() + "\n- Fecha: " + Plazos.fechaLarga(v.fecha())
-                                + (v.hora() == null ? "" : ", " + v.hora() + " h")
-                                + "\n\nLa visita a necesidad se hace sin previo aviso al operador logístico (Anexo 3 p.14): por favor no comparta esta "
-                                + "información con el OPL ni con el punto.")
-                + "\n\nInterventoría DIGSA";
+        Map<String, String> valores = new java.util.HashMap<>();
+        valores.put("nombre", String.valueOf(s.get("nombre")));
+        valores.put("entidad", String.valueOf(s.get("entidad")));
+        valores.put("fecha_escrito", Plazos.fechaLarga(fecha));
+        valores.put("numero", v.numero());
+        valores.put("punto", v.puntoNombre());
+        valores.put("motivo", String.valueOf(motivo));
+        valores.put("fecha", Plazos.fechaLarga(v.fecha()) + (v.hora() == null ? "" : ", " + v.hora() + " h"));
+        Plantilla.Renderizada r = plantillas.render(cancelada ? PlantillasAgenda.SOLICITUD_CANCELADA : PlantillasAgenda.SOLICITUD_AGENDADA, valores);
         tx.executeWithoutResult(t -> {
             long cid = bandeja.encolar(cancelada ? "solicitud_cancelada" : "solicitud_agendada", "solicitud:" + solicitudId,
-                    new Correo.Mensaje(List.of(String.valueOf(s.get("correo"))), List.of(), asunto,
-                            PlantillaCorreo.marco(cancelada ? "Visita a necesidad cancelada" : "Visita a necesidad agendada", "<p>" + PlantillaCorreo.texto(cuerpo) + "</p>"),
-                            List.of()));
+                    new Correo.Mensaje(List.of(String.valueOf(s.get("correo"))), List.of(), r.asunto(), r.html(), List.of()));
             visitas.historial(v.id(), quien.id(), quien.usuario(), "Aviso al solicitante", "Solicitud " + solicitudId + " · correo " + cid + " en la bandeja de salida");
         });
         return "Se avisó al solicitante (el correo sale en unos segundos).";

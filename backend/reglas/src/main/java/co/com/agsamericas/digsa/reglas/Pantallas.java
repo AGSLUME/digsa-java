@@ -37,7 +37,35 @@ public enum Pantallas {
     USUARIOS("usuarios", "Usuarios", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
     EXPORTACION("exportacion", "Exportación de datos", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
     LOGS("logs", "Logs del sistema", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
-    VISITA("visita", "Visita", null, Set.of(Perfil.AUDITOR, Perfil.COORDINADOR));
+    VISITA("visita", "Visita", null, Set.of(Perfil.AUDITOR, Perfil.COORDINADOR)),
+    // --- Analítica (rama analitica) ---
+    // Grupo «Presupuesto»: el menú de la U7 (shared/menu.ts) lo lleva a «Interventoría y seguimiento presupuestal» (UI-57, AN.28).
+    /** Cargues del insumo del OPL (analitica-ingesta): cargan Administrador y Analista; el Coordinador consulta la bitácora. */
+    ANALITICA_CARGUES("analitica/cargues", "Cargues del OPL", "Presupuesto", Set.of(Perfil.ANALISTA, Perfil.COORDINADOR)),
+    /**
+     * Homologación, referencias oficiales y tabla maestra (analitica-homologacion): el Analista carga fuentes, edita reglas, ejecuta,
+     * revisa, aprueba y devuelve; el Coordinador consulta, aprueba, devuelve y exporta. «Químico farmacéutico» es un rol de auditor y no
+     * entra por perfil: se le asigna la pantalla como rol adicional (sesión de identidad).
+     */
+    HOMOLOGACION("homologacion", "Homologación", "Presupuesto", Set.of(Perfil.ANALISTA, Perfil.COORDINADOR)),
+    /**
+     * Analítica farmacéutica (analitica-tableros): los 12 tableros, filtros y descargas, siempre agregados y en el alcance de cada perfil
+     * (DIGSA, Coordinador y Analista nacional; Sanidad su Fuerza; ESM su establecimiento). Asignable como rol adicional.
+     */
+    ANALITICA("analitica", "Analítica farmacéutica", "Presupuesto", union(Set.of(Perfil.COORDINADOR, Perfil.ANALISTA), Alcance.PERFILES_CONSULTA)),
+    /**
+     * Trazabilidad de una cifra hasta los registros de origen seudonimizados (A5 14.9): cargue, archivo, línea, SHA-256 y regla de la
+     * tabla maestra. Pantalla aparte para asignarla por rol; Sanidad y ESM no la tienen (decisión de diseño 2026-10-22).
+     */
+    ANALITICA_TRAZABILIDAD("analitica/trazabilidad", "Trazabilidad de cifras", "Presupuesto",
+            Set.of(Perfil.COORDINADOR, Perfil.ANALISTA, Perfil.DIGSA)),
+    /**
+     * Consola de alertas tempranas de la analítica (analitica-cohortes-alertas; A5 14.7 «consultables únicamente por los perfiles
+     * autorizados»): Administrador, Coordinador, Analista y DIGSA nacional; Sanidad las de su Fuerza. El ESM no la tiene (403; ve los
+     * atípicos agregados de su establecimiento en el tablero 11). Pantalla aparte para negar la consola sin negar los tableros.
+     */
+    ANALITICA_ALERTAS("analitica/alertas", "Alertas analíticas", "Presupuesto",
+            Set.of(Perfil.COORDINADOR, Perfil.ANALISTA, Perfil.DIGSA, Perfil.SANIDAD));
 
     private final String ruta;
     private final String titulo;

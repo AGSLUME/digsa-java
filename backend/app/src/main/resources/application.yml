@@ -110,6 +110,50 @@ digsa:
   exportacion:
     limite-minutos: ${DIGSA_EXPORTACION_LIMITE_MINUTOS:10}   # tiempo máximo de la generación del ZIP (AGS-75 / GMI P74)
     vigencia-horas: ${DIGSA_EXPORTACION_VIGENCIA_HORAS:24}   # luego la limpieza borra el ZIP (datos personales, Ley 1581)
+  # --- Analítica (rama analitica) ---
+  # Ingesta del insumo del OPL (docs/especificaciones/analitica-ingesta). La clave del seudónimo de los pacientes llega de Key Vault;
+  # en producción sin ella la aplicación no arranca (ValidacionArranqueAnalitica); en los demás entornos (salvo local) arranca pero
+  # rechaza todo cargue hasta que se configure. Rotación: ver PropiedadesAnalitica.
+  analitica:
+    clave-seudonimo: ${DIGSA_ANALITICA_CLAVE_SEUDONIMO:}
+    parte-max-mb: ${DIGSA_ANALITICA_PARTE_MAX_MB:50}             # partes de la subida (no se toca el multipart global)
+    archivo-max-mb: ${DIGSA_ANALITICA_ARCHIVO_MAX_MB:4096}       # archivo completo y contenido descomprimido de .gz y .zip
+    conservar-dias: ${DIGSA_ANALITICA_CONSERVAR_DIAS:365}        # original en el almacén (solo ADMINISTRADOR); luego se borra
+    umbral-mal-formadas: ${DIGSA_ANALITICA_UMBRAL_MAL_FORMADAS:1} # % de filas con otro número de campos que rechaza el archivo
+    lote-validacion: 250000
+    max-registros-lote: 50000                                    # servicio web del OPL
+    horas-abandono: ${DIGSA_ANALITICA_HORAS_ABANDONO:24}         # cargue abierto sin actividad: vence y se descarta (Ley 1581)
+    celda-max-kb: 64                                             # celda y registro del CSV: más es una comilla sin cerrar
+    registro-max-kb: 1024
+    cuerpo-ws-max-mb: 64                                         # cuerpo de un lote del servicio web (más: 413)
+    textos-xlsx-max-mb: 256                                      # textos compartidos de un xlsx sin comprimir (van a memoria)
+    cargues-abiertos-max: 3                                      # cargues en subida o mapeo por usuario
+    abandono-cron: "0 15 * * * *"                                # cada hora: vence los cargues abiertos sin actividad
+    # --- Tableros (A3, analitica-tableros; PropiedadesTableros) ---
+    tableros:
+      tiempo-maximo-segundos: ${DIGSA_ANALITICA_TIEMPO_MAXIMO_SEGUNDOS:170} # presupuesto de la PETICIÓN (A5 2.7: ver en ≤ 3 min)
+      tiempo-maximo-descarga-segundos: ${DIGSA_ANALITICA_TIEMPO_MAXIMO_DESCARGA_SEGUNDOS:570} # descargas (2.7: ≤ 10 min)
+      percentil-alto-costo: ${DIGSA_ANALITICA_PERCENTIL_ALTO_COSTO:99}       # gasto por paciente en 12 meses móviles
+      poliformulado-minimo: ${DIGSA_ANALITICA_POLIFORMULADO_MINIMO:5}        # principios activos distintos en el mes
+      horas-rezago: 48                                                       # aviso «Datos con más de 48 h» (GMI P75)
+      max-registros-traza: ${DIGSA_ANALITICA_MAX_REGISTROS_TRAZA:100000}     # CSV de registros de origen (más: 422, nunca truncado)
+      registros-por-pagina: 50
+      supresion-minima: ${DIGSA_ANALITICA_SUPRESION_MINIMA:0}              # celdas con menos de k pacientes (0 = desactivado; lo decide la DIGSA)
+      memoria-trabajo-mb: ${DIGSA_ANALITICA_WORK_MEM_MB:128}               # work_mem de las consultas de analítica
+      paralelos: ${DIGSA_ANALITICA_PARALELOS:2}                            # max_parallel_workers_per_gather
+      cache-resultados: ${DIGSA_ANALITICA_CACHE_RESULTADOS:200}           # resultados en caché (mismo corte = mismo resultado)
+      precalentar: ${DIGSA_ANALITICA_PRECALENTAR:true}                   # tableros por defecto del nuevo corte en segundo plano
+    # --- Cohortes y alertas tempranas (A4, analitica-cohortes-alertas; PropiedadesRiesgo) ---
+    riesgo:
+      recalcular-al-aplicar: ${DIGSA_ANALITICA_RECALCULAR_RIESGO:true}  # cohortes y motor de alertas al aplicar cada cargue (en segundo plano)
+      tiempo-maximo-minutos: ${DIGSA_ANALITICA_RIESGO_MINUTOS:30}         # statement_timeout de cada sentencia del recálculo
+      memoria-trabajo-mb: ${DIGSA_ANALITICA_RIESGO_WORK_MEM_MB:256}       # work_mem del recálculo (orden de 2 M filas por paciente)
+      por-pagina: 50                                                    # alertas por página en la consola
+      cortes-con-membresia: ${DIGSA_ANALITICA_CORTES_MEMBRESIA:6}         # cortes por versión con la membresía (pacientes del periodo reproducibles)
+      meses-gracia: ${DIGSA_ANALITICA_MESES_GRACIA:2}                     # meses sin dispensar que no cortan la membresía (ni dan ingreso ni salida)
+      supresion-sensibles: ${DIGSA_ANALITICA_SUPRESION_SENSIBLES:5}       # k de las cohortes sensibles a nivel ESM (0 la apaga; duda AN de supresión)
+      cohortes-sensibles: ${DIGSA_ANALITICA_COHORTES_SENSIBLES:vih,huerfanas}
+      meses-aviso: ${DIGSA_ANALITICA_MESES_AVISO:3}                       # avisos por correo solo para alertas de los últimos N meses del corte
 
 logging:
   level:

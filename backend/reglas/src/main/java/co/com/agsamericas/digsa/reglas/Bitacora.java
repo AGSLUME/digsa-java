@@ -94,7 +94,33 @@ public final class Bitacora {
             // --- fin presupuesto ---
             // Usuarios, roles y logs (sesión 2, rama identidad-roles-logs)
             Map.entry("usuario_desbloqueado", Operacion.ACTUALIZACION), Map.entry("clave_cambio_fallido", Operacion.ACTUALIZACION),
-            Map.entry("rol_creado", Operacion.INSERCION), Map.entry("rol_editado", Operacion.ACTUALIZACION), Map.entry("rol_estado", Operacion.ACTUALIZACION));
+            Map.entry("rol_creado", Operacion.INSERCION), Map.entry("rol_editado", Operacion.ACTUALIZACION), Map.entry("rol_estado", Operacion.ACTUALIZACION),
+            // --- Analítica (rama analitica) ---
+            // Cargues del insumo del OPL (analitica-ingesta): sin datos personales; id del cargue, fuente y conteos
+            Map.entry("analitica_cargue_creado", Operacion.INSERCION), Map.entry("analitica_cargue_mapeo", Operacion.ACTUALIZACION),
+            Map.entry("analitica_cargue_aplicado", Operacion.INSERCION), Map.entry("analitica_cargue_rechazado", Operacion.ACTUALIZACION),
+            Map.entry("analitica_cargue_fallido", Operacion.ACTUALIZACION), Map.entry("analitica_cargue_rechazos_descarga", Operacion.CONSULTA),
+            Map.entry("analitica_cargue_bitacora_exportar", Operacion.CONSULTA), Map.entry("analitica_cargue_original_descarga", Operacion.CONSULTA),
+            Map.entry("analitica_cargue_original_borrado", Operacion.ELIMINACION), Map.entry("analitica_ws_lote", Operacion.INSERCION),
+            Map.entry("analitica_cargue_duplicado", Operacion.ACTUALIZACION), Map.entry("analitica_cargue_vencido", Operacion.ELIMINACION),
+            Map.entry("analitica_cargue_descartado", Operacion.ELIMINACION),
+            // Homologación (analitica-homologacion): fuentes oficiales, reglas, ejecuciones, revisión y exportación; sin datos personales
+            Map.entry("homologacion_fuente_cargada", Operacion.INSERCION), Map.entry("homologacion_fuente_publicada", Operacion.ACTUALIZACION),
+            Map.entry("homologacion_lista_modificada", Operacion.ACTUALIZACION), Map.entry("homologacion_regla_modificada", Operacion.ACTUALIZACION),
+            Map.entry("homologacion_ejecutada", Operacion.INSERCION), Map.entry("homologacion_aprobada", Operacion.ACTUALIZACION),
+            Map.entry("homologacion_devuelta", Operacion.ACTUALIZACION), Map.entry("homologacion_consulta", Operacion.CONSULTA),
+            Map.entry("homologacion_exportada", Operacion.CONSULTA),
+            // Tableros de analítica (analitica-tableros, A5 4.7.4 y 14.9): consultas, descargas y rastreos; sin datos personales (códigos
+            // de filtro, corte, n.º de registros y huella)
+            Map.entry("analitica_consulta", Operacion.CONSULTA), Map.entry("analitica_descarga", Operacion.CONSULTA),
+            Map.entry("analitica_traza", Operacion.CONSULTA), Map.entry("analitica_traza_descarga", Operacion.CONSULTA),
+            // Cohortes y alertas tempranas (analitica-cohortes-alertas, A5 4.7.4 «alertas generadas»): sin datos personales (códigos,
+            // versiones, cortes y conteos agregados)
+            Map.entry("analitica_cohorte_version", Operacion.INSERCION), Map.entry("analitica_cohorte_recalculo", Operacion.INSERCION),
+            Map.entry("analitica_cohorte_consulta", Operacion.CONSULTA), Map.entry("analitica_cohorte_descarga", Operacion.CONSULTA),
+            Map.entry("analitica_alerta_generada", Operacion.INSERCION), Map.entry("analitica_alerta_estado", Operacion.ACTUALIZACION),
+            Map.entry("analitica_alerta_parametro", Operacion.ACTUALIZACION), Map.entry("analitica_alerta_consulta", Operacion.CONSULTA),
+            Map.entry("analitica_alerta_descarga", Operacion.CONSULTA), Map.entry("analitica_alerta_referencia", Operacion.INSERCION));
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

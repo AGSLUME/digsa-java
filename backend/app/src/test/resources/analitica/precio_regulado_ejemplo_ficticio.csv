@@ -1,0 +1,4 @@
+no,id_mr,mercado_relevante,cum,medicamento,cantidad_por_unidad_de_medida,unidad_de_medida,precio_maximo_de_venta_transaccion_primaria_secundaria_y_final_institucional,margen_para_ips,precio_maximo_de_venta_transaccion_primaria_y_secundaria_comercial,precio_maximo_de_venta_transaccion_final_comercial,circular_cnpmdm,fecha_de_inicio_vigencia_precio_maximo_de_venta
+1,MR1,MERCADO FICTICIO,20010074-2,METFORMINA (EJEMPLO FICTICIO),60,TABLETA,"1234,50",0.07,1300.5,1400,Circular 22 de 2026,2026-08-19
+2,MR2,MERCADO FICTICIO,20010037-1,LOSARTAN (EJEMPLO FICTICIO),30,TABLETA,1234.5,0.07,1300,1400,Circular 22 de 2026,2026-08-19
+3,MR3,MERCADO FICTICIO,20010111-3,ATORVASTATINA (EJEMPLO FICTICIO),30,TABLETA,doce mil,0.07,1300,1400,Circular 22 de 2026,2026-08-19

@@ -211,7 +211,20 @@ export const tema = createTheme({
         return { root: { '--badge-bg': v.fondo, '--badge-color': v.texto, '--badge-dot-color': v.punto, '--badge-fz': rem(11.5) } as never };
       },
       styles: {
-        root: { textTransform: 'none', fontWeight: 700, maxWidth: 'none', overflow: 'visible', paddingInline: rem(10) },
+        // Píldora LUME (U7): radio 999px, padding 4px 10px y alto por contenido (línea de 15 px → 23 px), no el alto fijo de Mantine
+        // (16–20 px según el tamaño), que apretaba el texto; el punto y su separación de 6 px están en estilos.css
+        root: {
+          textTransform: 'none',
+          fontWeight: 700,
+          maxWidth: 'none',
+          overflow: 'visible',
+          borderRadius: rem(999),
+          padding: `${rem(4)} ${rem(10)}`,
+          height: 'auto',
+          minHeight: rem(23),
+          lineHeight: rem(15),
+          letterSpacing: 0,
+        },
         label: { overflow: 'visible', textOverflow: 'clip' },
       },
     }),

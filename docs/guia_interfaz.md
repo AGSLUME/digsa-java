@@ -31,8 +31,9 @@ pantalla ni de herramienta).
 | `VisorDocumento` | Ver PDF, PNG o JPEG dentro de la aplicación (lista blanca; lo demás se descarga). Nunca `target="_blank"` |
 | `Plantilla` | Shell: sidebar, cabecera con migas, campana, sonido y usuario. El menú sale del servidor (`Pantallas.java`); `shared/menu.ts` solo dice grupo, ícono y numeral por ruta |
 
-Una pantalla nueva del servidor aparece sola en el menú (en el grupo que mande `Pantallas.java`). Para darle grupo LUME, ícono y numeral,
-se agrega su ruta en `shared/menu.ts`.
+Una pantalla nueva del servidor aparece sola en el menú: en el módulo que corresponda a su grupo de `Pantallas.java` (Visitas → Visitas,
+Presupuesto → Interventoría y seguimiento presupuestal, Configuración → Administración; U7), al final de él. Para darle módulo, posición,
+ícono y numeral, se agrega su ruta en `PRESENTACION` de `shared/menu.ts` (el orden de ese objeto es el orden del menú).
 
 ## 3. Formato (`shared/formato.ts`)
 

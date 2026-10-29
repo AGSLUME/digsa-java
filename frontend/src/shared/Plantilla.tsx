@@ -9,7 +9,7 @@ import { fechaHora } from './formato';
 import { mmss } from './inactividad';
 import { InterruptorSonido } from './InterruptorSonido';
 import { LimiteErrores } from './LimiteErrores';
-import { agrupar, ICONO_INICIO, type EntradaMenu } from './menu';
+import { agrupar, GRUPO_CUENTA, ICONO_INICIO, type EntradaMenu } from './menu';
 import { useRestantesSesion } from './relojSesion';
 import { puedeEntrar, useSesion } from './sesion';
 
@@ -124,10 +124,10 @@ export function migasDe(pathname: string, grupos: ReturnType<typeof agrupar>): s
   if (pathname === '/') return ['Inicio'];
   const entradas = grupos.flatMap((g) => g.entradas.map((e) => ({ grupo: g.grupo, e })));
   const de = (ruta: string) => entradas.find(({ e }) => e.ruta === ruta);
-  if (/^\/visita\/[^/]+/.test(pathname)) return ['Auditoría', 'Visita'];
+  if (/^\/visita\/[^/]+/.test(pathname)) return ['Visitas', 'Visita'];
   if (pathname.startsWith('/seguimiento')) {
     const agenda = de('agenda');
-    return agenda ? [agenda.grupo, agenda.e.titulo, 'Seguimiento'] : ['Auditoría', 'Seguimiento'];
+    return agenda ? [agenda.grupo, agenda.e.titulo, 'Seguimiento'] : ['Visitas', 'Seguimiento'];
   }
   const ruta = pathname.split('/')[1] ?? '';
   const actual = de(ruta);
@@ -155,7 +155,7 @@ function Migas({ partes }: { partes: string[] }) {
  * Shell del design system LUME (fase U3.5): sidebar de 250 px en --lume-blue-dark, colapsable a 68 px solo con íconos (por debajo de
  * 900 px colapsa solo; en celular es un panel que se abre con «Menú»), cabecera blanca de 64 px con la ruta de migas, la campana (solo
  * si el perfil tiene Alertas), el sonido y el usuario (avatar con iniciales, nombre y perfil). El menú sigue saliendo del servidor
- * (Pantallas.java, Anexo 5 num. 3.7), agrupado como el mockup (UI-7). La marca no es un encabezado: el primero es el h1 de la página.
+ * (Pantallas.java, Anexo 5 num. 3.7), agrupado por módulos (U7; «Mi cuenta» fija al pie). La marca no es un encabezado: el primero es el h1 de la página.
  */
 export function Plantilla({ alSalir }: { alSalir: () => void }) {
   const s = useSesion();
@@ -280,7 +280,10 @@ export function Plantilla({ alSalir }: { alSalir: () => void }) {
             ))}
           </Stack>
         </AppShell.Section>
+        {/* «Mi cuenta» (U7): fija al pie para que «Mi contraseña» no se pierda al desplazar el menú. «Salir» sigue en la cabecera, visible
+            en todos los anchos, y no se repite aquí */}
         <AppShell.Section px={colapsado ? 10 : 'sm'} pb="sm">
+          {colapsado ? <Box className="lume-separador" aria-hidden /> : <Text className="lume-seccion">{GRUPO_CUENTA}</Text>}
           {!colapsado && (
             <Text fz={11.5} className="lume-sidebar-apagado" px="sm" mb={4} hiddenFrom="sm">
               {s.nombre} · {s.perfiles.join(' · ')}

@@ -94,7 +94,13 @@ public final class Bitacora {
             // --- fin presupuesto ---
             // Usuarios, roles y logs (sesión 2, rama identidad-roles-logs)
             Map.entry("usuario_desbloqueado", Operacion.ACTUALIZACION), Map.entry("clave_cambio_fallido", Operacion.ACTUALIZACION),
-            Map.entry("rol_creado", Operacion.INSERCION), Map.entry("rol_editado", Operacion.ACTUALIZACION), Map.entry("rol_estado", Operacion.ACTUALIZACION));
+            Map.entry("rol_creado", Operacion.INSERCION), Map.entry("rol_editado", Operacion.ACTUALIZACION), Map.entry("rol_estado", Operacion.ACTUALIZACION),
+            // --- Correos (sesión de correos): bitácora de envíos, plantillas y destinatarios ---
+            Map.entry("correo_reintentado", Operacion.INSERCION), Map.entry("correo_destinatarios_vistos", Operacion.CONSULTA),
+            Map.entry("correo_plantilla_editada", Operacion.ACTUALIZACION), Map.entry("correo_plantilla_restaurada", Operacion.ACTUALIZACION),
+            Map.entry("correo_destinatarios_editados", Operacion.ACTUALIZACION)
+            // --- fin correos ---
+            );
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

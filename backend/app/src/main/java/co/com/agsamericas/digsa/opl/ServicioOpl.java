@@ -7,6 +7,7 @@ import co.com.agsamericas.digsa.ejecucion.ServicioFormulario;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
 import co.com.agsamericas.digsa.plataforma.Almacen;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
@@ -76,14 +77,14 @@ public class ServicioOpl {
     private final RepositorioVisitas visitas;
     private final ValidadorArchivos validador;
     private final Almacen almacen;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final RegistroBitacora bitacora;
     private final TransactionTemplate tx;
     private final Clock reloj;
     private final co.com.agsamericas.digsa.agenda.ServicioAgenda agenda;
     private final co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta;
 
-    public ServicioOpl(JdbcClient jdbc, RepositorioVisitas visitas, ValidadorArchivos validador, Almacen almacen, Correo correo, RegistroBitacora bitacora,
+    public ServicioOpl(JdbcClient jdbc, RepositorioVisitas visitas, ValidadorArchivos validador, Almacen almacen, EnvioRegistrado correo, RegistroBitacora bitacora,
                        TransactionTemplate tx, Clock reloj, co.com.agsamericas.digsa.agenda.ServicioAgenda agenda,
                        co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta) {
         this.consulta = consulta;
@@ -766,7 +767,7 @@ public class ServicioOpl {
                 visitas.historial(a.visitaId(), null, "sistema", evento + " no enviado", "No hay correos registrados");
                 return evento + " no enviado: no hay correos registrados.";
             }
-            Correo.Resultado r = correo.enviar(new Correo.Mensaje(para, List.of(), asunto,
+            Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("opl_aviso", "visita:" + a.visitaId()), new Correo.Mensaje(para, List.of(), asunto,
                     PlantillaCorreo.marco("Visita " + a.numero() + " · " + a.punto(), "<p>" + PlantillaCorreo.texto(cuerpo) + "</p>"), List.of()));
             if (!r.ok()) {
                 visitas.historial(a.visitaId(), null, "sistema", evento + " fallido", Bitacora.cortar(Bitacora.sinCorreos(String.valueOf(r.error())), 300));

@@ -265,7 +265,7 @@ public class DespachadorSalida {
         int fallidos = 0;
         for (Map<String, Object> f : jdbc.sql("""
                 UPDATE correos_salida SET estado = 'fallido', error = :e, proximo = :ahora
-                WHERE estado = 'enviando' AND tomado < :limite AND intentos >= :max RETURNING id, origen, critico, intentos""")
+                WHERE estado = 'enviando' AND NOT sincrono AND tomado < :limite AND intentos >= :max RETURNING id, origen, critico, intentos""")
                 .param("e", error).param("ahora", ahora).param("limite", limite).param("max", Alertas.MAX_INTENTOS).query().listOfRows()) {
             fallidos++;
             correoAgotado(((Number) f.get("id")).longValue(), (String) f.get("origen"), Boolean.TRUE.equals(f.get("critico")),
@@ -280,9 +280,16 @@ public class DespachadorSalida {
         }
         int devueltos = 0;
         for (String tabla : List.of("correos_salida", "sms_salida")) {
-            devueltos += jdbc.sql("UPDATE " + tabla + " SET estado = 'pendiente', proximo = :ahora, error = :e WHERE estado = 'enviando' AND tomado < :limite AND intentos < :max")
+            devueltos += jdbc.sql("UPDATE " + tabla + " SET estado = 'pendiente', proximo = :ahora, error = :e WHERE estado = 'enviando'"
+                            + ("correos_salida".equals(tabla) ? " AND NOT sincrono" : "") + " AND tomado < :limite AND intentos < :max")
                     .param("ahora", ahora).param("e", error).param("limite", limite).param("max", Alertas.MAX_INTENTOS).update();
         }
+        // Envío directo (EnvioRegistrado) sin resultado: la aplicación cayó a mitad del envío. No vuelve a la cola: se reenvía desde su pantalla
+        fallidos += jdbc.sql("""
+                UPDATE correos_salida SET estado = 'fallido', error = 'Sin resultado del envío directo (la aplicación se detuvo a mitad del envío)',
+                  proximo = :ahora
+                WHERE sincrono AND estado = 'enviando' AND creado < :limite""")
+                .param("ahora", ahora).param("limite", limite).update();
         if (fallidos + devueltos > 0) {
             LOG.warn("[salida] Envíos colgados en «enviando»: {} vuelven a la cola y {} quedan fallidos", devueltos, fallidos);
         }

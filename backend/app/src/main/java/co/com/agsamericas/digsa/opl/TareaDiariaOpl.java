@@ -6,6 +6,7 @@ import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
 import co.com.agsamericas.digsa.ejecucion.EnlaceOpl;
 import co.com.agsamericas.digsa.ejecucion.ServicioArchivos;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Alertas;
@@ -61,13 +62,13 @@ public class TareaDiariaOpl {
     private final DataSource ds;
     private final RepositorioVisitas visitas;
     private final ServicioCatalogos catalogos;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final RegistroBitacora bitacora;
     private final TransactionTemplate tx;
     private final ObjectMapper json;
     private final ServicioAlertas alertas;
 
-    public TareaDiariaOpl(ServicioOpl opl, JdbcClient jdbc, DataSource ds, RepositorioVisitas visitas, ServicioCatalogos catalogos, Correo correo,
+    public TareaDiariaOpl(ServicioOpl opl, JdbcClient jdbc, DataSource ds, RepositorioVisitas visitas, ServicioCatalogos catalogos, EnvioRegistrado correo,
                           RegistroBitacora bitacora, TransactionTemplate tx, ObjectMapper json, ServicioAlertas alertas) {
         this.alertas = alertas;
         this.opl = opl;
@@ -467,7 +468,7 @@ public class TareaDiariaOpl {
             try (InputStream in = opl.abrir(acta)) {
                 pdf = in.readAllBytes();
             }
-            Correo.Resultado r = correo.enviar(new Correo.Mensaje(para, List.of(), "Reporte N° " + consecutivo + " · " + textoMotivo(motivo) + " · visita "
+            Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("opl_reporte_digsa", "visita:" + a.visitaId()), new Correo.Mensaje(para, List.of(), "Reporte N° " + consecutivo + " · " + textoMotivo(motivo) + " · visita "
                     + a.numero(), html, List.of(new Correo.Adjunto(acta.nombre(), "application/pdf", pdf))));
             if (!r.ok()) {
                 return String.valueOf(r.error());

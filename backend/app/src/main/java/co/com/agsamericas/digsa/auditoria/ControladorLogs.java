@@ -4,6 +4,7 @@ import co.com.agsamericas.digsa.identidad.UsuarioSesion;
 import co.com.agsamericas.digsa.plataforma.Accion;
 import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.Exportador;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
@@ -59,13 +60,13 @@ public class ControladorLogs {
 
     private final RepositorioLogs logs;
     private final Exportador exportador;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final RegistroBitacora bitacora;
     private final ConfiguracionDigsa cfg;
     private final Clock reloj;
     private final com.fasterxml.jackson.databind.ObjectMapper json;
 
-    public ControladorLogs(RepositorioLogs logs, Exportador exportador, Correo correo, RegistroBitacora bitacora, ConfiguracionDigsa cfg, Clock reloj,
+    public ControladorLogs(RepositorioLogs logs, Exportador exportador, EnvioRegistrado correo, RegistroBitacora bitacora, ConfiguracionDigsa cfg, Clock reloj,
                            com.fasterxml.jackson.databind.ObjectMapper json) {
         this.json = json;
         this.logs = logs;
@@ -138,7 +139,7 @@ public class ControladorLogs {
         }
         Archivo a = archivo(filtro(e.desde(), e.hasta(), e.usuarioId(), e.operacion(), e.texto(), e.modulo(), e.tipo()),
                 e.formato() == null ? "xlsx" : e.formato());
-        Correo.Resultado r = correo.enviar(new Correo.Mensaje(List.of(para), List.of(), "Reporte de logs de auditoría · Suite DIGSA",
+        Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("reporte_logs", null).reenvio("Se reenvía desde Logs del sistema con «Enviar por correo»."), new Correo.Mensaje(List.of(para), List.of(), "Reporte de logs de auditoría · Suite DIGSA",
                 "<p>Adjunto el reporte de logs de auditoría generado en la Suite DIGSA.</p><p>Archivo: "
                         + org.springframework.web.util.HtmlUtils.htmlEscape(a.nombre()) + "</p>",
                 List.of(new Correo.Adjunto(a.nombre(), a.tipo(), a.contenido()))));

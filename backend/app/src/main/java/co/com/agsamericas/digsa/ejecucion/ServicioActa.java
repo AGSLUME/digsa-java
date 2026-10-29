@@ -6,6 +6,7 @@ import co.com.agsamericas.digsa.alertas.ServicioAlertas;
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
@@ -51,7 +52,7 @@ public class ServicioActa {
     private final ServicioNotificacion notificacion;
     private final ServicioCatalogos catalogos;
     private final RepositorioVisitas visitas;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final RegistroBitacora bitacora;
     private final JdbcClient jdbc;
     private final TransactionTemplate tx;
@@ -62,7 +63,7 @@ public class ServicioActa {
     private final ServicioAlertas alertas;
 
     public ServicioActa(ServicioFormulario formulario, ServicioArchivos archivos, ServicioNotificacion notificacion, ServicioCatalogos catalogos,
-                        RepositorioVisitas visitas, Correo correo, RegistroBitacora bitacora, JdbcClient jdbc, TransactionTemplate tx, Clock reloj,
+                        RepositorioVisitas visitas, EnvioRegistrado correo, RegistroBitacora bitacora, JdbcClient jdbc, TransactionTemplate tx, Clock reloj,
                         co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta, co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa cfg,
                         ServicioSeguimiento seguimiento, ServicioAlertas alertas) {
         this.alertas = alertas;
@@ -173,17 +174,24 @@ public class ServicioActa {
             return new Preparada(actaId, ronda, v.numero(), lista, obligatorios, asunto, pdf, nombre, enlace, programacion, prorrogas);
         });
 
-        Correo.Resultado r = correo.enviar(new Correo.Mensaje(p.para(), List.of(), p.asunto(),
-                PlantillaCorreo.marco(p.asunto().startsWith("Acta de seguimiento") ? "Acta de seguimiento a plan de mejoramiento" : "Acta de visita",
-                        "<p>Adjuntamos el acta de la visita <strong>" + PlantillaCorreo.e(p.numero())
+        // En la bitácora de envíos el enlace de respuesta del OPL (lleva el token) queda oculto; el acta se reenvía desde la visita
+        java.util.function.Function<String, String> html = url -> PlantillaCorreo.marco(
+                p.asunto().startsWith("Acta de seguimiento") ? "Acta de seguimiento a plan de mejoramiento" : "Acta de visita",
+                "<p>Adjuntamos el acta de la visita <strong>" + PlantillaCorreo.e(p.numero())
                         + "</strong>" + (p.ronda() > 1 ? " (ronda " + p.ronda() + ", visita reabierta)" : "") + ".</p>"
                         + (p.enlace() == null ? "<p>La visita no tiene hallazgos.</p>"
                                 : "<p style=\"border:2px solid #961414;padding:10px;color:#961414\"><strong>" + PlantillaCorreo.e(p.enlace().textoPlazos())
-                                        + "</strong></p><p>Responda los hallazgos y firme el plan en: <a href=\"" + PlantillaCorreo.e(p.enlace().url()) + "\">"
-                                        + PlantillaCorreo.e(p.enlace().url()) + "</a></p>")
+                                        + "</strong></p><p>Responda los hallazgos y firme el plan en: <a href=\"" + PlantillaCorreo.e(url) + "\">"
+                                        + PlantillaCorreo.e(url) + "</a></p>")
                         + "<p style=\"color:#6b7280;font-size:11px\">Huella SHA-256 del acta: "
-                        + co.com.agsamericas.digsa.reglas.Huellas.sha256(p.pdf()) + "</p>"),
-                List.of(new Correo.Adjunto(p.nombre(), "application/pdf", p.pdf()))));
+                        + co.com.agsamericas.digsa.reglas.Huellas.sha256(p.pdf()) + "</p>");
+        EnvioRegistrado.Registro registro = EnvioRegistrado.Registro.de("acta", "acta:" + p.actaId());
+        if (p.enlace() != null) {
+            registro = registro.secreto(html.apply(PlantillaCorreo.ENLACE_OCULTO));
+        }
+        Correo.Resultado r = correo.enviar(registro.reenvio("Se reenvía desde la visita con «Enviar acta» (genera el PDF de nuevo)."),
+                new Correo.Mensaje(p.para(), List.of(), p.asunto(), html.apply(p.enlace() == null ? null : p.enlace().url()),
+                        List.of(new Correo.Adjunto(p.nombre(), "application/pdf", p.pdf()))));
         List<String> rechazados = r.ok() ? r.rechazados() : p.para();
         long obligatoriosRechazados = rechazados.stream().filter(x -> p.obligatorios().contains(x.toLowerCase(Locale.ROOT))).count();
         boolean completa = r.ok() && obligatoriosRechazados == 0;

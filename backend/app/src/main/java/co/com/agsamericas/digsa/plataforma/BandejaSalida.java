@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -89,6 +90,29 @@ public class BandejaSalida {
         }
         ids.forEach(id -> eventos.publishEvent(new SalidaEncolada("correo", id)));
         return ids.get(0);
+    }
+
+    /**
+     * Reintento manual de un correo fallido (módulo Correos, C1): una fila NUEVA con el mismo contenido, que apunta a la original y
+     * lleva el motivo; la original queda como estaba (historial). Solo lo encolado y reintentable; cada fallido se reintenta una vez
+     * (índice único de reintento_de): si el reintento también falla, se reintenta ese.
+     *
+     * @return el id del reintento, o vacío si el correo no existe, no está fallido, no es reintentable o ya se reintentó
+     */
+    @Transactional
+    public Optional<Long> reintentar(long id, String motivo, long usuarioId) {
+        OffsetDateTime ahora = OffsetDateTime.now(reloj);
+        Optional<Long> nuevo = jdbc.sql("""
+                INSERT INTO correos_salida (origen, referencia, alerta_id, critico, para, copia, asunto, html, adjuntos, proximo, creado, reintento_de,
+                  motivo_reintento, reintentado_por)
+                SELECT c.origen, c.referencia, c.alerta_id, c.critico, c.para, c.copia, c.asunto, c.html, c.adjuntos, :ahora, :ahora, c.id, :m, :u
+                FROM correos_salida c
+                WHERE c.id = :id AND c.estado = 'fallido' AND c.reintentable AND NOT c.sincrono
+                ON CONFLICT (reintento_de) WHERE reintento_de IS NOT NULL DO NOTHING
+                RETURNING id""")
+                .param("id", id).param("m", Bitacora.cortar(motivo, 300)).param("u", usuarioId).param("ahora", ahora).query(Long.class).optional();
+        nuevo.ifPresent(n -> eventos.publishEvent(new SalidaEncolada("correo", n)));
+        return nuevo;
     }
 
     /** Encola un SMS de una alerta. El teléfono va enmascarado: el despachador toma el número vigente del usuario al enviar. */

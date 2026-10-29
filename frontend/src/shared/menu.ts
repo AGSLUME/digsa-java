@@ -12,6 +12,7 @@ import {
   IconFileSearch,
   IconHome,
   IconListDetails,
+  IconMail,
   IconMap,
   IconMapPin,
   IconMessageReply,
@@ -75,6 +76,9 @@ const PRESENTACION: Record<string, Presentacion> = {
   catalogos: { grupo: 'Administración', icono: IconSettings },
   alertas: { grupo: 'Administración', icono: IconBell },
   exportacion: { grupo: 'Administración', icono: IconDatabaseExport },
+  // --- Correos (sesión de correos) ---
+  correos: { grupo: 'Administración', icono: IconMail },
+  // --- fin correos ---
 };
 
 const ORDEN_RUTAS = Object.keys(PRESENTACION);

@@ -4,6 +4,7 @@ import co.com.agsamericas.digsa.identidad.UsuarioSesion;
 import co.com.agsamericas.digsa.plataforma.Accion;
 import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.Exportador;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
@@ -49,11 +50,11 @@ public class ControladorReportesPresupuesto {
 
     private final ServicioReportesPresupuesto servicio;
     private final Exportador exportador;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final RegistroBitacora bitacora;
     private final ConfiguracionDigsa cfg;
 
-    ControladorReportesPresupuesto(ServicioReportesPresupuesto servicio, Exportador exportador, Correo correo, RegistroBitacora bitacora, ConfiguracionDigsa cfg) {
+    ControladorReportesPresupuesto(ServicioReportesPresupuesto servicio, Exportador exportador, EnvioRegistrado correo, RegistroBitacora bitacora, ConfiguracionDigsa cfg) {
         this.servicio = servicio;
         this.exportador = exportador;
         this.correo = correo;
@@ -130,7 +131,7 @@ public class ControladorReportesPresupuesto {
         Archivo a = archivo(tipo, e.formato() == null ? "xlsx" : e.formato(), new ServicioReportesPresupuesto.Filtros(e.vigencia(), e.corte(), e.fuerza(),
                 e.punto(), e.modalidad(), e.tipoMovimiento(), e.desde(), e.hasta(), e.agrupacion()));
         String titulo = ServicioReportesPresupuesto.TIPOS.get(tipo);
-        Correo.Resultado r = correo.enviar(new Correo.Mensaje(List.of(para), List.of(), titulo + " · Suite DIGSA", PlantillaCorreo.marco(titulo,
+        Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("reporte_presupuesto", "reporte:" + tipo).reenvio("Se reenvía desde los reportes de presupuesto con «Enviar por correo»."), new Correo.Mensaje(List.of(para), List.of(), titulo + " · Suite DIGSA", PlantillaCorreo.marco(titulo,
                 "<p>Adjunto el reporte generado en la Suite DIGSA.</p><p>Archivo: " + PlantillaCorreo.e(a.nombre()) + "</p>"),
                 List.of(new Correo.Adjunto(a.nombre(), a.tipo(), a.contenido()))));
         UsuarioSesion u = UsuarioSesion.actual().orElseThrow();

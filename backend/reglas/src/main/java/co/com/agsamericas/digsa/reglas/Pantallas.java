@@ -37,6 +37,9 @@ public enum Pantallas {
     USUARIOS("usuarios", "Usuarios", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
     EXPORTACION("exportacion", "Exportación de datos", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
     LOGS("logs", "Logs del sistema", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
+    // --- Correos (sesión de correos): bitácora de envíos, plantillas y destinatarios; solo el Administrador ---
+    CORREOS("correos", "Correos", "Configuración", Set.of(Perfil.ADMINISTRADOR)),
+    // --- fin correos ---
     VISITA("visita", "Visita", null, Set.of(Perfil.AUDITOR, Perfil.COORDINADOR));
 
     private final String ruta;

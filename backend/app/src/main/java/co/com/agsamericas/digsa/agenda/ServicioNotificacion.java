@@ -3,6 +3,7 @@ package co.com.agsamericas.digsa.agenda;
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
@@ -56,13 +57,13 @@ public class ServicioNotificacion {
 
     private final RepositorioVisitas visitas;
     private final JdbcClient jdbc;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final ServicioCatalogos catalogos;
     private final RegistroBitacora bitacora;
     private final TransactionTemplate tx;
     private final Clock reloj;
 
-    public ServicioNotificacion(RepositorioVisitas visitas, JdbcClient jdbc, Correo correo, ServicioCatalogos catalogos, RegistroBitacora bitacora,
+    public ServicioNotificacion(RepositorioVisitas visitas, JdbcClient jdbc, EnvioRegistrado correo, ServicioCatalogos catalogos, RegistroBitacora bitacora,
                                 TransactionTemplate tx, Clock reloj) {
         this.visitas = visitas;
         this.jdbc = jdbc;
@@ -267,7 +268,7 @@ public class ServicioNotificacion {
                     + ". Regístrelos en Catálogos o en Puntos y auditores y use «Notificar» en la agenda.");
         }
 
-        Correo.Resultado r = correo.enviar(new Correo.Mensaje(reg.para(), List.of(), reg.asunto(),
+        Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("notificacion_previa", "visita:" + visitaId).reenvio("Se reenvía desde la agenda con «Notificar»."), new Correo.Mensaje(reg.para(), List.of(), reg.asunto(),
                 PlantillaCorreo.marco("Notificación de visita de seguimiento", "<p>" + PlantillaCorreo.texto(reg.cuerpo()) + "</p>"), List.of()));
         // Entrega parcial: si rechazaron a un destinatario obligatorio (DISAN/JEFSA, OPL, DIGSA), la visita no queda notificada
         List<String> rechazados = r.ok() ? r.rechazados() : reg.para();

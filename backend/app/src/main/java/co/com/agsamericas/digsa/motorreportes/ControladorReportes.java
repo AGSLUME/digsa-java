@@ -5,6 +5,7 @@ import co.com.agsamericas.digsa.plataforma.Accion;
 import co.com.agsamericas.digsa.plataforma.Almacen;
 import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
@@ -78,14 +79,14 @@ public class ControladorReportes {
     private final MotorReportes motor;
     private final ServicioGeneracion generacion;
     private final Almacen almacen;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final RegistroBitacora bitacora;
     private final ConfiguracionDigsa cfg;
     private final ConfiguracionReportes cfgReportes;
     private final RegistroGenerados registro;
     private final Clock reloj;
 
-    public ControladorReportes(MotorReportes motor, ServicioGeneracion generacion, Almacen almacen, Correo correo, RegistroBitacora bitacora,
+    public ControladorReportes(MotorReportes motor, ServicioGeneracion generacion, Almacen almacen, EnvioRegistrado correo, RegistroBitacora bitacora,
                                ConfiguracionDigsa cfg, ConfiguracionReportes cfgReportes, RegistroGenerados registro, Clock reloj) {
         this.cfgReportes = cfgReportes;
         this.registro = registro;
@@ -364,7 +365,7 @@ public class ControladorReportes {
         String titulo = s.definicion().titulo();
         Correo.Resultado res;
         try {
-            res = correo.enviar(new Correo.Mensaje(destinos, List.of(), titulo + " · Suite DIGSA",
+            res = correo.enviar(EnvioRegistrado.Registro.de("reporte_motor", "reporte:" + a.codigo()).reenvio("Se reenvía desde Reportes con «Enviar por correo»."), new Correo.Mensaje(destinos, List.of(), titulo + " · Suite DIGSA",
                     PlantillaCorreo.marco(titulo, "<p>Adjunto el reporte generado en la Suite DIGSA.</p><p>Archivo: " + PlantillaCorreo.e(a.nombre())
                             + "</p><p>Código de verificación: <strong>" + PlantillaCorreo.e(a.codigo()) + "</strong></p>"),
                     List.of(new Correo.Adjunto(a.nombre(), a.tipo(), contenido))));

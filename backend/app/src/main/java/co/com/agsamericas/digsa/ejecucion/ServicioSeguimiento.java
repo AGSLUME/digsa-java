@@ -6,6 +6,7 @@ import co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda;
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
@@ -80,7 +81,7 @@ public class ServicioSeguimiento {
     private final ServicioAgenda agenda;
     private final ServicioConsultaAgenda consulta;
     private final ServicioCatalogos catalogos;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final RegistroBitacora bitacora;
     private final ApplicationEventPublisher eventos;
     private final JdbcClient jdbc;
@@ -88,7 +89,7 @@ public class ServicioSeguimiento {
     /** Punto de guardado dentro del cierre: si la programación falla, el cierre (cuyo correo ya salió) sigue en pie. */
     private final org.springframework.transaction.support.TransactionTemplate anidada;
 
-    public ServicioSeguimiento(RepositorioVisitas visitas, ServicioAgenda agenda, ServicioConsultaAgenda consulta, ServicioCatalogos catalogos, Correo correo,
+    public ServicioSeguimiento(RepositorioVisitas visitas, ServicioAgenda agenda, ServicioConsultaAgenda consulta, ServicioCatalogos catalogos, EnvioRegistrado correo,
                                RegistroBitacora bitacora, ApplicationEventPublisher eventos, JdbcClient jdbc, Clock reloj,
                                org.springframework.transaction.PlatformTransactionManager transacciones) {
         this.anidada = new org.springframework.transaction.support.TransactionTemplate(transacciones);
@@ -432,7 +433,7 @@ public class ServicioSeguimiento {
                         + PlantillaCorreo.e(s.puntoNombre()) + ".</p><p>Acciones por verificar:</p><table border=\"1\" cellpadding=\"4\" style=\"border-collapse:collapse\">"
                         + "<tr><th>Hallazgo</th><th>Descripción</th><th>Fin del plan</th></tr>" + filas + "</table>");
         try {
-            Correo.Resultado r = correo.enviar(new Correo.Mensaje(para, List.of(), "Visita de seguimiento " + s.numero() + " · " + s.puntoNombre(), html, List.of()));
+            Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("seguimiento_aviso", "visita:" + seguimientoId), new Correo.Mensaje(para, List.of(), "Visita de seguimiento " + s.numero() + " · " + s.puntoNombre(), html, List.of()));
             visitas.historial(seguimientoId, null, "sistema", r.ok() ? "Aviso al auditor" : "Aviso al auditor fallido",
                     r.ok() ? "Acciones por verificar: " + p.abiertas().size() : Bitacora.cortar(Bitacora.sinCorreos(String.valueOf(r.error())), 300));
             return r.ok() ? "Seguimiento " + s.numero() + " programado para el " + Plazos.fechaLarga(s.fecha()) + "." : "El aviso al auditor del seguimiento falló.";
@@ -470,7 +471,7 @@ public class ServicioSeguimiento {
                 + PlantillaCorreo.e(v.puntoNombre()) + ") llegó al máximo de " + maximo() + " visitas de seguimiento con acciones abiertas del plan de mejoramiento:</p><ul>"
                 + filas + "</ul><p>No se programa otro seguimiento. El reporte formal a la DIGSA sale por separado con su consecutivo.</p>");
         try {
-            Correo.Resultado r = correo.enviar(new Correo.Mensaje(para, copia, "Plan de mejoramiento sin cerrar · visita " + v.numero(), html, List.of()));
+            Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("seguimiento_escalamiento", "visita:" + v.id()), new Correo.Mensaje(para, copia, "Plan de mejoramiento sin cerrar · visita " + v.numero(), html, List.of()));
             visitas.historial(v.id(), null, "sistema", r.ok() ? "Escalamiento" : "Escalamiento fallido",
                     r.ok() ? "Enviado a " + para.size() + " destinatario(s)" + (copia.isEmpty() ? (coordinadores.isEmpty() ? " de la DIGSA (no hay coordinadores)" : "; sin correos de la DIGSA") : " con copia a la DIGSA")
                             : Bitacora.cortar(Bitacora.sinCorreos(String.valueOf(r.error())), 300));

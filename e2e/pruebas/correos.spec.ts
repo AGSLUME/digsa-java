@@ -97,3 +97,37 @@ test('el administrador ve las plantillas, no edita el MFA y edita y restaura el 
   await expect(cuerpo).toHaveValue(original);
   await expect(tabla.getByTestId('plantilla-recordatorio_seguimiento')).toContainText('Original');
 });
+
+// Módulo Correos · C3: destinatarios. Reglas por tipo de correo con su pantalla, dominios de los reportes (comité) y edición con
+// motivo del buzón de la DIGSA (se restaura al final: otras pruebas lo usan).
+test('el administrador ve a quién le llega cada correo y edita con motivo el buzón de la DIGSA', async ({ page }) => {
+  await ingresarComoAdminPropio(page, 'cord');
+  await page.getByRole('link', { name: 'Correos', exact: true }).click();
+  await page.getByRole('tab', { name: 'Destinatarios' }).click();
+  await expect(page.getByTestId('tabla-reglas-destinatarios')).toContainText('Todos los coordinadores activos.');
+  await expect(page.getByTestId('dominios-reportes')).toContainText('lo indica quien envía · dominios permitidos:');
+  await expect(page.getByTestId('tabla-alertas-destinatarios')).toBeVisible();
+
+  const buzon = page.getByTestId('buzon-digsa');
+  const original = (await buzon.textContent()) ?? '';
+  await page.getByRole('button', { name: 'Editar el buzón de la DIGSA' }).click();
+  let dialogo = page.getByRole('dialog', { name: 'Buzón de la DIGSA' });
+  const correos = dialogo.getByRole('textbox', { name: 'Correos' });
+  await correos.fill('no-es-correo');
+  await dialogo.getByRole('textbox', { name: 'Motivo' }).fill('Prueba del buzón de la DIGSA');
+  await dialogo.getByRole('button', { name: 'Guardar' }).click();
+  await expect(page.getByTestId('error-buzones')).toContainText('Correos');
+
+  await correos.fill('digsa.e2e@example.com\nsegundo.e2e@example.com');
+  await dialogo.getByRole('button', { name: 'Guardar' }).click();
+  await expect(page.getByText('Buzón de la DIGSA guardado: 2 correo(s).')).toBeVisible();
+  await expect(buzon).toHaveText('digsa.e2e@example.com, segundo.e2e@example.com');
+
+  // Vuelve al valor de antes
+  await page.getByRole('button', { name: 'Editar el buzón de la DIGSA' }).click();
+  dialogo = page.getByRole('dialog', { name: 'Buzón de la DIGSA' });
+  await dialogo.getByRole('textbox', { name: 'Correos' }).fill(original.includes('@') ? original : 'digsa@example.com');
+  await dialogo.getByRole('textbox', { name: 'Motivo' }).fill('Restaurar el buzón de la prueba');
+  await dialogo.getByRole('button', { name: 'Guardar' }).click();
+  await expect(dialogo).toBeHidden();
+});

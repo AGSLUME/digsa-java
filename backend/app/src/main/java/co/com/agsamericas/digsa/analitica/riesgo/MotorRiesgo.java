@@ -123,8 +123,8 @@ final class MotorRiesgo {
     private final RecalculoRiesgo.Sonda sonda;
 
     final Map<Llave, long[]> serie = new HashMap<>();
-    /** Membresía en líneas COPY, una por versión (la de una versión que falla se descarta sin tocar las demás). */
-    final List<StringBuilder> miembros = new ArrayList<>();
+    /** Membresía en líneas COPY, una por versión (la de una versión que falla se descarta sin tocar las demás); por lotes a disco (AN.32). */
+    final List<Volcado> miembros = new ArrayList<>();
     /** Pacientes distintos del periodo por defecto: versión ⇒ celda ⇒ pacientes. */
     final Map<Integer, Map<String, long[]>> conteos = new HashMap<>();
     long filasMiembros;
@@ -164,9 +164,14 @@ final class MotorRiesgo {
         this.periodoHasta = AnaliticaCohortes.ordinal(p[1].getYear(), p[1].getMonthValue());
         this.inicioIngresos = new int[versiones.size()];
         for (VersionCohorte v : versiones) {
-            miembros.add(new StringBuilder());
+            miembros.add(new Volcado());
             inicioIngresos[v.indice()] = primerMes + Math.max(AnaliticaCohortes.mesesCalentamiento(v.criterio()), gracia + 1);
         }
+    }
+
+    /** Cierra la membresía acumulada (borra los archivos temporales de los lotes, AN.32). */
+    void liberar() {
+        miembros.forEach(Volcado::close);
     }
 
     static String llaveUmbral(GastoMovil g) {
@@ -317,6 +322,8 @@ final class MotorRiesgo {
         if (v.particion()) {
             for (int i = 0; i < meses.size(); i++) {
                 MesBase mb = meses.get(i);
+                // A7.1: la membresía de la partición (grupo del paciente en el mes) para filtrar los tableros y la predicción por GCF o GRC
+                miembroParticion(v, pid, mb, r.grupo()[i]);
                 for (Map.Entry<String, long[]> c : mb.celdas.entrySet()) {
                     long[] s = serie.computeIfAbsent(new Llave(v.indice(), mb.mes, c.getKey(), r.grupo()[i]), x -> new long[6]);
                     s[0]++;
@@ -387,8 +394,25 @@ final class MotorRiesgo {
                 es.add(par.substring(par.indexOf('|') + 1));
             }
         }
-        miembros.get(v.indice()).append(v.id()).append('\t').append(corte).append('\t').append(ym.atDay(1)).append('\t').append(pid).append('\t')
-                .append(arreglo(fu)).append('\t').append(arreglo(new ArrayList<>(es))).append('\t').append(arreglo(pares)).append('\n');
+        Volcado d = miembros.get(v.indice());
+        d.linea().append(v.id()).append('\t').append(corte).append('\t').append(ym.atDay(1)).append('\t').append(pid).append('\t')
+                .append(arreglo(fu)).append('\t').append(arreglo(new ArrayList<>(es))).append('\t').append(arreglo(pares)).append("\t\n");
+        d.fin();
+        filasMiembros++;
+    }
+
+    /**
+     * Línea COPY de la membresía de una partición (A7.1): versión, corte, mes, paciente y su grupo. Fuerzas y ESM van vacíos: el filtro por
+     * GCF o GRC solo cruza (mes, paciente) con los hechos, que ya llevan el alcance; las tarjetas de las particiones leen la serie.
+     */
+    private void miembroParticion(VersionCohorte v, int pid, MesBase mb, String grupo) {
+        if (grupo == null || grupo.isEmpty()) {
+            return;
+        }
+        Volcado d = miembros.get(v.indice());
+        d.linea().append(v.id()).append('\t').append(corte).append('\t').append(AnaliticaCohortes.deOrdinal(mb.mes).atDay(1)).append('\t')
+                .append(pid).append("\t{}\t{}\t{}\t").append(grupo.replace("\t", " ").replace("\\", "")).append('\n');
+        d.fin();
         filasMiembros++;
     }
 

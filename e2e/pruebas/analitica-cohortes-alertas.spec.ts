@@ -16,19 +16,13 @@ test.afterEach(async ({ page }) => salir(page));
  * (duplicidad terapéutica sembrada) y 6 pacientes con 5 principios activos cada mes de febrero a julio de 2023 (polimedicados). Único por
  * corrida; devuelve también el mes de la duplicidad.
  */
-function insumo(): { nombre: string; contenido: string; anio: number; mes: string } {
+function insumo(anio: number, mes: string): { nombre: string; contenido: string; anio: number; mes: string } {
   const sello = `${Date.now()}`;
   const base = 83_000_000 + (Number(sello.slice(-5)) % 50_000) * 20;
   const enc =
     'TIPO_DOC;NUM_DOC;NOMBRE_PACIENTE;FUERZA;COD_ESM;MODALIDAD;FECHA_DISPENSACION;DESC_MEDICAMENTO;CUM;PRINCIPIO_ACTIVO;ATC;CIE10;CANTIDAD;VALOR_TOTAL;NUM_FORMULA';
   const filas: string[] = [];
   let n = 0;
-  // El mes de la duplicidad cambia en cada corrida: la base de e2e se reutiliza entre navegadores y una alerta ya validada en una
-  // corrida anterior (mismo tipo, nivel y mes) no se reevalúa, así que cada corrida necesita su propia alerta nueva. Un mes por minuto
-  // entre 2000 y 2023 (288 meses): los navegadores de una verificación corren con decenas de minutos de distancia.
-  const k = Math.floor(Number(sello) / 60_000) % 288;
-  const anio = 2000 + Math.floor(k / 12);
-  const mes = String(1 + (k % 12)).padStart(2, '0');
   for (let i = 0; i < 12; i++) {
     const doc = base + i;
     filas.push(
@@ -59,11 +53,39 @@ function insumo(): { nombre: string; contenido: string; anio: number; mes: strin
 }
 
 /**
+ * Mes para la duplicidad sembrada sin ninguna alerta de duplicidad todavía. La base de e2e se reutiliza entre navegadores y corridas, y
+ * una alerta ya validada (mismo tipo, nivel y mes) no se reevalúa: cada corrida necesita un mes propio. Entre 2000 y 2023, para que la
+ * historia completa quede dentro de los 30 años que admite una consulta (la predicción la usa entera).
+ */
+async function mesLibre(page: Page): Promise<{ anio: number; mes: string }> {
+  const usados = new Set<string>();
+  for (let pagina = 1, paginas = 1; pagina <= paginas; pagina++) {
+    const r = await api<{ paginas: number; alertas: { periodo: string }[] }>(
+      page,
+      'GET',
+      `/api/analitica/alertas?tipo=duplicidad_terapeutica&pagina=${pagina}`,
+    );
+    expect(r.estado, JSON.stringify(r.datos)).toBe(200);
+    paginas = r.datos.paginas;
+    for (const x of r.datos.alertas) usados.add(x.periodo);
+  }
+  const inicio = Math.floor(Date.now() / 1000) % 288;
+  for (let i = 0; i < 288; i++) {
+    const k = (inicio + i) % 288;
+    const anio = 2000 + Math.floor(k / 12);
+    const mes = String(1 + (k % 12)).padStart(2, '0');
+    if (!usados.has(`${anio}-${mes}`)) return { anio, mes };
+  }
+  throw new Error('No queda un mes libre entre 2000 y 2023 para la duplicidad sembrada');
+}
+
+/**
  * Carga el insumo por la API (como la pantalla «Cargues del OPL»), espera a que quede aplicado y a que corra el motor de alertas.
  * Devuelve el corte y el mes de la duplicidad sembrada (primer y último día, para filtrar la consola).
  */
 async function cargar(page: Page): Promise<{ corte: number; desde: string; hasta: string }> {
-  const a = insumo();
+  const { anio, mes } = await mesLibre(page);
+  const a = insumo(anio, mes);
   const bytes = new TextEncoder().encode(a.contenido);
   const sha = await page.evaluate(async (texto) => {
     const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(texto));
@@ -232,4 +254,53 @@ test('M8-7: el ESM no tiene la consola de alertas (403) y en el tablero 11 solo 
   await expect(page.getByTestId('panel-atipicos')).toBeVisible();
   await expect(page.getByRole('table', { name: 'Alertas de mayor prioridad' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Abrir la consola de alertas' })).toHaveCount(0);
+});
+
+test('A7.1 (AN.22, AN.30): la cohorte como filtro de los tableros desde su tarjeta y como dimensión de la predicción', async ({ page }) => {
+  await ingresar(page, ...ADMIN);
+  const { corte } = await cargar(page);
+  const analista = await crearUsuario(page, 'anacoh', 10);
+  await salir(page);
+  await ingresarConClaveInicial(page, analista, INICIAL, 'Analista.Cohorte.2026');
+
+  // Tablero 10: «Ver en los tableros» abre el tablero de gasto con el filtro de esa cohorte (mismo periodo y corte)
+  await page.goto(`/analitica?t=cohortes&${PERIODO}&corte=${corte}`);
+  const poli = page.getByTestId('cohorte-poliformulados');
+  await expect(poli.getByTestId('criterio')).toContainText('· v');
+  await poli.getByTestId('ver-en-tableros').click();
+  await expect(page).toHaveURL(/t=gasto/);
+  await expect(page).toHaveURL(/cohorte=poliformulados/);
+  await expect(page).toHaveURL(new RegExp(`corte=${corte}`));
+  await expect(page.getByTestId('chip-gasto')).toHaveAttribute('aria-pressed', 'true');
+  // La pastilla muestra la cohorte con su versión; el criterio completo va en el título (y en los metadatos de la descarga)
+  const filtros = page.getByLabel('Filtros aplicados');
+  await expect(filtros).toContainText(/Cohorte: Poliformulados · v\d+/);
+  await expect(page.getByTestId('kpi-gasto')).toBeVisible();
+  await expect(page.getByTestId('tablero')).toContainText('Filtrado por cohorte');
+
+  // GRC desde la barra de filtros (opciones del corte en el alcance): se combina con la cohorte (Y)
+  await page.getByTestId('filtro-grc').click();
+  await page.getByRole('option').first().click();
+  await page.keyboard.press('Escape');
+  await expect(page).toHaveURL(/grc=GRC[1-4]/);
+  await expect(page.getByTestId('kpi-gasto')).toBeVisible();
+
+  // Quitar la cohorte vuelve al gasto sin ese filtro
+  await filtros.getByRole('button', { name: /Quitar cohorte poliformulados/ }).click();
+  await expect(page).not.toHaveURL(/cohorte=/);
+  await expect(page.getByTestId('kpi-gasto')).toBeVisible();
+
+  // Una cohorte inexistente en la URL responde con el motivo (no con cifras en cero)
+  await page.goto(`/analitica?t=gasto&${PERIODO}&corte=${corte}&cohorte=no_existe`);
+  await expect(page.getByRole('alert').or(page.getByText('Cohorte «no_existe» no existe o está fuera de su alcance.')).first()).toBeVisible();
+
+  // Tablero 12: con la cohorte en la barra, la predicción abre con la dimensión «Cohorte» y ese valor
+  await page.goto(`/analitica?t=predictivo&corte=${corte}&cohorte=poliformulados`);
+  // El Select de Mantine y su lista comparten la etiqueta: se busca el campo
+  await expect(page.getByRole('textbox', { name: 'Dimensión' })).toHaveValue('Cohorte');
+  await expect(page.getByTestId('metadatos-prediccion').or(page.getByTestId('prediccion-falta')).first()).toBeVisible({ timeout: 60_000 });
+  const meta = page.getByTestId('prediccion-cohorte');
+  if (await meta.isVisible()) {
+    await expect(meta).toContainText(/Poliformulados \(v\d+:/);
+  }
 });

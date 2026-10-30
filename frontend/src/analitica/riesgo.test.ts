@@ -6,6 +6,7 @@ import {
   filaVacia,
   filtrosDeUrl,
   filtrosIgnorados,
+  ignoradosCohortes,
   intervaloEjecuciones,
   noEvaluados,
   problemaNota,
@@ -13,11 +14,13 @@ import {
   rutaTrazaAlerta,
   separarTarjetas,
   siguientes,
+  tarjetasDelFiltro,
   totalesSeveridad,
   type Editor,
   type ResumenTipo,
   type TarjetaCohorte,
 } from './riesgo';
+import type { EstadoAnalitica } from './tableros';
 
 describe('editor de criterios de cohortes', () => {
   it('«Diabetes con insulina»: CIE-10 E10–E14 Y ATC A10A en 12 meses va como un grupo Y y vuelve igual', () => {
@@ -146,5 +149,36 @@ describe('revisión A4: filtros, consola y ejecuciones', () => {
     expect(intervaloEjecuciones([{ estado: 'en_curso' }], false)).toBe(5000);
     expect(intervaloEjecuciones([{ estado: 'en_curso' }], true)).toBe(false);
     expect(intervaloEjecuciones(undefined, false)).toBe(false);
+  });
+});
+
+describe('tablero 10 con el filtro de cohorte, GCF o GRC (A7.1)', () => {
+  const tarjeta = (codigo: string, particion = false): TarjetaCohorte => ({
+    id: codigo.length,
+    codigo,
+    nombre: codigo,
+    descripcion: null,
+    predefinida: true,
+    delMockup: false,
+    version: 1,
+    criterio: 'x · v1',
+    particion,
+    estado: 'evaluada',
+    motivo: null,
+    fuentes: null,
+  });
+  const todas = [tarjeta('renal'), tarjeta('vih'), tarjeta('gcf', true), tarjeta('grc', true)];
+  const estado = (filtros: EstadoAnalitica['filtros']): EstadoAnalitica => ({ tablero: 'cohortes', generales: {}, filtros });
+
+  it('muestra solo las cohortes elegidas y la partición filtrada; sin esos filtros, todas', () => {
+    expect(tarjetasDelFiltro(todas, estado({})).filtradas).toBe(false);
+    expect(tarjetasDelFiltro(todas, estado({})).tarjetas).toHaveLength(4);
+    const r = tarjetasDelFiltro(todas, estado({ cohorte: ['vih'], grc: ['GRC1'] }));
+    expect(r.filtradas).toBe(true);
+    expect(r.tarjetas.map((x) => x.codigo)).toEqual(['vih', 'grc']);
+  });
+
+  it('cohorte, GCF y GRC no se cuentan como ignorados (eligen tarjetas); los demás filtros sí', () => {
+    expect(ignoradosCohortes(estado({ cohorte: ['vih', 'renal'], gcf: ['A10'], atc: ['C09'], fuerza: ['EJC'] }))).toEqual(['atc']);
   });
 });

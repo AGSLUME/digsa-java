@@ -189,6 +189,10 @@ export const VARIABLES = [
   'ssfm',
   'cie10',
   'estado',
+  // A7.1 (AN.22): cohorte por código; GCF y GRC por grupo (miembros en el mes de cada dispensación, membresía del corte)
+  'cohorte',
+  'gcf',
+  'grc',
 ] as const;
 export type Variable = (typeof VARIABLES)[number];
 
@@ -449,4 +453,32 @@ export function textoValor(opciones: Opcion[] | undefined, valor: string): strin
   if (valor === SIN_HOMOLOGAR) return 'Sin homologar';
   if (valor === SIN_DATO) return 'Sin dato';
   return opciones?.find((o) => o.valor === valor)?.etiqueta ?? valor;
+}
+
+// ---------- Cohorte, GCF y GRC como filtro (A7.1, AN.22) ----------
+
+/** Variables que filtran por la membresía de las cohortes (miembros en el mes de cada dispensación, con la membresía del corte). */
+export const VARIABLES_COHORTE: readonly Variable[] = ['cohorte', 'gcf', 'grc'];
+
+/**
+ * «Ver en los tableros» desde la tarjeta de una cohorte (tablero 10): el tablero inicial (gasto) con el filtro de esa cohorte, conservando el
+ * periodo, la granularidad, el corte y la vista; los demás filtros se conservan salvo cohorte, GCF y GRC (la tarjeta es de UNA cohorte).
+ */
+export function verCohorteEnTableros(e: EstadoAnalitica, codigo: string, tablero = TABLERO_INICIAL): EstadoAnalitica {
+  const filtros: EstadoAnalitica['filtros'] = { ...e.filtros };
+  for (const v of VARIABLES_COHORTE) delete filtros[v];
+  filtros.cohorte = [codigo];
+  return { tablero, generales: { ...e.generales }, filtros };
+}
+
+/**
+ * Texto corto de la pastilla de un filtro de cohorte: el servidor manda «Renal (v1: criterio…)» (o «GRC2 · … — GRC (v1: …)») para los
+ * metadatos y la descarga; la pastilla muestra «Renal · v1» (el criterio completo va en el título de la pastilla).
+ */
+export function textoPastilla(variable: string, texto: string): string {
+  if (!(VARIABLES_COHORTE as readonly string[]).includes(variable)) return texto;
+  const grupo = texto.split(' — ')[0] ?? texto;
+  if (variable !== 'cohorte') return grupo;
+  const m = /^(.*) \(v(\d+): .*\)$/s.exec(texto);
+  return m ? `${m[1]} · v${m[2]}` : texto;
 }

@@ -567,6 +567,11 @@ public class ServicioCohortes {
             if (!"evaluada".equals(v.get("estado"))) {
                 throw ErrorNegocio.validacion("La cohorte no está evaluada en este corte: " + (v.get("estado") == null ? SIN_CALCULAR : v.get("motivo")));
             }
+            if (AnaliticaCohortes.leer(riesgo.deJson((String) v.get("criterios"))) instanceof AnaliticaCohortes.Particion) {
+                // A7.1: la partición guarda ahora su membresía (todos los pacientes con su grupo): su «composición» sería la de todos; por
+                // grupo se consulta en los tableros con el filtro GCF o GRC
+                throw ErrorNegocio.validacion("GCF y GRC son particiones: consulte la composición de un grupo en los tableros con el filtro GCF o GRC.");
+            }
             if (!conMiembros(j, versionId, c.cargueId())) {
                 throw ErrorNegocio.validacion("La composición se calcula con los últimos cortes de la versión; este corte ya solo conserva la serie mensual.");
             }

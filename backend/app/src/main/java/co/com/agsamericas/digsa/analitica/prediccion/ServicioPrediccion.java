@@ -76,8 +76,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * desde cifras ocultas).</li>
  * <li>«Proyectado vs observado»: por cada mes completo ya observado al corte, la proyección del entrenamiento guardado más reciente que lo
  * cubría (último mes de entrenamiento anterior al mes; a igualdad, el más nuevo) entre los de cortes no posteriores al consultado.</li>
- * <li>Dimensiones: ATC (por prefijo; el nivel lo da el largo del código), principio activo y CIE-10 (por prefijo), que el servicio de
- * consulta ya filtra; cohorte, GCF y GRC no (AN.22/AN.30). El Top 20 por gasto se ofrece como lista de valores.</li>
+ * <li>Dimensiones: ATC (por prefijo; el nivel lo da el largo del código), principio activo, CIE-10 (por prefijo) y, desde A7.1 (AN.30),
+ * cohorte (por código), GCF y GRC (por grupo), con el mismo filtro de los tableros (miembros en el mes de cada dispensación, membresía del
+ * corte). El Top 20 por gasto se ofrece como lista de valores. El entrenamiento guarda la versión de la cohorte con que se armó la serie.
+ * Una cohorte sensible (VIH, huérfanas) usa la supresión reforzada de AN.24: con algún mes bajo k la serie no se muestra ni se entrena.</li>
  * </ul>
  */
 @Service
@@ -86,7 +88,9 @@ public class ServicioPrediccion {
     private static final Logger LOG = LoggerFactory.getLogger(ServicioPrediccion.class);
 
     static final List<String> METRICAS = List.of("gasto", "dispensaciones", "pacientes");
-    static final List<String> DIMENSIONES = List.of("atc", "principio", "cie10");
+    static final List<String> DIMENSIONES = List.of("atc", "principio", "cie10", "cohorte", "gcf", "grc");
+    /** Dimensiones que se resuelven contra la membresía de las cohortes (A7.1). */
+    static final List<String> DE_COHORTE = List.of("cohorte", "gcf", "grc");
     static final String AUTOMATICO = "automatico";
     static final String MANUAL = "manual";
     static final String ERROR = "error";
@@ -118,6 +122,9 @@ public class ServicioPrediccion {
             String d = dimension == null ? "" : " · " + switch (dimension) {
                 case "atc" -> "ATC";
                 case "principio" -> "Principio activo";
+                case "cohorte" -> "Cohorte";
+                case "gcf" -> "GCF";
+                case "grc" -> "GRC";
                 default -> "CIE-10";
             } + " " + dimensionValor;
             return m + " · " + n + d;
@@ -125,7 +132,17 @@ public class ServicioPrediccion {
     }
 
     /** Serie observada al corte (toda la historia visible). */
-    record Serie(Map<YearMonth, BigDecimal> valores, boolean suprimida, long registros) {
+    record Serie(Map<YearMonth, BigDecimal> valores, boolean suprimida, long registros, List<FiltroAplicado> cohortes, String supresion,
+                 Long cohorteVersion, int k) {
+
+        Serie(Map<YearMonth, BigDecimal> valores, boolean suprimida, long registros) {
+            this(valores, suprimida, registros, List.of(), null, null, 0);
+        }
+
+        /** Mensaje de la serie suprimida con el k que se aplicó. */
+        String mensajeSuprimida() {
+            return SUPRIMIDA.formatted(k);
+        }
     }
 
     /** Fila de «proyectado vs observado». */
@@ -228,7 +245,7 @@ public class ServicioPrediccion {
         String dv = null;
         if (d != null) {
             if (!DIMENSIONES.contains(d)) {
-                throw ErrorNegocio.validacion("La dimensión «" + recortar(d) + "» no es válida: use atc, principio o cie10.", "dimension");
+                throw ErrorNegocio.validacion("La dimensión «" + recortar(d) + "» no es válida: use atc, principio, cie10, cohorte, gcf o grc.", "dimension");
             }
             if (vacio(valorDimension)) {
                 throw ErrorNegocio.validacion("Elija el valor de la dimensión.", "valorDimension");
@@ -246,8 +263,19 @@ public class ServicioPrediccion {
         return switch (dimension) {
             case "atc" -> Variable.ATC;
             case "principio" -> Variable.PRINCIPIO;
+            case "cohorte" -> Variable.COHORTE;
+            case "gcf" -> Variable.GCF;
+            case "grc" -> Variable.GRC;
             default -> Variable.CIE10;
         };
+    }
+
+    /**
+     * ¿La serie es sensible (cohorte de VIH o huérfanas por código o criterio, o un CIE-10, ATC o grupo de GCF de esos códigos)? Usa la
+     * supresión reforzada (AN.31).
+     */
+    private boolean sensible(Clave k, Corte c) {
+        return k.dimension() != null && consultas.sensible(variable(k.dimension()), k.dimensionValor(), c.cargueId());
     }
 
     @SuppressWarnings("unchecked")
@@ -321,9 +349,15 @@ public class ServicioPrediccion {
         if (c.datosDesde() == null || c.datosHasta() == null) {
             return new Serie(Map.of(), false, 0);
         }
+        // A7.1: con un filtro sensible el servicio de consulta cuenta también los pacientes del mes (la supresión reforzada oculta los meses
+        // pequeños; la primera métrica sigue siendo la de la serie) y devuelve la versión de cohorte que resolvió (la que se guarda)
         ConsultaAnalitica q = new ConsultaAnalitica(Intencion.METRICAS, null, List.of(k.metricaConsulta()), List.of(Dimension.PERIODO), filtros(k),
                 c.datosDesde(), c.datosHasta(), Granularidad.MES, Comparacion.NINGUNA, c.cargueId(), k.nivel(), null, null);
-        ResultadoTablero r = consultas.consultar(q, a);
+        ServicioConsultaAnalitica.ConVersiones cv = consultas.consultarConVersiones(q, a);
+        ResultadoTablero r = cv.resultado();
+        Long version = k.dimension() == null || !DE_COHORTE.contains(k.dimension()) ? null
+                : cv.versiones().getOrDefault(variable(k.dimension()), List.of()).stream().findFirst().orElse(null);
+        int kAplicado = consultas.kSupresion(sensible(k, c));
         TreeMap<YearMonth, BigDecimal> valores = new TreeMap<>();
         boolean suprimida = false;
         if (!r.tablas().isEmpty()) {
@@ -339,7 +373,11 @@ public class ServicioPrediccion {
                 valores.put(YearMonth.parse(f.clave()), v instanceof BigDecimal b ? b : new BigDecimal(v.toString()));
             }
         }
-        return new Serie(java.util.Collections.unmodifiableMap(valores), suprimida, r.metadatos() == null ? 0 : r.metadatos().registros());
+        // A7.1: el filtro de cohorte con su versión y criterio, y la regla de supresión aplicada, para los metadatos de la descarga
+        List<FiltroAplicado> cohortes = r.metadatos() == null ? List.of() : r.metadatos().filtros().stream()
+                .filter(f -> Variable.deParametro(f.variable()).map(Variable::deCohorte).orElse(false)).toList();
+        return new Serie(java.util.Collections.unmodifiableMap(valores), suprimida, r.metadatos() == null ? 0 : r.metadatos().registros(), cohortes,
+                r.metadatos() == null ? null : r.metadatos().supresion(), version, kAplicado);
     }
 
     // ---------- Entrenamiento ----------
@@ -355,16 +393,16 @@ public class ServicioPrediccion {
         long t0 = System.nanoTime();
         Serie s = serie(k, c, a);
         if (s.suprimida()) {
-            throw ErrorNegocio.validacion(SUPRIMIDA.formatted(tableros.supresion()));
+            throw ErrorNegocio.validacion(s.mensajeSuprimida());
         }
         Resultado r;
         try {
             r = AnaliticaPrediccion.proyectar(s.valores(), c.datosHasta(), h);
         } catch (RuntimeException e) {
-            guardar(k, c, ServicioConsultaAnalitica.alcanceCodigo(a), MANUAL, usuarioId, usuario, h, null, mensajeError(e), ms(t0));
+            guardar(k, c, s.cohorteVersion(), ServicioConsultaAnalitica.alcanceCodigo(a), MANUAL, usuarioId, usuario, h, null, mensajeError(e), ms(t0));
             throw e;
         }
-        return guardar(k, c, ServicioConsultaAnalitica.alcanceCodigo(a), MANUAL, usuarioId, usuario, h, r, null, ms(t0));
+        return guardar(k, c, s.cohorteVersion(), ServicioConsultaAnalitica.alcanceCodigo(a), MANUAL, usuarioId, usuario, h, r, null, ms(t0));
     }
 
     /**
@@ -407,12 +445,12 @@ public class ServicioPrediccion {
                     LOG.info("[analitica] Predicción: {} con celdas suprimidas: sin entrenamiento automático", k.texto());
                     continue;
                 }
-                guardar(k, c, NACIONAL, AUTOMATICO, null, null, h, AnaliticaPrediccion.proyectar(s.valores(), c.datosHasta(), h), null, ms(t0));
+                guardar(k, c, null, NACIONAL, AUTOMATICO, null, null, h, AnaliticaPrediccion.proyectar(s.valores(), c.datosHasta(), h), null, ms(t0));
                 n++;
             } catch (RuntimeException e) {
                 LOG.error("[analitica] Falló el entrenamiento automático de {} al corte {}", k.texto(), cargue, e);
                 try {
-                    guardar(k, c, NACIONAL, AUTOMATICO, null, null, h, null, mensajeError(e), ms(t0));
+                    guardar(k, c, null, NACIONAL, AUTOMATICO, null, null, h, null, mensajeError(e), ms(t0));
                     n++;
                 } catch (RuntimeException e2) {
                     LOG.error("[analitica] No se pudo registrar el error del entrenamiento de {}", k.texto(), e2);
@@ -432,20 +470,22 @@ public class ServicioPrediccion {
     }
 
     /** Guarda el entrenamiento (fila y proyección en una transacción) y su evento de bitácora. Con {@code r} nulo, estado «error». */
-    private Entrenado guardar(Clave k, Corte c, String alcance, String origen, Long usuarioId, String usuario, int horizonte, Resultado r, String error,
-                              long duracion) {
+    private Entrenado guardar(Clave k, Corte c, Long cohorteVersion, String alcance, String origen, Long usuarioId, String usuario, int horizonte,
+                              Resultado r, String error, long duracion) {
         String estado = r == null ? ERROR : r.estado();
         long id = escritura.execute(s -> {
             long nuevo = jdbc.sql("""
-                    INSERT INTO ana_pred_entrenamientos (metrica, nivel, nivel_valor, dimension, dimension_valor, alcance, corte_cargue_id, fecha_corte, origen,
-                        usuario_id, horizonte, metodo, parametros, evaluados, historia_desde, historia_hasta, historia_meses, backtest_meses, mape, wmape,
-                        sigma, notas, parcial_mes, parcial_valor, version_algoritmo, sha256, estado, mensaje, duracion_ms, creado)
-                    VALUES (:metrica, :nivel, :nivelValor, :dimension, :dimensionValor, :alcance, :corte, :fechaCorte, :origen, :usuario, :horizonte, :metodo,
-                        CAST(:parametros AS jsonb), CAST(:evaluados AS jsonb), :desde, :hasta, :meses, :backtest, :mape, :wmape, :sigma,
-                        CAST(:notas AS text[]), :parcialMes, :parcialValor, :version, :sha, :estado, :mensaje, :duracion, :creado)
+                    INSERT INTO ana_pred_entrenamientos (metrica, nivel, nivel_valor, dimension, dimension_valor, cohorte_version_id, alcance,
+                        corte_cargue_id, fecha_corte, origen, usuario_id, horizonte, metodo, parametros, evaluados, historia_desde, historia_hasta,
+                        historia_meses, backtest_meses, mape, wmape, sigma, notas, parcial_mes, parcial_valor, version_algoritmo, sha256, estado, mensaje,
+                        duracion_ms, creado)
+                    VALUES (:metrica, :nivel, :nivelValor, :dimension, :dimensionValor, :cohorteVersion, :alcance, :corte, :fechaCorte, :origen, :usuario,
+                        :horizonte, :metodo, CAST(:parametros AS jsonb), CAST(:evaluados AS jsonb), :desde, :hasta, :meses, :backtest, :mape, :wmape,
+                        :sigma, CAST(:notas AS text[]), :parcialMes, :parcialValor, :version, :sha, :estado, :mensaje, :duracion, :creado)
                     RETURNING id""")
                     .param("metrica", k.metrica()).param("nivel", k.nivel().codigo()).param("nivelValor", k.nivelValor()).param("dimension", k.dimension())
-                    .param("dimensionValor", k.dimensionValor()).param("alcance", alcance).param("corte", c.cargueId()).param("fechaCorte", c.datosHasta()).param("origen", origen)
+                    .param("dimensionValor", k.dimensionValor()).param("cohorteVersion", cohorteVersion).param("alcance", alcance).param("corte", c.cargueId())
+                    .param("fechaCorte", c.datosHasta()).param("origen", origen)
                     .param("usuario", usuarioId).param("horizonte", horizonte).param("metodo", r == null || r.metodo() == null ? null : r.metodo().codigo())
                     .param("parametros", aJson(r == null ? Map.of() : r.parametros())).param("evaluados", aJson(r == null ? List.of() : evaluados(r)))
                     .param("desde", r == null || r.desde() == null ? null : r.desde().atDay(1)).param("hasta", r == null || r.hasta() == null ? null
@@ -560,14 +600,14 @@ public class ServicioPrediccion {
         List<String> advertencias = new ArrayList<>();
         if (s.suprimida() || c.datosHasta() == null) {
             if (s.suprimida()) {
-                advertencias.add(SUPRIMIDA.formatted(tableros.supresion()));
+                advertencias.add(s.mensajeSuprimida());
             }
-            return Optional.of(new Vista(k, c, alcance, new Serie(Map.of(), s.suprimida(), s.registros()), null, null, ajuste, null, List.of(),
+            return Optional.of(new Vista(k, c, alcance, new Serie(Map.of(), s.suprimida(), s.registros(), s.cohortes(), s.supresion(), s.cohorteVersion(), s.k()), null, null, ajuste, null, List.of(),
                     advertencias));
         }
         Resultado calc = AnaliticaPrediccion.proyectar(s.valores(), c.datosHasta(), h);
         // Lo guardado solo si su huella es la de la serie calculada ahora en el alcance de quien consulta; si no, al vuelo
-        Modelo m = guardado(k, c.cargueId(), h, calc.sha256(), a).orElseGet(() -> alVuelo(calc, h));
+        Modelo m = guardado(k, c.cargueId(), h, calc.sha256(), a, s.cohorteVersion()).orElseGet(() -> alVuelo(calc, h));
         List<MesProyectado> ajustada = ajuste == null || m.proyeccion().isEmpty() ? null : AnaliticaPrediccion.ajustar(m.proyeccion(), ajuste);
         List<Comparado> comp = comparacion(k, c, s, a);
         return Optional.of(new Vista(k, c, alcance, s, calc, m, ajuste, ajustada, comp, advertencias));
@@ -583,6 +623,8 @@ public class ServicioPrediccion {
     private static final String SERIE = " " + """
             e.metrica = :metrica AND e.nivel = :nivel AND coalesce(e.nivel_valor, '') = :nivelValor AND coalesce(e.dimension, '') = :dimension
             AND coalesce(e.dimension_valor, '') = :dimensionValor AND e.alcance = ANY(CAST(:alcances AS text[]))""";
+    /** A7.1 (P3-10): lo guardado y el proyectado vs observado solo de entrenamientos con la MISMA versión de cohorte de la serie. */
+    private static final String MISMA_VERSION = " AND coalesce(e.cohorte_version_id, 0) = :cohorteVersion";
 
     /**
      * Alcances de los entrenamientos que puede ver quien consulta (revisión A5): solo los entrenados en su mismo alcance (un ESM compartido
@@ -604,12 +646,12 @@ public class ServicioPrediccion {
     }
 
     /** Último entrenamiento guardado (ok o historia insuficiente) de la serie para el corte y el horizonte. */
-    private Optional<Modelo> guardado(Clave k, long corte, int horizonte, String sha, Alcance a) {
+    private Optional<Modelo> guardado(Clave k, long corte, int horizonte, String sha, Alcance a, Long cohorteVersion) {
         Optional<Modelo> m = deSerie(jdbc.sql("""
                 SELECT e.*, u.usuario AS usuario_texto FROM ana_pred_entrenamientos e LEFT JOIN usuarios u ON u.id = e.usuario_id
-                WHERE """ + SERIE + " AND e.corte_cargue_id = :corte AND e.horizonte = :h AND e.sha256 = :sha AND e.estado <> 'error'"
+                WHERE """ + SERIE + MISMA_VERSION + " AND e.corte_cargue_id = :corte AND e.horizonte = :h AND e.sha256 = :sha AND e.estado <> 'error'"
                 + " ORDER BY e.id DESC LIMIT 1"), k, a)
-                .param("sha", sha).param("corte", corte).param("h", horizonte).query((rs, n) -> modelo(rs)).optional();
+                .param("cohorteVersion", cohorteVersion == null ? 0L : cohorteVersion).param("sha", sha).param("corte", corte).param("h", horizonte).query((rs, n) -> modelo(rs)).optional();
         return m.map(x -> {
             List<MesProyectado> p = jdbc.sql("SELECT mes, h, valor, inferior, superior FROM ana_pred_proyecciones WHERE entrenamiento_id = :e ORDER BY h")
                     .param("e", x.id()).query((rs, n) -> new MesProyectado(YearMonth.from(rs.getDate("mes").toLocalDate()), rs.getInt("h"),
@@ -665,11 +707,11 @@ public class ServicioPrediccion {
                 FROM ana_pred_proyecciones p
                 JOIN ana_pred_entrenamientos e ON e.id = p.entrenamiento_id
                 JOIN ana_cargues ca ON ca.id = e.corte_cargue_id
-                WHERE """ + SERIE + """
+                WHERE """ + SERIE + MISMA_VERSION + """
                  AND e.estado = 'ok' AND p.mes > e.historia_hasta AND p.mes BETWEEN :primero AND :ultimo AND ca.aplicado_en <= :aplicado
                  AND e.creado <= :instante
                 ORDER BY p.mes DESC, e.historia_hasta DESC, e.id DESC"""), k, a)
-                .param("instante", c.instante()).param("primero", primero.atDay(1)).param("ultimo", ultimo.atDay(1)).param("aplicado", c.aplicadoEn())
+                .param("cohorteVersion", s.cohorteVersion() == null ? 0L : s.cohorteVersion()).param("instante", c.instante()).param("primero", primero.atDay(1)).param("ultimo", ultimo.atDay(1)).param("aplicado", c.aplicadoEn())
                 .query((rs, n) -> {
                     YearMonth m = YearMonth.from(rs.getDate("mes").toLocalDate());
                     BigDecimal obs = s.valores().getOrDefault(m, BigDecimal.ZERO).setScale(2, java.math.RoundingMode.HALF_UP);
@@ -734,7 +776,9 @@ public class ServicioPrediccion {
             comp.add(y);
         }
         r.put("comparacion", comp);
-        r.put("supresion", consultas.textoSupresion());
+        r.put("supresion", v.serie().supresion() == null ? consultas.textoSupresion() : v.serie().supresion());
+        // A7.1: la cohorte (o el grupo de GCF / GRC) de la serie con su versión y criterio
+        r.put("cohorte", v.serie().cohortes().stream().flatMap(f -> f.textos().stream()).findFirst().orElse(null));
         return r;
     }
 
@@ -837,8 +881,10 @@ public class ServicioPrediccion {
         long total = deSerie(jdbc.sql("SELECT count(*) FROM ana_pred_entrenamientos e WHERE " + SERIE), k, a).query(Long.class).single();
         List<Map<String, Object>> l = deSerie(jdbc.sql("""
                 SELECT e.id, e.creado, e.origen, u.usuario, e.corte_cargue_id, e.fecha_corte, e.horizonte, e.metodo, e.estado, e.mensaje, e.historia_desde,
-                       e.historia_hasta, e.historia_meses, e.backtest_meses, e.mape, e.wmape, e.version_algoritmo, e.sha256, e.duracion_ms
+                       e.historia_hasta, e.historia_meses, e.backtest_meses, e.mape, e.wmape, e.version_algoritmo, e.sha256, e.duracion_ms,
+                       cv.version AS cohorte_version
                 FROM ana_pred_entrenamientos e LEFT JOIN usuarios u ON u.id = e.usuario_id
+                LEFT JOIN ana_cohortes_versiones cv ON cv.id = e.cohorte_version_id
                 WHERE """ + SERIE + " ORDER BY e.id DESC LIMIT :tam OFFSET :desde"), k, a).param("tam", tam).param("desde", (long) (pagina - 1) * tam)
                 .query((rs, n) -> {
                     Map<String, Object> m = new LinkedHashMap<>();
@@ -863,6 +909,8 @@ public class ServicioPrediccion {
                     m.put("version", rs.getString("version_algoritmo"));
                     m.put("sha256", rs.getString("sha256"));
                     m.put("duracionMs", rs.getLong("duracion_ms"));
+                    // A7.1: versión de la cohorte de la serie (nula sin dimensión de cohorte)
+                    m.put("versionCohorte", rs.getObject("cohorte_version") == null ? null : rs.getInt("cohorte_version"));
                     return m;
                 }).list();
         Map<String, Object> r = new LinkedHashMap<>();
@@ -877,11 +925,15 @@ public class ServicioPrediccion {
 
     /**
      * Top {@value AnaliticaConsulta#TOP} por gasto de la dimensión (toda la historia visible al corte, en el nivel y alcance de la serie):
-     * los valores que la pantalla ofrece para proyectar por ATC (nivel elegido), principio activo o CIE-10.
+     * los valores que la pantalla ofrece para proyectar por ATC (nivel elegido), principio activo, CIE-10, cohorte, GCF o GRC (A7.1: las
+     * cohortes y los grupos usables en el corte, ordenados por el gasto de su serie agregada en el nivel).
      */
     public List<Map<String, String>> top(Clave base, String dimension, Integer nivelAtc, Long cargue, Alcance a) {
         if (vacio(dimension) || !DIMENSIONES.contains(dimension.strip())) {
-            throw ErrorNegocio.validacion("La dimensión debe ser atc, principio o cie10.", "dimension");
+            throw ErrorNegocio.validacion("La dimensión debe ser atc, principio, cie10, cohorte, gcf o grc.", "dimension");
+        }
+        if (DE_COHORTE.contains(dimension.strip())) {
+            return consultas.topCohortes(variable(dimension.strip()), base.nivel(), base.nivelValor(), cargue, a);
         }
         int nAtc = nivelAtc == null ? 1 : nivelAtc;
         if (nAtc < 1 || nAtc > 5) {
@@ -986,6 +1038,7 @@ public class ServicioPrediccion {
         List<FiltroAplicado> filtros = new ArrayList<>();
         filtros.add(new FiltroAplicado("metrica", "Serie", List.of(k.metrica()), List.of(k.texto())));
         filtros.add(new FiltroAplicado("horizonte", "Horizonte", List.of(String.valueOf(m.horizonte())), List.of(m.horizonte() + " meses")));
+        filtros.addAll(v.serie().cohortes());
         String fuente = "Tabla maestra homologada " + (c.homNumero() == null ? "(sin versión publicada)" : "v" + c.homNumero()) + " · cargues "
                 + String.join(", ", c.cargues().stream().map(String::valueOf).toList()) + " · insumo de dispensación del OPL · reglas/AnaliticaPrediccion "
                 + m.version();
@@ -994,7 +1047,8 @@ public class ServicioPrediccion {
         Metadatos md = new Metadatos(c.cargueId(), c.aplicadoEn(), "Corte " + AnaliticaConsulta.fechaHora(c.aplicadoEn()) + " (cargue " + c.cargueId() + ")",
                 c.homNumero(), c.cargues(), fuente, desde, c.datosHasta(), AnaliticaConsulta.fecha(desde) + " – " + AnaliticaConsulta.fecha(c.datosHasta())
                         + " (observado) y " + m.horizonte() + " meses proyectados", "Mes", "Sin comparación", null, v.alcance(), establecimiento,
-                List.copyOf(filtros), v.serie().registros(), c.datosHasta(), consultas.textoSupresion());
+                List.copyOf(filtros), v.serie().registros(), c.datosHasta(),
+                v.serie().supresion() == null ? consultas.textoSupresion() : v.serie().supresion());
         List<String> obs = new ArrayList<>(m.notas());
         if (m.mensaje() != null) {
             obs.add(m.mensaje());

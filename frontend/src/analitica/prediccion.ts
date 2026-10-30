@@ -7,7 +7,7 @@ import { cifra, conteo, monto, porcentaje } from '../shared/formato';
 import { maximoEje, type EstadoAnalitica } from './tableros';
 
 export type MetricaPrediccion = 'gasto' | 'dispensaciones' | 'pacientes';
-export type DimensionPrediccion = 'atc' | 'principio' | 'cie10';
+export type DimensionPrediccion = 'atc' | 'principio' | 'cie10' | 'cohorte' | 'gcf' | 'grc';
 
 export const METRICAS_PREDICCION: { value: MetricaPrediccion; label: string }[] = [
   { value: 'gasto', label: 'Gasto' },
@@ -19,6 +19,10 @@ export const DIMENSIONES_PREDICCION: { value: DimensionPrediccion; label: string
   { value: 'atc', label: 'ATC (nivel elegido)' },
   { value: 'principio', label: 'Principio activo' },
   { value: 'cie10', label: 'CIE-10' },
+  // A7.1 (AN.30): con el mismo filtro de los tableros (miembros en el mes de cada dispensación, membresía del corte)
+  { value: 'cohorte', label: 'Cohorte' },
+  { value: 'gcf', label: 'GCF (grupo de consumo)' },
+  { value: 'grc', label: 'GRC (grupo de riesgo clínico)' },
 ];
 
 /** Horizontes que ofrece la pantalla (la API acepta de 6 a 24 meses). */
@@ -115,6 +119,8 @@ export interface Prediccion {
   escenarios?: { base: number; inferior: number; superior: number; ajustado: number | null } | null;
   comparacion?: Comparado[];
   supresion?: string;
+  /** Cohorte o grupo de GCF / GRC de la serie con su versión y criterio (A7.1). */
+  cohorte?: string | null;
   puedeReentrenar: boolean;
 }
 
@@ -139,6 +145,8 @@ export interface Entrenamiento {
   version: string;
   sha256: string | null;
   duracionMs: number;
+  /** Versión de la cohorte de la serie (A7.1); nula sin dimensión de cohorte. */
+  versionCohorte?: number | null;
 }
 
 export interface PaginaEntrenamientos {
@@ -161,7 +169,7 @@ export interface Seleccion {
 
 /**
  * Selección inicial desde la barra de filtros del tablero: la vista y, si hay un solo valor, la Fuerza o el ESM; la dimensión de un ATC,
- * principio o CIE-10 elegido (un solo valor).
+ * principio o CIE-10 elegido (un solo valor) o, si no hay, la de una cohorte, un grupo de GCF o uno de GRC (A7.1).
  */
 export function seleccionInicial(e: EstadoAnalitica): Seleccion {
   const s: Seleccion = { metrica: 'gasto' };
@@ -183,6 +191,15 @@ export function seleccionInicial(e: EstadoAnalitica): Seleccion {
   } else if (cie10) {
     s.dimension = 'cie10';
     s.valorDimension = cie10;
+  } else {
+    for (const d of ['cohorte', 'gcf', 'grc'] as const) {
+      const v = uno(e.filtros[d]);
+      if (v) {
+        s.dimension = d;
+        s.valorDimension = v;
+        break;
+      }
+    }
   }
   return s;
 }
@@ -369,4 +386,24 @@ export function textoEstado(estado: string, mensaje: string | null): string {
   if (estado === 'ok') return 'Correcto';
   if (estado === 'historia_insuficiente') return mensaje ?? 'Historia insuficiente';
   return mensaje ? `Error: ${mensaje}` : 'Error';
+}
+
+// ---------- Cohorte, GCF y GRC como dimensión (A7.1, AN.30) ----------
+
+/** ¿La dimensión se resuelve contra la membresía de las cohortes? */
+export function dimensionDeCohorte(d: DimensionPrediccion | undefined | null): boolean {
+  return d === 'cohorte' || d === 'gcf' || d === 'grc';
+}
+
+/**
+ * Texto de un valor del Top 20: «código · nombre» en ATC, principio y CIE-10; en cohorte, GCF y GRC el servidor ya manda el nombre con su
+ * versión o el código del grupo con su nombre.
+ */
+export function etiquetaTop(d: DimensionPrediccion | undefined, o: { valor: string; etiqueta: string }): string {
+  return dimensionDeCohorte(d) ? o.etiqueta : `${o.valor} · ${o.etiqueta}`;
+}
+
+/** Mensaje de la lista vacía del Top 20 según la dimensión. */
+export function sinValoresTop(d: DimensionPrediccion | undefined): string {
+  return dimensionDeCohorte(d) ? 'Sin cohortes ni grupos calculados con su membresía en este corte' : 'Sin valores homologados en el alcance';
 }

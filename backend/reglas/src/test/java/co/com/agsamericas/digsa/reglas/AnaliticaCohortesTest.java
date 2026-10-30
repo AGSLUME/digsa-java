@@ -186,4 +186,30 @@ class AnaliticaCohortesTest {
         assertThat(AnaliticaCohortes.texto(AnaliticaCohortes.leer(AnaliticaCohortes.PREDEFINIDAS.get(1).criterio())))
                 .isEqualTo("≥ 5 principios activos distintos en cada mes durante ≥ 6 meses consecutivos");
     }
+
+    @Test
+    @DisplayName("A7.1 (AN.31): sensible por criterio (CIE-10 o ATC de VIH, lista de huérfanas) en cualquier código; crónicos y particiones no")
+    void sensiblesPorCriterio() {
+        Map<String, Criterio> pred = new LinkedHashMap<>();
+        for (AnaliticaCohortes.Predefinida p : AnaliticaCohortes.PREDEFINIDAS) {
+            pred.put(p.codigo(), AnaliticaCohortes.leer(p.criterio()));
+        }
+        AnaliticaCohortes.Sensibles s = AnaliticaCohortes.Sensibles.de(List.of(pred.get("vih"), pred.get("huerfanas")), List.of("E752"));
+        assertThat(s.cie10("B20")).isTrue();
+        assertThat(s.cie10("B2")).as("prefijo que cubre B20").isTrue();
+        assertThat(s.cie10("B201")).isTrue();
+        assertThat(s.cie10("E752")).as("lista de huérfanas cargada").isTrue();
+        assertThat(s.cie10("I10")).isFalse();
+        assertThat(s.atc("J05")).as("grupo ATC2 de los antirretrovirales").isTrue();
+        assertThat(s.atc("J01")).isFalse();
+        assertThat(s.listas()).contains("huerfanas");
+        // Otra cohorte con B20 (otro código) sí; renal, pluripatológicos (lista de crónicos con B20–B24) y GRC no
+        Criterio b20 = AnaliticaCohortes.leer(Map.of("tipo", "cie10", "valores", List.of("B20"), "ventanaMeses", 12));
+        assertThat(s.criterio(b20)).isTrue();
+        assertThat(s.criterio(pred.get("renal"))).isFalse();
+        assertThat(s.criterio(pred.get("pluripatologicos"))).isFalse();
+        assertThat(s.criterio(pred.get("grc"))).isFalse();
+        assertThat(s.criterio(pred.get("huerfanas"))).isTrue();
+        assertThat(AnaliticaCohortes.Sensibles.NINGUNO.criterio(b20)).isFalse();
+    }
 }

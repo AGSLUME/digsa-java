@@ -152,6 +152,24 @@ export function separarTarjetas(t: TarjetaCohorte[]): { principales: TarjetaCoho
   return { principales: t.filter((x) => x.delMockup), otras: t.filter((x) => !x.delMockup) };
 }
 
+/**
+ * Tarjetas que muestra el tablero 10 con los filtros de cohorte, GCF o GRC de la barra (A7.1): solo las cohortes elegidas y la partición
+ * de GCF o GRC si se filtró por sus grupos. Los conteos siguen siendo los de cada cohorte entera (no el cruce entre ellas). Sin esos
+ * filtros, todas.
+ */
+export function tarjetasDelFiltro(t: TarjetaCohorte[], e: EstadoAnalitica): { tarjetas: TarjetaCohorte[]; filtradas: boolean } {
+  const codigos = new Set<string>(e.filtros.cohorte ?? []);
+  if (e.filtros.gcf?.length) codigos.add('gcf');
+  if (e.filtros.grc?.length) codigos.add('grc');
+  if (codigos.size === 0) return { tarjetas: t, filtradas: false };
+  return { tarjetas: t.filter((x) => codigos.has(x.codigo)), filtradas: true };
+}
+
+/** Filtros de la barra que el tablero 10 no aplica: los demás, salvo una Fuerza y los de cohorte, GCF y GRC (que eligen tarjetas). */
+export function ignoradosCohortes(e: EstadoAnalitica): string[] {
+  return filtrosIgnorados(e, ['fuerza', 'cohorte', 'gcf', 'grc']).filter((x) => !/^(cohorte|gcf|grc) /.test(x));
+}
+
 // ---------- Editor de criterios ----------
 
 /** Criterio en JSON (reglas/AnaliticaCohortes). */

@@ -123,6 +123,12 @@ public final class Bitacora {
             Map.entry("analitica_alerta_descarga", Operacion.CONSULTA), Map.entry("analitica_alerta_referencia", Operacion.INSERCION),
             // Predicción (A5 4.7.4 «ejecuciones y actualizaciones de modelos predictivos»): serie, corte, método y estado; sin datos personales
             Map.entry("analitica_prediccion_entrenamiento", Operacion.INSERCION),
+            // Exportación de los hechos por periodo (A7.2, duda AN.14): id, periodo, meses y filas; sin datos personales
+            Map.entry("analitica_hechos_exportacion_solicitada", Operacion.INSERCION),
+            Map.entry("analitica_hechos_exportacion_generada", Operacion.INSERCION),
+            Map.entry("analitica_hechos_exportacion_fallida", Operacion.INSERCION),
+            Map.entry("analitica_hechos_exportacion_descarga", Operacion.CONSULTA),
+            Map.entry("analitica_hechos_exportacion_vencida", Operacion.ELIMINACION),
             // --- Correos (sesión de correos): bitácora de envíos, plantillas y destinatarios ---
             Map.entry("correo_reintentado", Operacion.INSERCION), Map.entry("correo_destinatarios_vistos", Operacion.CONSULTA),
             Map.entry("correo_plantilla_editada", Operacion.ACTUALIZACION), Map.entry("correo_plantilla_restaurada", Operacion.ACTUALIZACION),

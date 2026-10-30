@@ -159,6 +159,13 @@ digsa:
       entrenar-al-aplicar: ${DIGSA_ANALITICA_ENTRENAR_PREDICCION:true}  # nacional y por Fuerza al aplicar un cargue que completa un mes (segundo plano)
       horizonte: ${DIGSA_ANALITICA_HORIZONTE_PREDICCION:6}              # meses proyectados por defecto (6 a 24; A4 §11.1 f: mínimo 6)
       por-pagina: 20                                                    # entrenamientos por página en la bitácora del tablero
+    # --- Exportación de los hechos por periodo (A7.2, duda AN.14; PropiedadesExportacionHechos) ---
+    exportacion-hechos:
+      vigencia-horas: ${DIGSA_ANALITICA_HECHOS_VIGENCIA_HORAS:24}         # luego se borran los archivos (datos de salud seudonimizados, Ley 1581)
+      limite-minutos-mes: ${DIGSA_ANALITICA_HECHOS_LIMITE_MINUTOS:10}     # tope de cada mes (su propia transacción; AGS-75: 10 min)
+      meses-max: ${DIGSA_ANALITICA_HECHOS_MESES_MAX:60}                   # meses por solicitud (todo el contrato y la entrega final)
+      lote: 5000                                                          # filas por lote del cursor
+      revision-ms: 60000                                                  # revisión de vencidas y pendientes
 
 logging:
   level:

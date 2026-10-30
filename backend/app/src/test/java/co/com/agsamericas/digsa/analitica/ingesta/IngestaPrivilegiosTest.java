@@ -68,7 +68,27 @@ class IngestaPrivilegiosTest extends PruebaIntegracion {
             s.execute(bloque("/db/migration/V62__analitica_tableros.sql"));
             s.execute(bloque("/db/migration/V63__analitica_cohortes_alertas.sql"));
             s.execute(bloque("/db/migration/V64__analitica_prediccion.sql"));
+            s.execute(bloque("/db/migration/V66__analitica_exportacion_hechos.sql"));
         }
+    }
+
+    @Test
+    @DisplayName("V66: las exportaciones de hechos y sus meses se crean y cambian de estado (sin DELETE: son traza); lee la versión del esquema")
+    void privilegiosExportacionHechos() {
+        for (String t : List.of("ana_exportaciones_hechos", "ana_exportaciones_hechos_meses")) {
+            for (String p : List.of("SELECT", "INSERT", "UPDATE")) {
+                assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, :p)").param("r", ROL).param("t", t).param("p", p).query(Boolean.class).single())
+                        .as(p + " sobre " + t).isTrue();
+            }
+            assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, 'DELETE')").param("r", ROL).param("t", t).query(Boolean.class).single())
+                    .as("sin DELETE sobre " + t).isFalse();
+        }
+        assertThat(jdbc.sql("SELECT has_table_privilege(:r, 'flyway_schema_history', 'SELECT')").param("r", ROL).query(Boolean.class).single()).isTrue();
+        assertThat(jdbc.sql("SELECT has_table_privilege(:r, 'flyway_schema_history', 'UPDATE')").param("r", ROL).query(Boolean.class).single()).isFalse();
+        assertThat(jdbc.sql("SELECT has_sequence_privilege(:r, 'ana_exportaciones_hechos_id_seq', 'USAGE')").param("r", ROL).query(Boolean.class).single())
+                .isTrue();
+        // La exportación lee los hechos por la tabla padre (SELECT ya dado en V60) y filtra con ana_cargues_visibles
+        assertThat(jdbc.sql("SELECT has_table_privilege(:r, 'ana_dispensaciones', 'SELECT')").param("r", ROL).query(Boolean.class).single()).isTrue();
     }
 
     /** Último bloque DO de GRANT de una migración, con el rol de prueba en lugar de ${rol_app}. */

@@ -371,6 +371,34 @@ DEBE existir un generador en Java (`src/test/.../analitica/GeneradorSintetico`),
 - **CUANDO** se corre sobre el archivo del generador
 - **ENTONCES** su salida es idéntica a `totales_esperados.csv`
 
+### Requirement: Exportación de los hechos por periodo
+<!-- id: ExportacionHechosApiTest -->
+<!-- entidades: Dispensacion, ExportacionHechos -->
+<!-- impuesto_en: AGS-75 / GMI P74 (10 min para exportar); GMI P77 f (formato); exportacion-alertas «Solo el administrador exporta todos los datos»; duda AN.14 -->
+<!-- decision: A7.2 2026-10-30 (dudas AN.14, AN.35 a AN.38) -->
+
+Los hechos de dispensación (`ana_dispensaciones`, unos 2 M de filas por mes) NO van en la exportación completa (una transacción con tope de 10 minutos). El ADMINISTRADOR DEBE poder pedir, desde «Cargues del OPL», la exportación de un periodo (un mes, o de un mes a otro, hasta `digsa.analitica.exportacion-hechos.meses-max` = 60, ninguno posterior al mes actual). La solicitud fija el corte (su instante) y crea un trabajo que corre en segundo plano, uno a la vez en el despliegue (candado de PostgreSQL) y uno en curso por administrador (409). Cada mes DEBE leerse en su propia transacción de solo lectura (REPEATABLE READ), con un cursor por lotes sobre la partición del mes y escribirse en flujo, con su propio tope (`limite-minutos-mes` = 10): un archivo por mes, `digsa_hechos_dispensacion_<id>_<aaaa-mm>.csv.gz`, con el formato de la exportación completa (UTF-8 con BOM, «;», coma decimal, fechas ISO, sin fórmulas). Columnas: las de `ana_dispensaciones` con el paciente y el profesional solo como seudónimo, más `cargue_sha256`; nunca el documento en claro; sin la llave natural (técnica). Una columna nueva de los hechos sin decidir hace fallar la exportación (falla cerrado). Salen solo los hechos de los cargues visibles y confirmados al pedir la exportación: la lista se congela en la solicitud y la usan todos los meses (un cargue que se confirma mientras corre no entra en ningún mes; una reanudación da lo mismo; AN.35). Un mes que falla queda «fallido» sin archivo a medias y los demás siguen; el trabajo queda «fallida» con los meses listos descargables. El LEEME DEBE traer periodo, corte y último cargue visible, versión del esquema, filas, suma de `valor_total` y SHA-256 del `.csv.gz` de cada mes. La pantalla muestra el progreso por mes y la lista «Exportaciones de hechos» con la descarga de cada mes y del LEEME (enlace directo, en flujo). Si el LEEME no se puede guardar, el trabajo queda pendiente y se reintenta en la revisión siguiente. Los archivos vencen a las `vigencia-horas` (24) y una limpieza idempotente los borra (410 después); la ruta de un archivo solo se anula cuando se comprobó que ya no está en el almacén (si no, se reintenta). Solo ADMINISTRADOR (AN.36): cualquier otro perfil, 403. Bitácora: `analitica_hechos_exportacion_solicitada`, `_generada`, `_fallida`, `_descarga` y `_vencida`, con id, periodo, meses y filas, sin datos personales.
+
+#### Scenario: Rango de varios meses
+<!-- test: ExportacionHechosApiTest.rangoCompleto -->
+- **CUANDO** el administrador pide 1998-01 a 1998-04 (marzo sin datos)
+- **ENTONCES** se generan 4 archivos; cada uno trae las filas de su mes que ve el corte (conteo y suma del valor iguales a la base), el SHA-256 del archivo descargado es el de la pantalla y del LEEME, marzo trae solo el encabezado, ningún documento ni nombre sale en claro y la solicitud, la generación y cada descarga quedan en la bitácora
+
+#### Scenario: Mes que falla
+<!-- test: ExportacionHechosApiTest.mesFallido -->
+- **CUANDO** falla la generación de un mes
+- **ENTONCES** ese mes queda «Falló» sin archivo (409 al descargarlo), los demás se descargan y el LEEME lo dice
+
+#### Scenario: Cargue que se confirma durante la exportación
+<!-- test: ExportacionHechosApiTest.cargueDuranteLaExportacion, reanudacion -->
+- **CUANDO** un cargue que reemplaza el periodo empezó antes de la solicitud y se confirma mientras la exportación corre, o el proceso se cae a mitad
+- **ENTONCES** ningún mes trae sus hechos (todos usan la lista congelada en la solicitud) y la reanudación rehace el mes a medias con el mismo contenido y conserva los listos
+
+#### Scenario: Caducidad y permisos
+<!-- test: ExportacionHechosApiTest.caducidad, soloAdministrador -->
+- **CUANDO** pasa la vigencia, o un Analista o Coordinador (que tienen «Cargues del OPL») pide, lista o descarga
+- **ENTONCES** la descarga responde 410 y los archivos ya no están en el almacén; a los demás perfiles, 403
+
 ### Requirement: Pruebas de cuadre y tiempos medidos
 <!-- id: IngestaApiTest.cuadreContraElGenerador / RendimientoIngestaTest -->
 <!-- entidades: Dispensacion, Cargue -->
@@ -446,7 +474,7 @@ El rol de la aplicación NO DEBE tener DELETE sobre `ana_cargues` (todo cargue q
 6. **«Simulando el web service» sin salir del sistema** (condición 12, A5 L1008) y autenticación de máquina (CSRF). Recomendado: en la prueba usar el archivo y tener el endpoint probado; para un cliente máquina, credencial de servicio OPL_NACIONAL sin CSRF solo en esa ruta. Construido: endpoint con sesión de OPL_NACIONAL y prueba que envía los lotes.
 7. **Rotación de la clave del seudónimo.** Parte a cada paciente en dos. Recomendado: no rotar salvo incidente; si se rota, recargar todo con la clave nueva (documentado en `PropiedadesAnalitica`).
 8. **Umbral del 1 % de filas malformadas.** Construido como parámetro (`umbral-mal-formadas`).
-9. **AN.14 · Hechos de dispensación en la exportación completa** (AGS-75, tope de 10 minutos). `ana_dispensaciones` crece unos 2 M de filas por mes y la exportación completa corre en una transacción con ese tope: con unos meses dejaría de caber y fallaría entera. Construido: `ana_dispensaciones` y `ana_llaves` (su índice de llaves) van en `Exportacion.TECNICAS` (`EXCLUIDAS` es por columnas); las demás tablas de V60 siguen en la exportación completa; los hechos se entregarán por la exportación analítica por periodo de A7. Falta la decisión de la DIGSA (registrada en `docs/dudas_pendientes.md`).
+9. **AN.14 · Hechos de dispensación en la exportación completa** (AGS-75, tope de 10 minutos). `ana_dispensaciones` crece unos 2 M de filas por mes y la exportación completa corre en una transacción con ese tope: con unos meses dejaría de caber y fallaría entera. Construido: `ana_dispensaciones` y `ana_llaves` (su índice de llaves) van en `Exportacion.TECNICAS` (`EXCLUIDAS` es por columnas); las demás tablas de V60 siguen en la exportación completa; los hechos se entregan aparte por la exportación de hechos por periodo (**resuelta en A7.2, 2026-10-30**: requirement «Exportación de los hechos por periodo» y «Datos y piezas construidas en A7.2»). Sigue abierta la confirmación de la DIGSA sobre si además los quiere en la exportación completa (AN.14; derivadas AN.35 a AN.38).
 <!-- decision: revisión A1 2026-10-23 -->
 
 ## Datos y piezas construidas en A1
@@ -491,3 +519,20 @@ Funciones: `ana_cargues_visibles(corte)`; SECURITY DEFINER `ana_asegurar_partici
 **Pantalla:** `Pantallas.ANALITICA_CARGUES` («Cargues del OPL», `analitica/cargues`, grupo «Información») y `paginas/CarguesOpl.tsx` con ruta en `App.tsx`.
 
 **Pruebas:** `AnaliticaIngestaTest`, `SeudonimizadorTest`, `ValidacionArranqueAnaliticaTest`, `ArchivoDispensacionTest`, `IngestaApiTest`, `IngestaPrivilegiosTest`, `GeneradorSinteticoTest`, `RendimientoIngestaTest` (2 M, bajo demanda), e2e `analitica-cargues.spec.ts`. Pendiente: `docs/rendimiento_analitica.md` (M10-7) y la prueba CI de `totales_insumo.py`.
+
+## Datos y piezas construidas en A7.2 (exportación de los hechos por periodo, AN.14)
+
+**Migración V66 (`V66__analitica_exportacion_hechos.sql`)**: `ana_exportaciones_hechos` (`solicitada_por`, `desde`, `hasta`, `corte`, `corte_cargue_id`, `cargues` (lista congelada), `estado` pendiente/generando/lista/fallida/vencida, `meses`, `meses_listos`, `meses_fallidos`, `filas`, `tamano`, `leeme_ruta`, `version_esquema`, `error`, `vence`; índice único parcial: una en curso por usuario) y `ana_exportaciones_hechos_meses` (PK `exportacion_id`, `mes`; `estado`, `filas`, `valor_total`, `tamano`, `sha256`, `ruta`, `duracion_ms`). Privilegios: SELECT, INSERT, UPDATE (sin DELETE: traza) y SELECT sobre `flyway_schema_history` (versión del esquema del LEEME). Las dos tablas van en `Exportacion.TABLAS` (quién exportó qué y cuándo); los archivos están en el almacén (`analitica/hechos/…`) y vencen.
+
+| Pieza | Responsabilidad |
+|---|---|
+| `reglas/AnaliticaExportacionHechos` | columnas, validación del periodo con campo, meses, nombres de archivo, resumen de bitácora y LEEME |
+| `analitica/exportacion/GeneradorHechosMes` | un mes en flujo: cursor por lotes sobre los hechos visibles al corte, `Exportacion.fila`, gzip, SHA-256, filas y suma; columnas decididas (falla cerrado) |
+| `ServicioExportacionHechos` | solicitud (corte, lista congelada de cargues `cargues bigint[]` y meses), ejecutor de uno con candado (cola de una corrida, conexión abortada si no se suelta), un mes por transacción de solo lectura con su tope, falla por mes, LEEME, retoma tras caída, descargas, limpieza de vencidas con borrado verificado; LEEME que se reintenta |
+| `ExportacionHechosApi`, `PermisosExportacionHechos`, `PropiedadesExportacionHechos` | endpoints, solo ADMINISTRADOR (`@permisosHechos.exportar()` + pantalla `ANALITICA_CARGUES`), parámetros `digsa.analitica.exportacion-hechos.*` |
+
+**Endpoints** (`/api/analitica/exportaciones-hechos`, solo ADMINISTRADOR): `POST /` (`{desde, hasta}` aaaa-mm; 202), `GET /` (las del usuario con sus meses), `GET /{id}`, `GET /{id}/meses/{aaaa-mm}` (`application/gzip`), `GET /{id}/leeme`.
+
+**Pantalla:** sección «Exportación de hechos por periodo» de `paginas/CarguesOpl.tsx` (`analitica/PanelExportacionHechos.tsx`, lógica en `analitica/exportacionHechos.ts`), visible solo con `esAdministrador`.
+
+**Pruebas:** `AnaliticaExportacionHechosTest`, `ExportacionHechosApiTest`, `IngestaPrivilegiosTest.privilegiosExportacionHechos`, `exportacionHechos.test.ts`, e2e `analitica-exportacion-hechos.spec.ts`. Tiempos con el volumen de las pruebas normales en `.local/notas/mediciones.md` (A7.2).

@@ -36,9 +36,10 @@ import {
   criterioAEditor,
   editorACriterio,
   filaVacia,
-  filtrosIgnorados,
+  ignoradosCohortes,
   problemasEditor,
   separarTarjetas,
+  tarjetasDelFiltro,
   TIPOS_FILA,
   type Composicion,
   type DetalleCohorte,
@@ -47,7 +48,7 @@ import {
   type Tarjetas,
   type TipoFila,
 } from './riesgo';
-import type { EstadoAnalitica } from './tableros';
+import { busquedaDe, verCohorteEnTableros, type EstadoAnalitica } from './tableros';
 
 /** Parámetros comunes de las consultas de cohortes: corte, periodo y (en nacional) la Fuerza elegida. */
 function parametros(e: EstadoAnalitica, extra: Record<string, string> = {}): string {
@@ -63,7 +64,7 @@ function parametros(e: EstadoAnalitica, extra: Record<string, string> = {}): str
   return p.toString();
 }
 
-function TarjetaCohorteVista({ c, alAbrir }: { c: TarjetaCohorte; alAbrir: () => void }) {
+function TarjetaCohorteVista({ c, alAbrir, estado }: { c: TarjetaCohorte; alAbrir: () => void; estado: EstadoAnalitica }) {
   return (
     <Card withBorder padding="sm" data-testid={`cohorte-${c.codigo}`}>
       <Group justify="space-between" align="flex-start" wrap="nowrap">
@@ -129,9 +130,24 @@ function TarjetaCohorteVista({ c, alAbrir }: { c: TarjetaCohorte; alAbrir: () =>
           {c.nota}
         </Text>
       )}
-      <Button size="compact-xs" mih={TACTIL} variant="subtle" mt={4} onClick={alAbrir} aria-label={`Ver detalle de ${c.nombre}`}>
-        Ver serie y composición
-      </Button>
+      <Group gap={4} mt={4} wrap="wrap">
+        <Button size="compact-xs" mih={TACTIL} variant="subtle" onClick={alAbrir} aria-label={`Ver detalle de ${c.nombre}`}>
+          Ver serie y composición
+        </Button>
+        {c.estado === 'evaluada' && !c.particion && (
+          <Button
+            size="compact-xs"
+            mih={TACTIL}
+            variant="subtle"
+            component={Link}
+            to={`/analitica?${busquedaDe(verCohorteEnTableros(estado, c.codigo))}`}
+            aria-label={`Ver ${c.nombre} en los tableros`}
+            data-testid="ver-en-tableros"
+          >
+            Ver en los tableros
+          </Button>
+        )}
+      </Group>
     </Card>
   );
 }
@@ -583,7 +599,10 @@ export function PanelCohortes({ estado }: { estado: EstadoAnalitica }) {
     return <Alert color="red">{datos.error instanceof ErrorApi ? datos.error.message : 'No se pudieron consultar las cohortes.'}</Alert>;
   }
   const t = datos.data;
-  const { principales, otras } = separarTarjetas(t.cohortes);
+  // A7.1: con el filtro de cohorte, GCF o GRC de la barra se muestran solo esas tarjetas
+  const { tarjetas, filtradas } = tarjetasDelFiltro(t.cohortes, estado);
+  const { principales, otras } = separarTarjetas(tarjetas);
+  const ignorados = ignoradosCohortes(estado);
   return (
     <Stack data-testid="panel-cohortes">
       <Group justify="space-between">
@@ -602,9 +621,15 @@ export function PanelCohortes({ estado }: { estado: EstadoAnalitica }) {
         </Group>
       </Group>
       {t.mensaje && <Alert color="blue">{t.mensaje}</Alert>}
-      {filtrosIgnorados(estado, ['fuerza']).length > 0 && (
+      {ignorados.length > 0 && (
         <Alert color="yellow" data-testid="filtros-ignorados">
-          Las cohortes aplican el corte, el periodo y una Fuerza; no aplican: {filtrosIgnorados(estado, ['fuerza']).join(', ')}.
+          Las cohortes aplican el corte, el periodo y una Fuerza; no aplican: {ignorados.join(', ')}.
+        </Alert>
+      )}
+      {filtradas && (
+        <Alert color="blue" data-testid="cohortes-filtradas">
+          Se muestran solo las tarjetas del filtro de cohorte, GCF o GRC; cada conteo es el de la cohorte entera. Para cruzarla con otras variables
+          use «Ver en los tableros».
         </Alert>
       )}
       {t.corteTexto && (
@@ -614,7 +639,7 @@ export function PanelCohortes({ estado }: { estado: EstadoAnalitica }) {
       )}
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="sm">
         {principales.map((c) => (
-          <TarjetaCohorteVista key={c.id} c={c} alAbrir={() => setAbierta(c)} />
+          <TarjetaCohorteVista key={c.id} c={c} estado={estado} alAbrir={() => setAbierta(c)} />
         ))}
       </SimpleGrid>
       {otras.length > 0 && (
@@ -624,7 +649,7 @@ export function PanelCohortes({ estado }: { estado: EstadoAnalitica }) {
           </Title>
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="sm">
             {otras.map((c) => (
-              <TarjetaCohorteVista key={c.id} c={c} alAbrir={() => setAbierta(c)} />
+              <TarjetaCohorteVista key={c.id} c={c} estado={estado} alAbrir={() => setAbierta(c)} />
             ))}
           </SimpleGrid>
         </>

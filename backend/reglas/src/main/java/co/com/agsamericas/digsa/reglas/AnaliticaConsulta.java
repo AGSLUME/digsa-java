@@ -279,7 +279,12 @@ public final class AnaliticaConsulta {
         SSFM("ssfm", "Código SSFM", Pattern.compile("^[A-Za-z0-9_.-]{1,40}$"), false),
         CIE10("cie10", "CIE-10", Pattern.compile("^[A-Z](\\d(\\d[0-9A-Z]?)?)?$"), true),
         ESTADO("estado", "Estado de homologación", Pattern.compile("^(homologado|pendiente|sin_correspondencia|inconsistente|duplicado|no_valido)$"),
-                false);
+                false),
+        // A7.1 (AN.22): cohorte, GCF y GRC restringen los hechos a los pacientes miembros EN EL MES del hecho, con la membresía del mismo
+        // corte (ana_cohortes_miembros); la cohorte por su código, GCF y GRC por el grupo de la partición.
+        COHORTE("cohorte", "Cohorte", Pattern.compile("^[a-z_]{3,40}$"), false),
+        GCF("gcf", "GCF", Pattern.compile("^([A-Z][0-9A-Z]{0,6}|SIN_ATC|SIN_GASTO)$"), false),
+        GRC("grc", "GRC", Pattern.compile("^GRC[1-4]$"), false);
 
         private final String parametro;
         private final String etiqueta;
@@ -305,6 +310,19 @@ public final class AnaliticaConsulta {
         /** ATC y CIE-10 se filtran por prefijo (cualquier nivel, capítulo, grupo o código). */
         public boolean prefijo() {
             return prefijo;
+        }
+
+        /**
+         * Cohorte, GCF o GRC (A7.1): se resuelven contra la membresía mensual del corte (no contra los valores de los cargues) y filtran
+         * por semijoin con (paciente, mes del hecho).
+         */
+        public boolean deCohorte() {
+            return this == COHORTE || this == GCF || this == GRC;
+        }
+
+        /** Código de la cohorte predefinida cuya partición da los grupos (gcf o grc); nulo en las demás variables. */
+        public String particion() {
+            return this == GCF ? "gcf" : this == GRC ? "grc" : null;
         }
 
         /** Admite los valores especiales «Sin homologar» o «sin dato». */
@@ -586,10 +604,20 @@ public final class AnaliticaConsulta {
             return s;
         }
         return switch (v) {
-            case FUERZA, ESM, ATC, MEDICAMENTO -> s.toUpperCase(Locale.ROOT);
+            case FUERZA, ESM, ATC, MEDICAMENTO, GCF, GRC -> s.toUpperCase(Locale.ROOT);
+            case COHORTE -> s.toLowerCase(Locale.ROOT);
             case CIE10 -> s.toUpperCase(Locale.ROOT).replace(".", "");
             default -> s;
         };
+    }
+
+    /**
+     * Umbral k de la supresión de celdas pequeñas de una consulta (A7.1): el general de los tableros o, si el filtro incluye una cohorte
+     * sensible (VIH, huérfanas) y el umbral de las sensibles está activo, el mayor de los dos (AN.24). 0 = desactivada.
+     */
+    public static int kConCohorte(int general, int sensibles, boolean conCohorteSensible) {
+        int g = Math.max(0, general);
+        return conCohorteSensible && sensibles > 0 ? Math.max(g, sensibles) : g;
     }
 
     private static String recortar(String s, int max) {

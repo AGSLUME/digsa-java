@@ -1,5 +1,6 @@
 package co.com.agsamericas.digsa.analitica.tableros;
 
+import co.com.agsamericas.digsa.analitica.riesgo.PropiedadesRiesgo;
 import co.com.agsamericas.digsa.analitica.tableros.ResultadoTablero.Columna;
 import co.com.agsamericas.digsa.analitica.tableros.ResultadoTablero.FiltroAplicado;
 import co.com.agsamericas.digsa.analitica.tableros.ResultadoTablero.Fila;
@@ -79,10 +80,14 @@ public class ServicioConsultaAnalitica {
     private final PropiedadesTableros propiedades;
     private final Clock reloj;
     private final CacheResultados cache;
+    /** Cohortes sensibles y su k (A7.1: el filtro por una cohorte sensible usa la supresión de AN.24). */
+    private final PropiedadesRiesgo riesgo;
 
-    public ServicioConsultaAnalitica(JdbcClient jdbc, PlatformTransactionManager transacciones, PropiedadesTableros propiedades, Clock reloj) {
+    public ServicioConsultaAnalitica(JdbcClient jdbc, PlatformTransactionManager transacciones, PropiedadesTableros propiedades, Clock reloj,
+                                     PropiedadesRiesgo riesgo) {
         this.jdbc = jdbc;
         this.propiedades = propiedades;
+        this.riesgo = riesgo;
         this.reloj = reloj;
         this.cache = new CacheResultados(propiedades.tamanoCache());
         this.lectura = new TransactionTemplate(transacciones);
@@ -233,7 +238,17 @@ public class ServicioConsultaAnalitica {
             Optional<Corte> c = corte(j, cargue);
             List<Map<String, String>> r = new ArrayList<>();
             boolean truncado = false;
-            if (c.isPresent()) {
+            if (c.isPresent() && v.deCohorte()) {
+                // A7.1: cohortes usables en el corte o grupos de GCF / GRC del alcance (pocas: sin búsqueda en el servidor)
+                Ambito a = new Ambito(c.get(), alcance, Map.of(), c.get().datosDesde(), c.get().datosHasta(), AnaliticaConsulta.Granularidad.MES);
+                String t = texto == null ? "" : texto.strip().toLowerCase(java.util.Locale.ROOT);
+                for (Map<String, String> o : FiltroCohortes.opciones(j, a, v, riesgo)) {
+                    if (t.isEmpty() || o.get("valor").toLowerCase(java.util.Locale.ROOT).contains(t)
+                            || o.get("etiqueta").toLowerCase(java.util.Locale.ROOT).contains(t)) {
+                        r.add(o);
+                    }
+                }
+            } else if (c.isPresent()) {
                 Ambito a = new Ambito(c.get(), alcance, Map.of(), c.get().datosDesde(), c.get().datosHasta(), AnaliticaConsulta.Granularidad.MES);
                 List<String> valores = existentes(j, a, v, null);
                 Etiquetas et = new Etiquetas(j);
@@ -285,7 +300,7 @@ public class ServicioConsultaAnalitica {
             case CUM -> Dimension.CUM;
             case CIE10 -> valor != null && valor.length() == 4 ? Dimension.CIE10 : null;
             case ESTADO -> Dimension.ESTADO_HOMOLOGACION;
-            case SSFM -> null;
+            case SSFM, COHORTE, GCF, GRC -> null;
         };
     }
 
@@ -326,6 +341,7 @@ public class ServicioConsultaAnalitica {
                     : conTc + "SELECT s FROM unnest(CAST(:solo AS text[])) s WHERE EXISTS (SELECT 1" + base.formatted(tc, "cie10")
                             + " AND tc.codigo_final LIKE s || '%')";
             case ESTADO -> null;
+            case COHORTE, GCF, GRC -> throw new IllegalStateException("Cohorte, GCF y GRC se resuelven con FiltroCohortes");
         };
         if (sql == null) {
             List<String> todos = java.util.Arrays.stream(AnaliticaHomologacion.Estado.values()).map(AnaliticaHomologacion.Estado::codigo).toList();
@@ -339,7 +355,8 @@ public class ServicioConsultaAnalitica {
         for (Map.Entry<Variable, List<String>> e : a.filtros().entrySet()) {
             List<String> normales = e.getValue().stream().filter(x -> !AnaliticaConsulta.SIN_HOMOLOGAR.equals(x) && !AnaliticaConsulta.SIN_DATO.equals(x))
                     .toList();
-            if (normales.isEmpty()) {
+            if (normales.isEmpty() || e.getKey().deCohorte()) {
+                // Cohorte, GCF y GRC se validan al resolverlos contra el corte (FiltroCohortes)
                 continue;
             }
             Set<String> hay = Set.copyOf(existentes(j, a, e.getKey(), normales));
@@ -397,6 +414,9 @@ public class ServicioConsultaAnalitica {
         }
         Ambito a = new Ambito(c, alcance, q.filtros(), desde, hasta, q.granularidad());
         validarFiltros(j, a);
+        // A7.1: cohorte, GCF y GRC contra la membresía del mismo corte (versión, criterio y si es sensible)
+        FiltroCohortes.Resolucion res = FiltroCohortes.resolver(j, a, riesgo);
+        a = new Ambito(c, alcance, q.filtros(), desde, hasta, q.granularidad(), res.cohortes(), res.sensible());
         Nivel nivel = q.nivel() == null ? niveles.getFirst() : q.nivel();
         if (!niveles.contains(nivel)) {
             throw ErrorNegocio.validacion("La vista " + nivel.etiqueta() + " no está en su alcance.");
@@ -481,7 +501,58 @@ public class ServicioConsultaAnalitica {
                 p.ambito().granularidad().codigo(), q.comparacion().codigo(), q.orden().codigo(), String.valueOf(q.nivelAtc()),
                 alcanceCodigo(p.ambito().alcance()), String.valueOf(p.corte().cargueId()), String.valueOf(p.corte().cargues()),
                 String.valueOf(p.corte().homVersion()), String.valueOf(p.ambito().filtros()), String.valueOf(propiedades.supresion()),
-                String.valueOf(propiedades.percentil()), String.valueOf(propiedades.poliformulado()));
+                String.valueOf(propiedades.percentil()), String.valueOf(propiedades.poliformulado()), versionesCohorte(p.ambito()),
+                String.valueOf(k(p.ambito())));
+    }
+
+    // ---------- Cohorte, GCF y GRC para la predicción (A7.1, AN.30) ----------
+
+
+    /** Top 20 por gasto de las cohortes o de los grupos de GCF / GRC del nivel (valores para proyectar), en el alcance. */
+    public List<Map<String, String>> topCohortes(Variable v, Nivel nivel, String nivelValor, Long cargue, Alcance alcance) {
+        return leer(j -> corte(j, cargue).map(c -> FiltroCohortes.top(j, new Ambito(c, alcance, Map.of(), c.datosDesde(), c.datosHasta(),
+                AnaliticaConsulta.Granularidad.MES), v, nivel, nivelValor, riesgo)).orElse(List.of()));
+    }
+
+    /**
+     * ¿Es sensible el valor de la variable en el corte (cohorte por código o criterio; CIE-10, ATC o grupo de GCF por los códigos de VIH y
+     * huérfanas)? La predicción por él usa la supresión reforzada (AN.31).
+     */
+    public boolean sensible(Variable v, String valor, Long cargue) {
+        return leer(j -> corte(j, cargue).map(c -> FiltroCohortes.sensible(j, v, valor, c.cargueId(), riesgo)).orElse(false));
+    }
+
+    /** Pacientes distintos del ámbito (el mismo SQL de los tableros). */
+    private static long pacientesDe(JdbcClient j, Ambito a) {
+        Armado ar = SemanticaSql.agrupar(a, Conjunto.total(), 0, true);
+        return j.sql(ar.sql()).params(ar.parametros()).query((rs, n) -> ar.leer(rs)).optional().map(g -> g.pacientes() == null ? 0L : g.pacientes())
+                .orElse(0L);
+    }
+
+    /** k de la supresión con o sin una cohorte sensible (AN.24). */
+    public int kSupresion(boolean cohorteSensible) {
+        return AnaliticaConsulta.kConCohorte(propiedades.supresion(), riesgo.kSensibles(), cohorteSensible);
+    }
+
+    /** Versiones de cohorte con que se resolvieron los filtros (A7.1): «cohorte=12,15;gcf=3» (otra versión ⇒ otro resultado). */
+    static String versionesCohorte(Ambito a) {
+        StringBuilder sb = new StringBuilder();
+        a.cohortes().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> sb.append(sb.isEmpty() ? "" : ";").append(e.getKey().parametro())
+                .append('=').append(String.join(",", e.getValue().cohortes().stream().map(c -> String.valueOf(c.versionId())).toList())));
+        return sb.toString();
+    }
+
+    /**
+     * Umbral k de la supresión de celdas pequeñas del ámbito: el general de los tableros o, si un filtro es de una cohorte sensible (VIH,
+     * huérfanas), al menos el de las sensibles (AN.24, A7.1). Con el de las sensibles se ocultan también las cifras de la celda.
+     */
+    int k(Ambito a) {
+        return AnaliticaConsulta.kConCohorte(propiedades.supresion(), riesgo.kSensibles(), a.sensible());
+    }
+
+    /** ¿La supresión del ámbito es la reforzada de las cohortes sensibles? (oculta también gasto, unidades y dispensaciones de la celda) */
+    boolean reforzada(Ambito a) {
+        return a.sensible() && riesgo.kSensibles() > 0;
     }
 
     private static ResultadoTablero conAdvertencias(ResultadoTablero r, List<String> advertencias) {
@@ -529,13 +600,35 @@ public class ServicioConsultaAnalitica {
      * combinación (máximo {@value #MAX_FILAS_CONSULTA}; más responde 422) y los KPI del total, con los pacientes distintos exactos.
      */
     public ResultadoTablero consultar(ConsultaAnalitica consulta, Alcance alcance) {
-        ConsultaAnalitica q = consulta.conIntencion(Intencion.METRICAS);
+        return consultar(consulta, alcance, null);
+    }
+
+    /** Resultado de una consulta con las versiones de cohorte con que se resolvieron sus filtros (A7.1: la predicción guarda la usada). */
+    public record ConVersiones(ResultadoTablero resultado, Map<Variable, List<Long>> versiones) {
+    }
+
+    /** La consulta por dimensiones y las versiones de cohorte resueltas en la MISMA transacción (sin volver a resolverlas después). */
+    public ConVersiones consultarConVersiones(ConsultaAnalitica consulta, Alcance alcance) {
+        Map<Variable, List<Long>> v = new java.util.EnumMap<>(Variable.class);
+        ResultadoTablero r = consultar(consulta, alcance, v);
+        return new ConVersiones(r, java.util.Collections.unmodifiableMap(v));
+    }
+
+    private ResultadoTablero consultar(ConsultaAnalitica consulta, Alcance alcance, Map<Variable, List<Long>> versiones) {
+        ConsultaAnalitica q0 = consulta.conIntencion(Intencion.METRICAS);
         return leer(j -> {
-            Optional<Preparada> op = preparar(j, q, alcance);
+            Optional<Preparada> op = preparar(j, q0, alcance);
             if (op.isEmpty()) {
-                return sinDatos(q, niveles(alcance));
+                return sinDatos(q0, niveles(alcance));
             }
             Preparada p = op.get();
+            if (versiones != null) {
+                p.ambito().cohortes().forEach((k, f) -> versiones.put(k, f.cohortes().stream().map(SemanticaSql.CohorteResuelta::versionId).toList()));
+            }
+            // A7.1 (AN.31): con un filtro sensible siempre se cuentan y se muestran los pacientes de cada fila (la supresión reforzada los necesita)
+            ConsultaAnalitica q = reforzada(p.ambito()) && !q0.metricas().contains(Metrica.PACIENTES) ? new ConsultaAnalitica(q0.intencion(), q0.tablero(),
+                    java.util.stream.Stream.concat(q0.metricas().stream(), java.util.stream.Stream.of(Metrica.PACIENTES)).toList(), q0.dimensiones(),
+                    q0.filtros(), q0.desde(), q0.hasta(), q0.granularidad(), q0.comparacion(), q0.corte(), q0.nivel(), q0.nivelAtc(), q0.orden()) : q0;
             boolean pacientes = q.metricas().contains(Metrica.PACIENTES) || q.metricas().contains(Metrica.PROMEDIO_PACIENTE);
             Armado at = SemanticaSql.agrupar(p.ambito(), Conjunto.total(), 0, pacientes);
             Grupo total = j.sql(at.sql()).params(at.parametros()).query((rs, n) -> at.leer(rs)).optional()
@@ -640,6 +733,19 @@ public class ServicioConsultaAnalitica {
                         + "»); el mínimo y el máximo del gasto por paciente no se publican. Las sumas no cambian (cuadran con el insumo).";
     }
 
+    /** Texto de la regla de supresión de un ámbito: con una cohorte sensible en el filtro, la reforzada de AN.24 (A7.1). */
+    String textoSupresion(Ambito a) {
+        if (!reforzada(a)) {
+            return textoSupresion();
+        }
+        int k = k(a);
+        return "Reforzada por filtrar una cohorte sensible (VIH o huérfanas; parámetro supresion-sensibles = " + riesgo.kSensibles() + "): toda celda con "
+                + "menos de " + k + " pacientes distintos oculta sus pacientes Y sus cifras (gasto, unidades, dispensaciones, promedios y participación, "
+                + "«<" + k + "»); si en una tabla queda una sola celda oculta se oculta también la siguiente menor (no se deduce por diferencia); las "
+                + "tablas sin conteo de pacientes por celda se ocultan en el nivel ESM (series por periodo) y siempre el mapa de calor ESM × periodo; el "
+                + "mínimo y el máximo del gasto por paciente no se publican.";
+    }
+
     /** Arma el resultado con los metadatos, la supresión de celdas pequeñas y la huella (sin usuario ni hora). */
     private ResultadoTablero resultado(JdbcClient j, Preparada p, String tituloBase, boolean disponible, String mensaje, List<Kpi> kpis,
                                        List<Tabla> tablas, List<String> observaciones, List<String> noDisponible, long registros) {
@@ -647,6 +753,19 @@ public class ServicioConsultaAnalitica {
         List<FiltroAplicado> filtros = new ArrayList<>();
         for (Map.Entry<Variable, List<String>> e : p.ambito().filtros().entrySet()) {
             List<String> textos = new ArrayList<>();
+            SemanticaSql.FiltroCohorte fc = p.ambito().cohortes().get(e.getKey());
+            if (fc != null) {
+                // A7.1: la cohorte con su versión y criterio (14.8: la descarga dice con qué definición se filtró)
+                if (e.getKey() == Variable.GCF) {
+                    et.cargar(Dimension.ATC2, e.getValue().stream().filter(x -> !x.startsWith("SIN_")).toList());
+                }
+                for (int i = 0; i < e.getValue().size(); i++) {
+                    textos.add(e.getKey() == Variable.COHORTE ? fc.cohortes().get(i).texto()
+                            : FiltroCohortes.etiqueta(et, e.getKey(), e.getValue().get(i)) + " — " + fc.cohortes().getFirst().texto());
+                }
+                filtros.add(new FiltroAplicado(e.getKey().parametro(), e.getKey().etiqueta(), e.getValue(), textos));
+                continue;
+            }
             for (String x : e.getValue()) {
                 Dimension d = dimensionDe(e.getKey(), x);
                 if (d != null) {
@@ -675,7 +794,7 @@ public class ServicioConsultaAnalitica {
                 AnaliticaConsulta.fecha(p.ambito().desde()) + " – " + AnaliticaConsulta.fecha(p.ambito().hasta()), p.ambito().granularidad().etiqueta(),
                 p.consulta().comparacion().etiqueta(), p.comparacion() == null ? null
                         : AnaliticaConsulta.fecha(p.comparacion().desde()) + " – " + AnaliticaConsulta.fecha(p.comparacion().hasta()),
-                alcanceTexto, establecimiento, List.copyOf(filtros), registros, c.datosHasta(), textoSupresion());
+                alcanceTexto, establecimiento, List.copyOf(filtros), registros, c.datosHasta(), textoSupresion(p.ambito()));
         String vista = switch (p.nivel()) {
             case NACIONAL -> "Nacional";
             case FUERZA -> "Fuerza " + (p.ambito().alcance() instanceof Alcance.Fuerza f ? f.codigo() : p.consulta().valores(Variable.FUERZA).getFirst());
@@ -683,13 +802,28 @@ public class ServicioConsultaAnalitica {
                     : p.consulta().valores(Variable.ESM).getFirst());
         };
         List<String> advertencias = advertencias(j, c);
-        Supresion s = new Supresion(propiedades.supresion());
+        // A7.1: con una cohorte sensible en el filtro, la supresión reforzada de AN.24; el nivel ESM es el del alcance, la vista o un filtro de ESM
+        boolean nivelEsm = p.ambito().alcance() instanceof Alcance.Esm || p.nivel() == Nivel.ESM || p.ambito().filtros().containsKey(Variable.ESM);
+        // Con la reforzada, los pacientes del total y del periodo de comparación se cuentan siempre aparte (no dependen de que el tablero los
+        // muestre): con pocos se oculta todo o la comparación (AN.31)
+        boolean ref = reforzada(p.ambito());
+        Long totalPacientes = ref ? pacientesDe(j, p.ambito()) : null;
+        Long comparadoPacientes = ref && p.comparacion() != null ? pacientesDe(j, p.comparacion()) : null;
+        Supresion s = new Supresion(k(p.ambito()), ref, nivelEsm, totalPacientes, comparadoPacientes);
         List<Kpi> ks = s.kpis(kpis);
         List<Tabla> ts = s.tablas(tablas);
+        List<String> obs = new ArrayList<>(observaciones);
+        if (!p.ambito().cohortes().isEmpty()) {
+            obs.add("Filtrado por cohorte: cuentan las dispensaciones de los pacientes que son miembros en el mes de cada dispensación (membresía del"
+                    + " corte del cargue " + c.cargueId() + ").");
+        }
+        if (s.ocultoTodo()) {
+            obs.add("Menos de " + s.k() + " pacientes distintos con estos filtros en una cohorte sensible: las cifras se ocultan (supresión reforzada).");
+        }
         String titulo = tituloBase + " · " + vista;
         ResultadoTablero sinHuella = new ResultadoTablero(p.consulta().tablero() == null ? null : p.consulta().tablero().codigo(), titulo,
                 p.nivel().codigo(), p.niveles().stream().map(Nivel::codigo).toList(), disponible, mensaje, List.copyOf(ks), List.copyOf(ts),
-                List.copyOf(advertencias), List.copyOf(observaciones), List.copyOf(noDisponible), m, null);
+                List.copyOf(advertencias), List.copyOf(obs), List.copyOf(noDisponible), m, null);
         return new ResultadoTablero(sinHuella.tablero(), titulo, sinHuella.nivel(), sinHuella.niveles(), disponible, mensaje, sinHuella.kpis(),
                 sinHuella.tablas(), sinHuella.advertencias(), sinHuella.observaciones(), sinHuella.noDisponible(), m, huella(sinHuella, p));
     }
@@ -741,6 +875,10 @@ public class ServicioConsultaAnalitica {
         l.add("corte|" + p.corte().cargueId() + "|" + p.corte().homVersion() + "|" + p.corte().cargues());
         l.add("alcance|" + alcanceCodigo(p.ambito().alcance()));
         p.ambito().filtros().forEach((k, v) -> l.add("filtro|" + k.parametro() + "=" + String.join(",", v)));
+        if (!p.ambito().cohortes().isEmpty()) {
+            // A7.1: la versión de cada cohorte del filtro (otra versión es otra consulta)
+            l.add("cohortes|" + versionesCohorte(p.ambito()));
+        }
         q.metricas().forEach(m -> l.add("metrica|" + m.codigo()));
         q.dimensiones().forEach(d -> l.add("dimension|" + d.codigo()));
         for (Kpi k : r.kpis()) {

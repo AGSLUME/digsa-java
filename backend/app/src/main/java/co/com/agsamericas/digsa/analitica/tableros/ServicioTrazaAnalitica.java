@@ -142,6 +142,12 @@ public class ServicioTrazaAnalitica {
         Map<String, List<String>> f = new LinkedHashMap<>();
         p.ambito().filtros().forEach((k, v) -> f.put(k.parametro(), v));
         consulta.put("filtros", f);
+        if (!p.ambito().cohortes().isEmpty()) {
+            // A7.1: con qué versión y criterio de cada cohorte se filtró (la traza usa la membresía del mismo corte que la cifra)
+            Map<String, List<String>> co = new LinkedHashMap<>();
+            p.ambito().cohortes().forEach((k, v) -> co.put(k.parametro(), v.cohortes().stream().map(SemanticaSql.CohorteResuelta::texto).toList()));
+            consulta.put("cohortes", co);
+        }
         consulta.put("desde", p.ambito().desde());
         consulta.put("hasta", p.ambito().hasta());
         d.put("consulta", consulta);

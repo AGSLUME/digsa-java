@@ -8,6 +8,7 @@ import {
   problemaPeriodo,
   quitarFiltro,
   SIN_HOMOLOGAR,
+  textoPastilla,
   textoValor,
   type CatalogoAnalitica,
   type Corte,
@@ -31,6 +32,10 @@ const VISIBLES: { variable: Variable; etiqueta: string; sinHomologar?: boolean }
   { variable: 'ssfm', etiqueta: 'Código SSFM' },
   { variable: 'cie10', etiqueta: 'CIE-10 (capítulo, grupo o código)' },
   { variable: 'estado', etiqueta: 'Estado de homologación' },
+  // A7.1: cohorte, GCF y GRC (pacientes miembros en el mes de cada dispensación, con la membresía del corte)
+  { variable: 'cohorte', etiqueta: 'Cohorte (miembros en el mes)' },
+  { variable: 'gcf', etiqueta: 'GCF (grupo de consumo)' },
+  { variable: 'grc', etiqueta: 'GRC (grupo de riesgo clínico)' },
 ];
 
 /** Selección múltiple de una variable: las opciones se piden al abrir la lista (dentro del alcance y visibles al corte). */
@@ -216,6 +221,7 @@ export function FiltrosAnalitica({
             <Badge
               key={a.variable + a.valor}
               variant="light"
+              title={nombreFiltro(textos, a.variable, a.valor)}
               rightSection={
                 <CloseButton
                   size="sm"
@@ -226,7 +232,8 @@ export function FiltrosAnalitica({
                 />
               }
             >
-              {VISIBLES.find((x) => x.variable === a.variable)?.etiqueta.split(' (')[0]}: {nombreFiltro(textos, a.variable, a.valor)}
+              {VISIBLES.find((x) => x.variable === a.variable)?.etiqueta.split(' (')[0]}:{' '}
+              {textoPastilla(a.variable, nombreFiltro(textos, a.variable, a.valor))}
             </Badge>
           ))}
         </Group>

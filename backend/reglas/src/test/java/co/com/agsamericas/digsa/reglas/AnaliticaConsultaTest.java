@@ -290,4 +290,39 @@ class AnaliticaConsultaTest {
     void disanSinDato() {
         assertThat(Variable.DISAN.formaValida(AnaliticaConsulta.SIN_DATO)).isTrue();
     }
+
+    @Test
+    @DisplayName("A7.1: cohorte por código (minúsculas), GCF por grupo ATC2 o SIN_*, GRC1 a GRC4; sin «Sin homologar»; se normalizan y se marcan como de cohorte")
+    void filtrosDeCohorte() {
+        assertThat(Variable.deParametro("cohorte")).contains(Variable.COHORTE);
+        assertThat(Variable.COHORTE.formaValida("alto_costo")).isTrue();
+        assertThat(Variable.COHORTE.formaValida("alto costo")).isFalse();
+        assertThat(Variable.COHORTE.formaValida("vih' OR 1=1")).isFalse();
+        assertThat(Variable.GCF.formaValida("A10")).isTrue();
+        assertThat(Variable.GCF.formaValida("SIN_GASTO")).isTrue();
+        assertThat(Variable.GCF.formaValida("A10%")).isFalse();
+        assertThat(Variable.GRC.formaValida("GRC4")).isTrue();
+        assertThat(Variable.GRC.formaValida("GRC5")).isFalse();
+        assertThat(Variable.GRC.formaValida(AnaliticaConsulta.SIN_HOMOLOGAR)).isFalse();
+        ConsultaAnalitica a = new ConsultaAnalitica(Intencion.TABLERO, Tablero.GASTO, null, null, Map.of(Variable.COHORTE, List.of("VIH", "renal"),
+                Variable.GRC, List.of("grc2")), null, null, null, null, null, null, null, null);
+        assertThat(a.valores(Variable.COHORTE)).containsExactly("renal", "vih");
+        assertThat(a.valores(Variable.GRC)).containsExactly("GRC2");
+        assertThat(a.problemas()).isEmpty();
+        assertThat(Variable.COHORTE.deCohorte() && Variable.GCF.deCohorte() && Variable.GRC.deCohorte()).isTrue();
+        assertThat(Variable.ATC.deCohorte()).isFalse();
+        assertThat(Variable.GCF.particion()).isEqualTo("gcf");
+        assertThat(Variable.GRC.particion()).isEqualTo("grc");
+        assertThat(Variable.COHORTE.particion()).isNull();
+    }
+
+    @Test
+    @DisplayName("A7.1 (AN.24): k de la supresión con cohorte sensible = el mayor entre el general y el de las sensibles; sin sensible o con 0, el general")
+    void kConCohorteSensible() {
+        assertThat(AnaliticaConsulta.kConCohorte(0, 5, true)).isEqualTo(5);
+        assertThat(AnaliticaConsulta.kConCohorte(10, 5, true)).isEqualTo(10);
+        assertThat(AnaliticaConsulta.kConCohorte(0, 5, false)).isZero();
+        assertThat(AnaliticaConsulta.kConCohorte(3, 0, true)).isEqualTo(3);
+        assertThat(AnaliticaConsulta.kConCohorte(-1, 0, false)).isZero();
+    }
 }

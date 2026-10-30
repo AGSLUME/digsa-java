@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   ajusteApi,
   descripcionGrafico,
+  dimensionDeCohorte,
+  etiquetaTop,
+  sinValoresTop,
   filasSerie,
   geometria,
   nivelAtcDe,
@@ -125,5 +128,26 @@ describe('gráfico y su tabla equivalente', () => {
       'Gasto · Nacional, de 10/2025 a 01/2026, en pesos: línea continua observado; línea discontinua proyectado 2 meses con banda del IC 95 %; línea vertical: corte.',
     );
     expect(descripcionGrafico('Pacientes', [], [], 'pacientes')).toBe('Pacientes: sin datos.');
+  });
+});
+
+describe('cohorte, GCF y GRC como dimensión (A7.1)', () => {
+  it('toma de la barra una cohorte, un grupo de GCF o uno de GRC (un solo valor) si no hay ATC, principio ni CIE-10', () => {
+    expect(seleccionInicial(estado({}, { cohorte: ['renal'] }))).toEqual({ metrica: 'gasto', dimension: 'cohorte', valorDimension: 'renal' });
+    expect(seleccionInicial(estado({}, { grc: ['GRC2'] }))).toEqual({ metrica: 'gasto', dimension: 'grc', valorDimension: 'GRC2' });
+    expect(seleccionInicial(estado({}, { cohorte: ['renal', 'vih'], gcf: ['A10'] })).dimension).toBe('gcf');
+    expect(seleccionInicial(estado({}, { atc: ['C09'], cohorte: ['renal'] })).dimension).toBe('atc');
+    expect(parametrosSerie(estado(), { metrica: 'gasto', dimension: 'cohorte', valorDimension: 'renal' })).toBe(
+      'metrica=gasto&dimension=cohorte&valorDimension=renal&horizonte=6',
+    );
+  });
+
+  it('el Top 20 de cohortes y grupos usa el nombre que manda el servidor; los demás, «código · nombre»', () => {
+    expect(dimensionDeCohorte('grc')).toBe(true);
+    expect(dimensionDeCohorte('atc')).toBe(false);
+    expect(etiquetaTop('cohorte', { valor: 'renal', etiqueta: 'Renal · v1' })).toBe('Renal · v1');
+    expect(etiquetaTop('cie10', { valor: 'I10', etiqueta: 'Hipertensión esencial' })).toBe('I10 · Hipertensión esencial');
+    expect(sinValoresTop('gcf')).toContain('membresía');
+    expect(sinValoresTop('principio')).toBe('Sin valores homologados en el alcance');
   });
 });

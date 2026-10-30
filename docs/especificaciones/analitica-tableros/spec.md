@@ -67,6 +67,7 @@ El sistema DEBE ofrecer la pantalla `ANALITICA` («Analítica farmacéutica», r
 Ningún tablero, KPI, descarga ni respuesta del servicio de consulta DEBE contener seudónimos de paciente, documento, nombre, fecha de nacimiento completa ni contacto. Los pacientes DEBEN mostrarse como conteos de pacientes distintos exactos por celda (nunca sumados entre celdas). La única vista con registros individuales es la trazabilidad 14.9, con seudónimo y solo para los perfiles autorizados.
 <!-- decision: revisión A3 2026-10-23 — supresión de celdas pequeñas implementada: `digsa.analitica.tableros.supresion-minima` (k, 0 = desactivado por defecto; lo decide la DIGSA). Con k > 0, en toda fila y KPI con 1 a k − 1 pacientes se ocultan pacientes, pacientes-mes y promedio por paciente («<k»), y el mínimo y el máximo del gasto por paciente no se publican; las sumas no cambian. Se aplica en tableros, descargas, consulta estructurada y asistente, y se declara en los metadatos («Supresión de celdas pequeñas»). Test: PlazoYSupresionTest.supresion. -->
 <!-- decision: revisión A3 2026-10-23 — la trazabilidad no entrega el CIE-10, la Fuerza ni la modalidad de cada registro junto al seudónimo (minimización; el diagnóstico consta en los filtros del desglose). -->
+<!-- decision: A7.1 2026-10-29 — con una cohorte sensible (VIH, huérfanas) en el filtro la supresión se refuerza en todos los niveles (AN.31): sensible por código o por criterio (CIE-10, ATC o lista de las cohortes sensibles), y también los filtros directos de CIE-10, ATC o grupo de GCF que se solapan con esos códigos; mezclar en una variable un valor sensible con otros da 422. k = máx(general, supresion-sensibles); los pacientes del total y del periodo comparado se cuentan siempre aparte; la celda pequeña oculta también sus cifras; «Resto» se oculta y cuenta para la complementaria (una sola celda oculta ⇒ también la menor visible); total pequeño ⇒ todo oculto; tablas sin pacientes por celda ocultas salvo series por periodo fuera del nivel ESM; mapa de calor siempre; comparación por fila nunca y la de los KPI solo con ≥ k pacientes en el periodo comparado; distribuciones sin mínimo ni máximo (nada con < 2k pacientes); la consulta guiada agrega la columna de pacientes. Verificado por PlazoYSupresionTest#supresionReforzada, #reforzadaRevision y FiltroCohorteApiTest#alcanceYSupresionSensible, #reforzadaSinConteoYComparacion, #sensibilidadYParticionSinMembresia. -->
 
 ---
 
@@ -161,11 +162,18 @@ La barra de filtros DEBE ofrecer: periodo (desde–hasta) con granularidad día,
 <!-- decision: revisión A3 2026-10-23 — sin fechas, el periodo es el de los últimos 12 meses hasta el último día con datos visibles (la historia completa se elige explícitamente). Las fechas se aplican al salir del campo o con Enter (no con cada dígito) y el año va de 2000 a 2100. Las opciones de filtro traen 300 por petición con búsqueda en el servidor e indican si hay más. -->
 <!-- incierto: la granularidad «horas» de 2.11 solo aplica si el insumo trae la hora de dispensación; si no, se muestra deshabilitada con «No disponible en el insumo». -->
 <!-- incierto: «Operador logístico» (A4 variable 16) es hoy un único OPL: se muestra como dato fijo en los metadatos, no como filtro, hasta que haya más de uno. -->
+<!-- decision: A7.1 2026-10-29 — cohorte, GCF y GRC (AN.22): el hecho entra si su paciente es miembro de la cohorte (o está en el grupo de la partición) EN EL MES del hecho, con la membresía del MISMO corte (reproducible por corte); semijoin por (mes, paciente) contra ana_hechos_tablero y por el seudónimo en la traza. Versión: la de mayor número con resultado en el corte, evaluada y con membresía (si no, 422 con el motivo: sin resultados, no evaluada o corte que ya no conserva la membresía, AN.19). Las opciones son las cohortes usables en el corte y los grupos con pacientes en el alcance. Metadatos, descarga y traza: «Nombre (vN: criterio)»; la huella y la caché incluyen la versión; la bitácora guarda el código (lista blanca). Una cohorte sensible (VIH, huérfanas) en el filtro refuerza la supresión (AN.31). -->
+<!-- verificado_por: FiltroCohorteApiTest#cuadreConLaMembresia (cuadre a mano sobre la membresía, serie del motor y esperado del generador; cuadre entre dimensiones), #particionesSumanElTotal, #alcanceYSupresionSensible, #versionTrazaYErrores; AnaliticaConsultaTest#filtrosDeCohorte; tableros.test.ts -->
 
 #### Scenario: Selección múltiple
 <!-- test: M8-5; AnaliticaConsultaTest.filtroMultiple -->
 - **CUANDO** se filtra `esm=[A,B]` y `cie10=[E11]`
 - **ENTONCES** el gasto es la suma de A y B solo para E11*, y la suma por ESM de la tabla es igual al KPI
+
+#### Scenario: Cohorte en el mes de la dispensación
+<!-- test: FiltroCohorteApiTest#cuadreConLaMembresia -->
+- **CUANDO** se filtra `cohorte=renal` en 2025
+- **ENTONCES** el gasto es la suma de las dispensaciones de los pacientes en los meses en que son miembros de «Renal» (membresía del corte), igual a la serie de la cohorte en el tablero 10, y los metadatos dicen «Renal (vN: criterio)»
 
 #### Scenario: Granularidad bimestral
 <!-- test: AnaliticaConsultaTest.bimestres -->

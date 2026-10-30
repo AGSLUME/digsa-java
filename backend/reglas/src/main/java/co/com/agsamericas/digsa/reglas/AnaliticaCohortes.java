@@ -563,6 +563,81 @@ public final class AnaliticaCohortes {
     /** Las seis del mockup, que van primero en las tarjetas. */
     public static final List<String> DEL_MOCKUP = List.of("alto_costo", "polimedicados", "renal", "vih", "biologicos", "huerfanas");
 
+    // ---------- Sensibilidad (A7.1, AN.31) ----------
+
+    /** ¿El código y alguno de los prefijos se solapan? (uno es prefijo del otro: «B2» cubre B20 y «B201» está dentro de B20) */
+    public static boolean solapa(String valor, java.util.Collection<String> prefijos) {
+        if (valor == null || valor.isEmpty()) {
+            return false;
+        }
+        for (String p : prefijos) {
+            if (!p.isEmpty() && (valor.startsWith(p) || p.startsWith(valor))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Códigos sensibles de la configuración (A7.1, AN.31): los CIE-10 y ATC de los criterios de las cohortes sensibles (VIH, huérfanas) y
+     * sus listas de referencia (la de huérfanas aporta además sus CIE-10 cargados). Una cohorte es sensible si su criterio usa alguno (por
+     * prefijo, en cualquier sentido, negado o no: prudente); un filtro de CIE-10, ATC o grupo de GCF, si su valor se solapa con ellos.
+     */
+    public record Sensibles(Set<String> cie10, Set<String> atc, Set<String> listas) {
+
+        public static final Sensibles NINGUNO = new Sensibles(Set.of(), Set.of(), Set.of());
+
+        public Sensibles {
+            cie10 = Set.copyOf(cie10);
+            atc = Set.copyOf(atc);
+            listas = Set.copyOf(listas);
+        }
+
+        /** Desde los criterios de las cohortes sensibles y los CIE-10 de sus listas cargadas (p. ej. huérfanas). */
+        public static Sensibles de(List<Criterio> criterios, java.util.Collection<String> cie10Listas) {
+            Set<String> cie = new TreeSet<>(cie10Listas);
+            Set<String> atc = new TreeSet<>();
+            Set<String> listas = new TreeSet<>();
+            for (Criterio c : criterios) {
+                for (Codigos x : atomos(c)) {
+                    switch (x.tipo()) {
+                        case CIE10 -> cie.addAll(x.valores());
+                        case ATC -> atc.addAll(x.valores());
+                        case LISTA -> listas.addAll(x.valores());
+                        default -> {
+                        }
+                    }
+                }
+            }
+            return new Sensibles(cie, atc, listas);
+        }
+
+        public boolean cie10(String v) {
+            return solapa(v, cie10);
+        }
+
+        public boolean atc(String v) {
+            return solapa(v, atc);
+        }
+
+        /**
+         * ¿El criterio usa un código o una lista sensible? Los conteos de crónicos (pluripatológicos) y las particiones no: su lista de crónicos
+         * incluye B20–B24 entre ~35 categorías y pertenecer no revela el diagnóstico (decisión A7.1, AN.31).
+         */
+        public boolean criterio(Criterio c) {
+            return switch (c) {
+                case Grupo g -> g.criterios().stream().anyMatch(this::criterio);
+                case Codigos x -> switch (x.tipo()) {
+                    case CIE10 -> x.valores().stream().anyMatch(this::cie10);
+                    case ATC -> x.valores().stream().anyMatch(this::atc);
+                    case LISTA -> x.valores().stream().anyMatch(listas::contains);
+                    default -> false;
+                };
+                default -> false;
+            };
+        }
+    }
+
     // ---------- Átomos ----------
 
     /** Criterio de código del árbol (en el orden en que aparece): su bit en las máscaras del mes es su posición. */

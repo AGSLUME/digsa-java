@@ -313,54 +313,59 @@ public class RecalculoRiesgo implements DisposableBean {
         Lectura l = lectura.execute(s -> leer(p, soloVersiones, alertas));
         long t1 = System.nanoTime();
         l.etapas().put("lectura", ms(t0, t1));
-        escritura.executeWithoutResult(s -> {
-            fijar(jdbc);
-            escribirCohortes(p, l);
-            int[] resumen = null;
-            String errorAlertas = l.errorAlertas();
-            if (alertas && errorAlertas == null) {
-                try {
-                    resumen = anidada.execute(x -> escribirAlertas(p, l));
-                } catch (RuntimeException e) {
-                    // La escritura de alertas falla sola: la serie de cohortes del corte se guarda igual
-                    LOG.error("[analitica] No se pudieron escribir las alertas del corte {}", p.corte(), e);
-                    errorAlertas = "Falla técnica al escribir las alertas (" + e.getClass().getSimpleName() + "); revise el registro del servidor";
+        try {
+            escritura.executeWithoutResult(s -> {
+                fijar(jdbc);
+                escribirCohortes(p, l);
+                int[] resumen = null;
+                String errorAlertas = l.errorAlertas();
+                if (alertas && errorAlertas == null) {
+                    try {
+                        resumen = anidada.execute(x -> escribirAlertas(p, l));
+                    } catch (RuntimeException e) {
+                        // La escritura de alertas falla sola: la serie de cohortes del corte se guarda igual
+                        LOG.error("[analitica] No se pudieron escribir las alertas del corte {}", p.corte(), e);
+                        errorAlertas = "Falla técnica al escribir las alertas (" + e.getClass().getSimpleName() + "); revise el registro del servidor";
+                    }
                 }
-            }
-            l.etapas().put("escritura", ms(t1, System.nanoTime()));
-            long total = ms(t0, System.nanoTime());
-            boolean versionesFallidas = !l.motor().fallosVersion.isEmpty();
-            jdbc.sql("""
-                    UPDATE ana_cohortes_ejecuciones SET fin = :f, estado = :estado, versiones = :v, filas = :n, duracion_ms = :d, etapas_ms = CAST(:e AS jsonb),
-                           error = :err WHERE id = :id""").param("f", OffsetDateTime.now(reloj)).param("estado", versionesFallidas ? "con_fallos" : "ok")
-                    .param("v", l.versiones().size()).param("n", l.motor().filas).param("d", total).param("e", aJson(l.etapas()))
-                    .param("err", versionesFallidas ? Bitacora.cortar(l.motor().fallosVersion.size() + " versiones no evaluadas por error; revise el registro", 500)
-                            : null).param("id", p.ejecucionCohortes()).update();
-            if (alertas) {
-                if (resumen == null) {
-                    jdbc.sql("UPDATE ana_alertas_ejecuciones SET fin = :f, estado = 'error', error = :e, duracion_ms = :d WHERE id = :id")
-                            .param("f", OffsetDateTime.now(reloj)).param("e", Bitacora.cortar(errorAlertas, 500)).param("d", total)
-                            .param("id", p.ejecucionAlertas()).update();
-                } else {
-                    boolean fallos = l.detectores().porTipo.values().stream().anyMatch(x -> "error".equals(x.get("estado"))) || resumen[3] > 0;
-                    jdbc.sql("""
-                            UPDATE ana_alertas_ejecuciones SET fin = :f, estado = :estado, nuevas = :nu, actualizadas = :ac, avisos = :av,
-                                   por_tipo = CAST(:pt AS jsonb), duracion_ms = :d, error = :err WHERE id = :id""")
-                            .param("f", OffsetDateTime.now(reloj)).param("estado", fallos ? "con_fallos" : "ok").param("nu", resumen[0]).param("ac", resumen[1])
-                            .param("av", resumen[2]).param("pt", aJson(l.detectores().porTipo)).param("d", total)
-                            .param("err", resumen[3] > 0 ? resumen[3] + " avisos de severidad alta pendientes (se reintentan)" : null)
-                            .param("id", p.ejecucionAlertas()).update();
+                l.etapas().put("escritura", ms(t1, System.nanoTime()));
+                long total = ms(t0, System.nanoTime());
+                boolean versionesFallidas = !l.motor().fallosVersion.isEmpty();
+                jdbc.sql("""
+                        UPDATE ana_cohortes_ejecuciones SET fin = :f, estado = :estado, versiones = :v, filas = :n, duracion_ms = :d, etapas_ms = CAST(:e AS jsonb),
+                               error = :err WHERE id = :id""").param("f", OffsetDateTime.now(reloj)).param("estado", versionesFallidas ? "con_fallos" : "ok")
+                        .param("v", l.versiones().size()).param("n", l.motor().filas).param("d", total).param("e", aJson(l.etapas()))
+                        .param("err", versionesFallidas ? Bitacora.cortar(l.motor().fallosVersion.size() + " versiones no evaluadas por error; revise el registro", 500)
+                                : null).param("id", p.ejecucionCohortes()).update();
+                if (alertas) {
+                    if (resumen == null) {
+                        jdbc.sql("UPDATE ana_alertas_ejecuciones SET fin = :f, estado = 'error', error = :e, duracion_ms = :d WHERE id = :id")
+                                .param("f", OffsetDateTime.now(reloj)).param("e", Bitacora.cortar(errorAlertas, 500)).param("d", total)
+                                .param("id", p.ejecucionAlertas()).update();
+                    } else {
+                        boolean fallos = l.detectores().porTipo.values().stream().anyMatch(x -> "error".equals(x.get("estado"))) || resumen[3] > 0;
+                        jdbc.sql("""
+                                UPDATE ana_alertas_ejecuciones SET fin = :f, estado = :estado, nuevas = :nu, actualizadas = :ac, avisos = :av,
+                                       por_tipo = CAST(:pt AS jsonb), duracion_ms = :d, error = :err WHERE id = :id""")
+                                .param("f", OffsetDateTime.now(reloj)).param("estado", fallos ? "con_fallos" : "ok").param("nu", resumen[0]).param("ac", resumen[1])
+                                .param("av", resumen[2]).param("pt", aJson(l.detectores().porTipo)).param("d", total)
+                                .param("err", resumen[3] > 0 ? resumen[3] + " avisos de severidad alta pendientes (se reintentan)" : null)
+                                .param("id", p.ejecucionAlertas()).update();
+                    }
                 }
-            }
-            bitacora.registrar("analitica_cohorte_recalculo", "Recálculo " + p.ejecucionCohortes() + " · corte " + p.corte() + " · " + l.versiones().size()
-                    + " versiones · " + l.motor().filas + " registros · " + total + " ms" + (versionesFallidas ? " · con fallos" : ""), usuarioId,
-                    usuario(usuarioId));
-            if (alertas) {
-                bitacora.registrar("analitica_alerta_generada", "Ejecución " + p.ejecucionAlertas() + " del motor de alertas · corte " + p.corte() + " · "
-                        + (resumen == null ? "error" : resumen[0] + " nuevas · " + resumen[1] + " reevaluadas · " + resumen[2] + " avisos de severidad alta"
-                                + (resumen[4] > 0 ? " · " + resumen[4] + " de periodos anteriores en un resumen" : "")), usuarioId, usuario(usuarioId));
-            }
-        });
+                bitacora.registrar("analitica_cohorte_recalculo", "Recálculo " + p.ejecucionCohortes() + " · corte " + p.corte() + " · " + l.versiones().size()
+                        + " versiones · " + l.motor().filas + " registros · " + total + " ms" + (versionesFallidas ? " · con fallos" : ""), usuarioId,
+                        usuario(usuarioId));
+                if (alertas) {
+                    bitacora.registrar("analitica_alerta_generada", "Ejecución " + p.ejecucionAlertas() + " del motor de alertas · corte " + p.corte() + " · "
+                            + (resumen == null ? "error" : resumen[0] + " nuevas · " + resumen[1] + " reevaluadas · " + resumen[2] + " avisos de severidad alta"
+                                    + (resumen[4] > 0 ? " · " + resumen[4] + " de periodos anteriores en un resumen" : "")), usuarioId, usuario(usuarioId));
+                }
+            });
+        } finally {
+            // A7.1: los archivos temporales de la membresía (AN.32) se borran aunque la escritura falle
+            l.motor().liberar();
+        }
         LOG.info("[analitica] Cohortes y alertas del corte {}: {} registros, {} versiones en {} ms {}", p.corte(), l.motor().filas, l.versiones().size(),
                 ms(t0, System.nanoTime()), l.etapas());
     }
@@ -520,7 +525,8 @@ public class RecalculoRiesgo implements DisposableBean {
             if (m.fallosVersion.containsKey(v.indice())) {
                 continue;
             }
-            copiar("COPY ana_cohortes_miembros (version_id, corte_cargue_id, mes, paciente_id, fuerzas, esms, fuerzas_esms) FROM STDIN", m.miembros.get(v.indice()));
+            copiar("COPY ana_cohortes_miembros (version_id, corte_cargue_id, mes, paciente_id, fuerzas, esms, fuerzas_esms, grupo) FROM STDIN",
+                    m.miembros.get(v.indice()));
             if (v.particion() || v.noEvaluado() != null) {
                 continue;
             }
@@ -583,6 +589,22 @@ public class RecalculoRiesgo implements DisposableBean {
     }
 
     /** COPY en la conexión de la transacción en curso, leyendo el búfer sin copiarlo a otro String (memoria del lado de la aplicación). */
+    /** COPY de la membresía de una versión (A7.1: por lotes desde el archivo temporal y el búfer, AN.32). */
+    private void copiar(String sql, Volcado datos) {
+        if (datos.lineas() == 0) {
+            return;
+        }
+        Connection c = DataSourceUtils.getConnection(ds);
+        try (Reader r = datos.lector()) {
+            c.unwrap(PGConnection.class).getCopyAPI().copyIn(sql, r);
+        } catch (SQLException | java.io.IOException e) {
+            throw new IllegalStateException("No se pudo escribir con COPY: " + e.getMessage(), e);
+        } finally {
+            DataSourceUtils.releaseConnection(c, ds);
+            datos.close();
+        }
+    }
+
     private void copiar(String sql, StringBuilder datos) {
         if (datos.isEmpty()) {
             return;

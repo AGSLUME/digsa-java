@@ -14,6 +14,7 @@ import {
   ajusteApi,
   descripcionGrafico,
   DIMENSIONES_PREDICCION,
+  etiquetaTop,
   filasSerie,
   geometria,
   HORIZONTE_DEFECTO,
@@ -22,6 +23,7 @@ import {
   parametrosSerie,
   problemaAjuste,
   seleccionInicial,
+  sinValoresTop,
   textoError,
   textoEstado,
   textoMes,
@@ -371,8 +373,8 @@ export function PanelPrediccion({ estado, niveles }: { estado: EstadoAnalitica; 
               label="Valor (Top 20 por gasto)"
               w={260}
               searchable
-              nothingFoundMessage={top.isLoading ? 'Cargando…' : 'Sin valores homologados en el alcance'}
-              data={(top.data ?? []).map((o) => ({ value: o.valor, label: `${o.valor} · ${o.etiqueta}` }))}
+              nothingFoundMessage={top.isLoading ? 'Cargando…' : sinValoresTop(sel.dimension)}
+              data={(top.data ?? []).map((o) => ({ value: o.valor, label: etiquetaTop(sel.dimension, o) }))}
               value={sel.valorDimension ?? null}
               onChange={(x) => cambiar({ valorDimension: x ?? undefined })}
             />
@@ -466,6 +468,12 @@ export function PanelPrediccion({ estado, niveles }: { estado: EstadoAnalitica; 
                       <Table.Th scope="row">Serie</Table.Th>
                       <Table.Td>{d.serieTexto}</Table.Td>
                     </Table.Tr>
+                    {d.cohorte && (
+                      <Table.Tr>
+                        <Table.Th scope="row">Cohorte (versión y criterio)</Table.Th>
+                        <Table.Td data-testid="prediccion-cohorte">{d.cohorte}</Table.Td>
+                      </Table.Tr>
+                    )}
                     <Table.Tr>
                       <Table.Th scope="row">Estado</Table.Th>
                       <Table.Td>{textoEstado(mod.estado, mod.mensaje)}</Table.Td>
@@ -704,6 +712,7 @@ export function PanelPrediccion({ estado, niveles }: { estado: EstadoAnalitica; 
                         <Table.Td>
                           Cargue {x.corte}
                           {x.fechaCorte ? ` · ${fecha(x.fechaCorte)}` : ''}
+                          {x.versionCohorte ? ` · cohorte v${x.versionCohorte}` : ''}
                         </Table.Td>
                         <Table.Td>{x.metodoNombre ?? '—'}</Table.Td>
                         <Table.Td>{conteo(x.historiaMeses)} meses</Table.Td>

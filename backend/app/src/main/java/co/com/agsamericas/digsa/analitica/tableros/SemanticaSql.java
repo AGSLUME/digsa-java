@@ -50,15 +50,57 @@ public final class SemanticaSql {
                  LocalDate datosDesde, LocalDate datosHasta) {
     }
 
-    /** Qué se consulta: corte, alcance, filtros validados y periodo. */
-    record Ambito(Corte corte, Alcance alcance, Map<Variable, List<String>> filtros, LocalDate desde, LocalDate hasta, Granularidad granularidad) {
+    /**
+     * Cohorte resuelta para un filtro (A7.1): la versión de mayor número con resultado «evaluada» y membresía conservada en el corte (la
+     * misma regla de las tarjetas del tablero 10), su criterio en texto y si es sensible (VIH, huérfanas: supresión k de AN.24).
+     */
+    public record CohorteResuelta(String codigo, String nombre, long versionId, int version, String criterio, boolean sensible) {
+
+        /** «Alto costo (v1: ≥ p99 del gasto…)»: lo que sale en los metadatos de 14.8 y en las descargas. */
+        public String texto() {
+            return nombre + " (v" + version + ": " + criterio + ")";
+        }
+    }
+
+    /**
+     * Filtro de cohorte, GCF o GRC ya resuelto contra el corte: las versiones (O entre las cohortes de la variable) y, en las particiones,
+     * los grupos pedidos. Entre variables, Y (como los demás filtros).
+     */
+    public record FiltroCohorte(Variable variable, List<CohorteResuelta> cohortes, List<String> grupos) {
+    }
+
+    /**
+     * Qué se consulta: corte, alcance, filtros validados, periodo, los filtros de cohorte resueltos contra el corte (A7.1) y si algún filtro
+     * es sensible (cohorte, CIE-10, ATC o grupo de GCF de VIH o huérfanas: supresión reforzada, AN.31).
+     */
+    record Ambito(Corte corte, Alcance alcance, Map<Variable, List<String>> filtros, LocalDate desde, LocalDate hasta, Granularidad granularidad,
+                  Map<Variable, FiltroCohorte> cohortes, boolean sensible) {
+
+        Ambito {
+            cohortes = cohortes == null ? Map.of() : Map.copyOf(cohortes);
+        }
+
+        /** Ámbito sin filtros de cohorte (opciones de los filtros, umbral y miembros de alto costo). */
+        Ambito(Corte corte, Alcance alcance, Map<Variable, List<String>> filtros, LocalDate desde, LocalDate hasta, Granularidad granularidad) {
+            this(corte, alcance, filtros, desde, hasta, granularidad, Map.of(), false);
+        }
 
         Ambito conPeriodo(LocalDate d, LocalDate h) {
-            return new Ambito(corte, alcance, filtros, d, h, granularidad);
+            return new Ambito(corte, alcance, filtros, d, h, granularidad, cohortes, sensible);
+        }
+
+        Ambito conGranularidad(Granularidad g) {
+            return new Ambito(corte, alcance, filtros, desde, hasta, g, cohortes, sensible);
         }
 
         Ambito conFiltros(Map<Variable, List<String>> f) {
-            return new Ambito(corte, alcance, f, desde, hasta, granularidad);
+            Map<Variable, FiltroCohorte> c = new EnumMap<>(Variable.class);
+            cohortes.forEach((k, v) -> {
+                if (f.containsKey(k)) {
+                    c.put(k, v);
+                }
+            });
+            return new Ambito(corte, alcance, f, desde, hasta, granularidad, c, sensible);
         }
     }
 
@@ -220,6 +262,10 @@ public final class SemanticaSql {
     static List<String> filtros(Map<Variable, List<String>> f, Map<String, Object> p) {
         List<String> w = new ArrayList<>();
         for (Map.Entry<Variable, List<String>> e : f.entrySet()) {
+            if (e.getKey().deCohorte()) {
+                // Cohorte, GCF y GRC: semijoin con la membresía del corte (ver cohortes()), que depende de la tabla de hechos
+                continue;
+            }
             List<String> normales = e.getValue().stream().filter(v -> !AnaliticaConsulta.SIN_HOMOLOGAR.equals(v) && !AnaliticaConsulta.SIN_DATO.equals(v))
                     .toList();
             boolean sinHom = e.getValue().contains(AnaliticaConsulta.SIN_HOMOLOGAR);
@@ -492,7 +538,43 @@ public final class SemanticaSql {
         w.add("x.fecha BETWEEN :desde AND :hasta");
         w.add(alcance(a.alcance(), p));
         w.addAll(filtros(a.filtros(), p));
+        w.addAll(cohortes(a, tabla, p));
         s.append(" WHERE ").append(String.join(" AND ", w));
         return s.toString();
+    }
+
+    /**
+     * Predicados de cohorte, GCF y GRC (A7.1, AN.22): el hecho entra si su paciente es miembro de la cohorte (o está en el grupo pedido de
+     * la partición) EN EL MES del hecho, con la membresía del MISMO corte (reproducible por corte). Semijoin por (mes, paciente) que el
+     * planificador resuelve por hash sobre los miembros de la versión y el corte (rango de la llave primaria de ana_cohortes_miembros); en
+     * los hechos completos de la trazabilidad, por el seudónimo a través de ana_pacientes. Solo restringe filas: nunca devuelve pacientes.
+     */
+    static List<String> cohortes(Ambito a, String tabla, Map<String, Object> p) {
+        List<String> w = new ArrayList<>();
+        for (Variable v : a.filtros().keySet()) {
+            if (!v.deCohorte()) {
+                continue;
+            }
+            FiltroCohorte f = a.cohortes().get(v);
+            if (f == null || f.cohortes().isEmpty()) {
+                throw new IllegalStateException("El filtro " + v.parametro() + " no se resolvió contra el corte");
+            }
+            String n = "fc_" + v.parametro();
+            p.put(n + "_v", f.cohortes().stream().map(CohorteResuelta::versionId).toArray(Long[]::new));
+            p.put("fc_corte", a.corte().cargueId());
+            StringBuilder s = new StringBuilder("EXISTS (SELECT 1 FROM ana_cohortes_miembros m");
+            if (HECHOS.equals(tabla)) {
+                s.append(" JOIN ana_pacientes pa ON pa.id = m.paciente_id");
+            }
+            s.append(" WHERE m.version_id = ANY(CAST(:").append(n).append("_v AS bigint[])) AND m.corte_cargue_id = :fc_corte");
+            if (v.particion() != null) {
+                p.put(n + "_g", f.grupos().toArray(String[]::new));
+                s.append(" AND m.grupo = ANY(CAST(:").append(n).append("_g AS text[]))");
+            }
+            s.append(" AND m.mes = CAST(date_trunc('month', x.fecha) AS date)");
+            s.append(HECHOS.equals(tabla) ? " AND pa.seudo = x.paciente_seudo COLLATE \"C\")" : " AND m.paciente_id = x.paciente_id)");
+            w.add(s.toString());
+        }
+        return w;
     }
 }

@@ -422,7 +422,8 @@ class PrediccionApiTest extends PruebaIntegracion {
         Navegador.Respuesta atc = n.get(q("metrica=gasto&dimension=atc&valorDimension=C09&corte=" + b.c2()));
         assertThat(atc.estado()).isEqualTo(422);
         assertThat(atc.mensaje()).isEqualTo("ATC «C09» no existe o está fuera de su alcance.");
-        assertThat(n.get(q("metrica=gasto&dimension=gcf&valorDimension=X&corte=" + b.c2())).json().path("campo").asText()).isEqualTo("dimension");
+        // A7.1: gcf, grc y cohorte ya son dimensiones; una desconocida sigue respondiendo 422 en «dimension»
+        assertThat(n.get(q("metrica=gasto&dimension=cups&valorDimension=X&corte=" + b.c2())).json().path("campo").asText()).isEqualTo("dimension");
         salidas.add(ok(n.get("/api/analitica/prediccion/entrenamientos?metrica=pacientes&nivel=nacional")).toString());
         JsonNode top = ok(n.get("/api/analitica/prediccion/top?dimension=principio&nivel=nacional&corte=" + b.c2()));
         salidas.add(top.toString());

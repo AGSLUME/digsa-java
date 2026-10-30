@@ -26,7 +26,9 @@ import {
   rutaTrazaCsv,
   seudonimoCorto,
   SIN_HOMOLOGAR,
+  textoPastilla,
   textoValor,
+  verCohorteEnTableros,
   type Tabla,
 } from './tableros';
 
@@ -192,5 +194,33 @@ describe('rastreo que suma la cifra (14.9)', () => {
     expect(r.generales).toEqual({ desde: '2025-01-01' });
     expect(r.filtros).toEqual({ fuerza: ['EJC'] });
     expect(abrirReporte(e, 'atc', { nivelAtc: '2' }).generales.nivelAtc).toBe('2');
+  });
+});
+
+describe('cohorte, GCF y GRC como filtro (A7.1)', () => {
+  it('viajan en la URL como los demás filtros y llegan a la consulta, la descarga y el rastreo', () => {
+    const e = leerEstado('t=gasto&cohorte=vih&cohorte=renal&grc=GRC2&desde=2025-01-01');
+    expect(e.filtros.cohorte).toEqual(['renal', 'vih']);
+    expect(e.filtros.grc).toEqual(['GRC2']);
+    expect(rutaTablero(e)).toBe('/api/analitica/tableros/gasto?desde=2025-01-01&cohorte=renal&cohorte=vih&grc=GRC2');
+    expect(rutaTraza(e, { atc: 'C09' })).toContain('&cohorte=renal&cohorte=vih&grc=GRC2');
+  });
+
+  it('«Ver en los tableros» abre el tablero de gasto con UNA cohorte, conservando periodo, corte y los demás filtros', () => {
+    const e = leerEstado('t=cohortes&corte=7&desde=2025-01-01&fuerza=EJC&cohorte=vih&gcf=A10');
+    const v = verCohorteEnTableros(e, 'renal');
+    expect(v.tablero).toBe('gasto');
+    expect(v.generales).toEqual({ corte: '7', desde: '2025-01-01' });
+    expect(v.filtros).toEqual({ fuerza: ['EJC'], cohorte: ['renal'] });
+    expect(busquedaDe(v)).toBe('t=gasto&desde=2025-01-01&corte=7&fuerza=EJC&cohorte=renal');
+  });
+
+  it('la pastilla muestra «Renal · v1» (el criterio completo va en el título) y el grupo sin la partición', () => {
+    expect(textoPastilla('cohorte', 'Renal (v1: CIE-10 N18, N19, Z49 o Z992 en 12 meses)')).toBe('Renal · v1');
+    expect(textoPastilla('grc', 'GRC2 · un diagnóstico crónico — Grupos de riesgo clínico (GRC) (v1: Partición…)')).toBe(
+      'GRC2 · un diagnóstico crónico',
+    );
+    expect(textoPastilla('fuerza', 'EJC · Ejército (v1: x)')).toBe('EJC · Ejército (v1: x)');
+    expect(textoPastilla('cohorte', 'renal')).toBe('renal');
   });
 });

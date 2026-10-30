@@ -361,11 +361,11 @@ final class ConstructorTableros {
         Ambito ac = ambito;
         if (AnaliticaConsulta.periodos(ambito.desde(), ambito.hasta(), ambito.granularidad()).size() > MAX_PERIODOS_CALOR
                 && !ambito.granularidad().mensualOMayor()) {
-            ac = new Ambito(ambito.corte(), ambito.alcance(), ambito.filtros(), ambito.desde(), ambito.hasta(), AnaliticaConsulta.Granularidad.MES);
+            ac = ambito.conGranularidad(AnaliticaConsulta.Granularidad.MES);
             observaciones.add("El mapa de calor se muestra por mes: con la granularidad elegida tendría más de " + MAX_PERIODOS_CALOR + " columnas.");
         }
         if (AnaliticaConsulta.periodos(ac.desde(), ac.hasta(), ac.granularidad()).size() > MAX_PERIODOS_CALOR) {
-            ac = new Ambito(ambito.corte(), ambito.alcance(), ambito.filtros(), ambito.desde(), ambito.hasta(), AnaliticaConsulta.Granularidad.ANIO);
+            ac = ambito.conGranularidad(AnaliticaConsulta.Granularidad.ANIO);
             observaciones.add("El mapa de calor se muestra por año: por mes tendría más de " + MAX_PERIODOS_CALOR + " columnas.");
         }
         List<Grupo> calor = correr(ac, List.of(Conjunto.de(Dimension.ESM, Dimension.PERIODO)), false, false);
@@ -890,7 +890,7 @@ final class ConstructorTableros {
                 + " GROUP BY x.paciente_id) s").params(p2)
                 .query((rs, n) -> new BigDecimal[] {rs.getBigDecimal(1), rs.getBigDecimal(2), rs.getBigDecimal(3), rs.getBigDecimal(4),
                     rs.getBigDecimal(5)}).single();
-        if (propiedades.supresion() > 0) {
+        if (propiedades.supresion() > 0 || ambito.sensible()) {
             // Mínimo y máximo del gasto por paciente son el gasto de una persona concreta: con la supresión activa no se publican
             pa[0] = null;
             pa[4] = null;

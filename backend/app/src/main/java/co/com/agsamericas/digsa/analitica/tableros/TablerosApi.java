@@ -22,6 +22,7 @@ import java.util.Set;
 import java.util.function.Function;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.MultiValueMap;
@@ -54,9 +55,10 @@ public class TablerosApi {
     private final PerfilesOperacion perfiles;
     private final PermisosTableros permisos;
     private final Clock reloj;
+    private final ServicioDescargaAnalitica diferidas;
 
     TablerosApi(ServicioConsultaAnalitica servicio, ServicioTrazaAnalitica traza, ExportadorAnalitica exportador, BitacoraAnalitica bitacora,
-                PerfilesOperacion perfiles, PermisosTableros permisos, Clock reloj) {
+                PerfilesOperacion perfiles, PermisosTableros permisos, Clock reloj, ServicioDescargaAnalitica diferidas) {
         this.servicio = servicio;
         this.traza = traza;
         this.exportador = exportador;
@@ -64,6 +66,7 @@ public class TablerosApi {
         this.perfiles = perfiles;
         this.permisos = permisos;
         this.reloj = reloj;
+        this.diferidas = diferidas;
     }
 
     private static Alcance alcance() {
@@ -115,7 +118,10 @@ public class TablerosApi {
         return medir("consulta", "consulta estructurada", () -> q, x -> servicio.consultar(x, alcance()));
     }
 
-    /** Descarga de lo visualizado (xlsx, csv o pdf) con todos los metadatos; mismo perfil, filtros y corte ⇒ misma huella de datos. */
+    /**
+     * Descarga de lo visualizado (xlsx, csv o pdf) con todos los metadatos; mismo perfil, filtros y corte ⇒ misma huella de datos. Siempre
+     * en la petición (revisión A7.3): las salidas de los tableros son agregadas y miden pocos KB; solo la traza va a diferido.
+     */
     @GetMapping("/api/analitica/tableros/{tablero}/descarga")
     @Accion(modulo = "analitica", accion = "tablero_descarga", operacion = Declarada.CONSULTA)
     public ResponseEntity<byte[]> descarga(@PathVariable String tablero, @RequestParam MultiValueMap<String, String> parametros) {
@@ -172,14 +178,17 @@ public class TablerosApi {
     }
 
     /**
-     * CSV de los registros de origen de la cifra, en flujo (fetchSize) dentro de la transacción de lectura. Más del máximo responde 422
-     * antes del primer byte. La descarga se registra en la bitácora antes del primer byte (falla cerrado); si algo falla a mitad, el
-     * archivo termina con la línea «ARCHIVO INCOMPLETO» (sin la línea final «FIN») y la bitácora queda con resultado «error».
+     * CSV de los registros de origen de la cifra, en flujo (fetchSize) dentro de la transacción de lectura. Más registros que el límite de
+     * la petición (A7.3, AN.16: el menor entre el umbral de la descarga diferida y max-registros-traza) responde 202 antes del primer byte
+     * con la descarga encolada en «Mis descargas del día» (antes: 422); más que el tope del diferido, 422. La descarga se registra en la
+     * bitácora antes del primer byte (falla cerrado); si algo falla a mitad, el archivo termina con la línea «ARCHIVO INCOMPLETO» (sin la
+     * línea final «FIN») y la bitácora queda con resultado «error».
      */
     @GetMapping("/api/analitica/traza/{tablero}/registros.csv")
     @PreAuthorize(TRAZA)
     @Accion(modulo = "analitica", accion = "traza_csv", operacion = Declarada.CONSULTA)
-    public void rastrearCsv(@PathVariable String tablero, @RequestParam MultiValueMap<String, String> parametros, HttpServletResponse respuesta)
+    public ResponseEntity<Map<String, Object>> rastrearCsv(@PathVariable String tablero, @RequestParam MultiValueMap<String, String> parametros,
+                                                           HttpServletResponse respuesta)
             throws IOException {
         long t0 = System.nanoTime();
         ConsultaAnalitica q = null;
@@ -211,9 +220,15 @@ public class TablerosApi {
                 registrado[0] = d;
                 Object corte = d.get("corteCargueId");
                 bitacora.registrarAntes(new BitacoraAnalitica.Entrada("traza_descarga", consulta, ParametrosConsulta.objeto(consulta,
-                        "registros de origen csv"), corte instanceof Long l ? l : null, "csv", (Long) d.get("registros"), null, ms(t0), "ok",
-                        List.of(), (String) d.get("alcance")));
+                        "registros de origen csv"), corte instanceof Long l ? l : null, "csv", (Long) d.get("registros"), (String) d.get("huella"),
+                        ms(t0), "ok", List.of(), (String) d.get("alcance")));
             });
+        } catch (DescargaGrande g) {
+            // Antes del primer byte (nada escrito): 202 con la descarga encolada
+            if (!respuesta.isCommitted()) {
+                respuesta.reset();
+            }
+            return diferir(q, parametros, g, t0);
         } catch (RuntimeException e) {
             if (registrado[0] == null && !respuesta.isCommitted()) {
                 respuesta.reset();
@@ -221,6 +236,7 @@ public class TablerosApi {
             registrarFalla("traza_descarga", q, "csv", t0, e);
             throw e;
         }
+        return null; // ya se escribió en la respuesta
     }
 
     /** Bitácora de analítica (consultas, descargas y rastreos) para Administrador y Coordinador, sin datos personales; paginada por llave. */
@@ -238,6 +254,17 @@ public class TablerosApi {
     }
 
     // ---------- Apoyo ----------
+
+    /** Encola la descarga diferida y responde 202 con ella (id, estado y mensaje); si no se puede encolar (409, 422), la falla queda en la bitácora. */
+    private ResponseEntity<Map<String, Object>> diferir(ConsultaAnalitica q, MultiValueMap<String, String> parametros, DescargaGrande g, long t0) {
+        try {
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(diferidas.solicitar(q.tablero().codigo(), parametros, g, alcance(),
+                    UsuarioSesion.actual().orElseThrow()));
+        } catch (RuntimeException e) {
+            registrarFalla("traza_descarga", q, "csv", t0, e);
+            throw e;
+        }
+    }
 
     private ResultadoTablero medir(String accion, String extra, java.util.function.Supplier<ConsultaAnalitica> leer,
                                    Function<ConsultaAnalitica, ResultadoTablero> f) {
@@ -262,21 +289,7 @@ public class TablerosApi {
      * que escribió el usuario) ni el texto técnico: solo la causa genérica y, si la hay, la variable.
      */
     private void registrarFalla(String accion, ConsultaAnalitica q, String formato, long t0, RuntimeException e) {
-        String resultado;
-        String advertencia;
-        if (e instanceof ErrorNegocio n && Boolean.TRUE.equals(n.datos().get("tiempoAgotado"))) {
-            resultado = "tiempo_agotado";
-            advertencia = "Tiempo agotado";
-        } else if (e instanceof ErrorNegocio n && n.estado().is4xxClientError()) {
-            resultado = "rechazada";
-            Object v = n.datos().get("variable");
-            advertencia = v == null ? "Consulta rechazada por validación" : "Filtro rechazado: " + v + " (valor inexistente o fuera del alcance)";
-        } else {
-            resultado = "error";
-            advertencia = "Error técnico (" + e.getClass().getSimpleName() + ")";
-        }
-        bitacora.registrar(new BitacoraAnalitica.Entrada(accion, q, ParametrosConsulta.objeto(q, null), null, formato, null, null, ms(t0), resultado,
-                List.of(advertencia), null));
+        bitacora.registrar(BitacoraAnalitica.falla(accion, q, formato, ms(t0), e));
     }
 
     private static long ms(long t0) {

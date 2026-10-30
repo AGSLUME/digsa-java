@@ -60,6 +60,29 @@ public class PerfilesOperacion {
         return r;
     }
 
+    /**
+     * Alcance vigente de un usuario SIN sesión (ejecutores en segundo plano, A7.3), con las mismas reglas que la sesión
+     * ({@link Usuario#alcance()}); vacío si no existe o no está activo.
+     */
+    public Optional<co.com.agsamericas.digsa.reglas.Alcance> alcanceVigente(long usuarioId) {
+        return usuarios.porId(usuarioId).filter(Usuario::activo).map(Usuario::alcance);
+    }
+
+    /**
+     * Lo mismo que {@link #opera} para un usuario SIN sesión (A7.3): activo, con la pantalla y operando con alguno de los perfiles, directo
+     * o como base de sus roles adicionales (un perfil directo más roles anula los roles, como en identidad).
+     */
+    public boolean operaUsuario(long usuarioId, Pantallas pantalla, Set<Perfil> perfiles) {
+        Optional<Usuario> u = usuarios.porId(usuarioId);
+        if (u.isEmpty() || !u.get().activo() || !u.get().pantallas().contains(pantalla)) {
+            return false;
+        }
+        if (u.get().perfiles().stream().anyMatch(perfiles::contains)) {
+            return true;
+        }
+        return u.get().perfiles().isEmpty() && u.get().perfilesDeAlcance().stream().anyMatch(perfiles::contains);
+    }
+
     /** Nombres de los perfiles y roles asignados (metadatos de las descargas y bitácora: «mismo perfil»). */
     public String nombres() {
         List<Integer> ids = UsuarioSesion.asignadosActuales().stream().sorted().toList();

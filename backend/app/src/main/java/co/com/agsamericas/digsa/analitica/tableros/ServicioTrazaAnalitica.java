@@ -10,6 +10,7 @@ import co.com.agsamericas.digsa.reglas.AnaliticaConsulta;
 import co.com.agsamericas.digsa.reglas.AnaliticaConsulta.ConsultaAnalitica;
 import co.com.agsamericas.digsa.reglas.AnaliticaConsulta.Dimension;
 import co.com.agsamericas.digsa.reglas.AnaliticaConsulta.Intencion;
+import co.com.agsamericas.digsa.reglas.AnaliticaDescargaDiferida;
 import co.com.agsamericas.digsa.reglas.Exportacion;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -55,11 +56,13 @@ public class ServicioTrazaAnalitica {
 
     private final ServicioConsultaAnalitica consultas;
     private final PropiedadesTableros propiedades;
+    private final PropiedadesDescargasDiferidas diferidas;
     private final NamedParameterJdbcTemplate cursor;
 
-    ServicioTrazaAnalitica(ServicioConsultaAnalitica consultas, PropiedadesTableros propiedades, DataSource datos) {
+    ServicioTrazaAnalitica(ServicioConsultaAnalitica consultas, PropiedadesTableros propiedades, PropiedadesDescargasDiferidas diferidas, DataSource datos) {
         this.consultas = consultas;
         this.propiedades = propiedades;
+        this.diferidas = diferidas;
         JdbcTemplate t = new JdbcTemplate(datos);
         t.setFetchSize(FETCH);
         this.cursor = new NamedParameterJdbcTemplate(t);
@@ -122,11 +125,16 @@ public class ServicioTrazaAnalitica {
                 siguiente = regs.getLast().id();
             }
             Map<String, Object> d = desglose(p, t, alcance, j);
-            String huella = AnaliticaConsulta.huella(List.of("traza", String.valueOf(d.get("consulta")), String.valueOf(p.corte().cargueId()),
-                    AnaliticaConsulta.canonico(t.gasto()), AnaliticaConsulta.canonico(t.unidades()), String.valueOf(t.dispensaciones()),
-                    String.valueOf(t.pacientes())));
+            String huella = huella(d, p, t);
             return new Traza(d, regs, Math.min(Math.max(1, pagina), paginas), paginas, t.dispensaciones(), huella, siguiente);
         });
+    }
+
+    /** Huella de la cifra rastreada (consulta, corte y totales): la misma en el rastreo, el CSV en la petición y el CSV diferido. */
+    private static String huella(Map<String, Object> d, ServicioConsultaAnalitica.Preparada p, Grupo t) {
+        return AnaliticaConsulta.huella(List.of("traza", String.valueOf(d.get("consulta")), String.valueOf(p.corte().cargueId()),
+                AnaliticaConsulta.canonico(t.gasto()), AnaliticaConsulta.canonico(t.unidades()), String.valueOf(t.dispensaciones()),
+                String.valueOf(t.pacientes())));
     }
 
     /** Total de la cifra (gasto, unidades, registros y pacientes distintos), con el mismo SQL de los tableros. */
@@ -202,23 +210,50 @@ public class ServicioTrazaAnalitica {
 
     /**
      * CSV de los registros de origen de la cifra (UTF-8 con BOM, «;», coma decimal, sin fórmulas) con los metadatos al inicio, escrito en
-     * flujo con un cursor dentro de la transacción de lectura (presupuesto de descarga). Más de {@code maxRegistrosTraza} registros responde
-     * 422 antes de escribir (nunca un archivo truncado). {@code antes} recibe el desglose ANTES del primer byte (la bitácora: si falla, no
+     * flujo con un cursor dentro de la transacción de lectura (presupuesto de descarga). Más registros que el menor entre el umbral de la
+     * descarga diferida y {@code maxRegistrosTraza} lanza {@link DescargaGrande} antes de escribir (A7.3: va a diferido; antes, 422; nunca
+     * un archivo truncado). {@code antes} recibe el desglose ANTES del primer byte (la bitácora: si falla, no
      * sale nada). El archivo termina con «FIN;n registros»; si algo falla a mitad, la última línea es {@value #INCOMPLETO} y la excepción
      * sigue (sin la línea FIN). Devuelve el desglose.
      */
     public Map<String, Object> csv(ConsultaAnalitica consulta, String periodo, Alcance alcance, List<String[]> encabezado, Supplier<OutputStream> salida,
                                    Consumer<Map<String, Object>> antes) {
+        int limite = AnaliticaDescargaDiferida.limiteTrazaSincrona(diferidas.umbral(), propiedades.maxTraza());
+        return csv(consulta, periodo, alcance, encabezado, salida, antes, propiedades.tiempoMaximoDescarga(), (t, corte) -> {
+            // A7.3 (AN.16): por encima del límite de la petición no es un 422: la descarga va a diferido (antes del primer byte)
+            if (t > limite) {
+                throw new DescargaGrande(t, corte);
+            }
+        });
+    }
+
+    /**
+     * El mismo CSV generado en diferido (A7.3): con el presupuesto de la generación diferida y el tope de la traza en diferido (más: 422,
+     * nunca un archivo truncado).
+     */
+    Map<String, Object> csvDiferido(ConsultaAnalitica consulta, String periodo, Alcance alcance, List<String[]> encabezado, Supplier<OutputStream> salida,
+                                    Consumer<Map<String, Object>> antes, int segundos) {
+        return csv(consulta, periodo, alcance, encabezado, salida, antes, segundos, (t, corte) ->
+                AnaliticaDescargaDiferida.excedeTraza(t, diferidas.maxTraza()).ifPresent(m -> {
+                    throw ErrorNegocio.validacion(m);
+                }));
+    }
+
+    /** Qué hacer con el total de registros antes de escribir (diferir, rechazar o seguir). */
+    private interface Tope {
+        void revisar(long registros, long corteCargueId);
+    }
+
+    private Map<String, Object> csv(ConsultaAnalitica consulta, String periodo, Alcance alcance, List<String[]> encabezado, Supplier<OutputStream> salida,
+                                    Consumer<Map<String, Object>> antes, int segundos, Tope tope) {
         ConsultaAnalitica q = acotar(consulta, periodo);
-        return consultas.leer(propiedades.tiempoMaximoDescarga(), false, j -> {
+        return consultas.leer(segundos, false, j -> {
             ServicioConsultaAnalitica.Preparada p = consultas.preparar(j, q, alcance)
                     .orElseThrow(() -> ErrorNegocio.validacion(ServicioConsultaAnalitica.SIN_CARGUES));
             Grupo t = total(j, p.ambito());
-            if (t.dispensaciones() > propiedades.maxTraza()) {
-                throw ErrorNegocio.validacion("La cifra tiene " + t.dispensaciones() + " registros de origen (máximo " + propiedades.maxTraza()
-                        + " por descarga); acote los filtros o el periodo.");
-            }
+            tope.revisar(t.dispensaciones(), p.corte().cargueId());
             Map<String, Object> d = desglose(p, t, alcance, j);
+            d.put("huella", huella(d, p, t));
             Map<String, Object> pr = new LinkedHashMap<>();
             String sql = registrosSql(p.ambito(), pr) + " ORDER BY x.id";
             Integer numero = p.corte().homNumero();

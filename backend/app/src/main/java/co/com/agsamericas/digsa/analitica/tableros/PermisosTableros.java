@@ -30,4 +30,10 @@ public class PermisosTableros {
     public boolean traza() {
         return perfiles.opera(Pantallas.ANALITICA_TRAZABILIDAD, RASTREAN);
     }
+
+    /** Lo mismo que la sesión exige para rastrear (pantalla de analítica y {@link #traza()}), para un usuario sin sesión (A7.3). */
+    boolean trazaUsuario(long usuarioId) {
+        return perfiles.operaUsuario(usuarioId, Pantallas.ANALITICA, java.util.EnumSet.allOf(Perfil.class))
+                && perfiles.operaUsuario(usuarioId, Pantallas.ANALITICA_TRAZABILIDAD, RASTREAN);
+    }
 }

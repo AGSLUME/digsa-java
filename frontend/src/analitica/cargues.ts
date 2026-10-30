@@ -62,6 +62,8 @@ export interface Bitacora {
   tamanoPagina: number;
   puedeCargar: boolean;
   esAdministrador: boolean;
+  /** A7.2: puede pedir la exportación de hechos (misma regla que el servidor, también con un rol de base Administrador). */
+  exportaHechos?: boolean;
   /** Falta la clave del seudónimo: los cargues se rechazan hasta configurarla. */
   avisoConfiguracion: string | null;
   horasAbandono: number;

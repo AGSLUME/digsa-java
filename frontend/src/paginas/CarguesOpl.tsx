@@ -48,6 +48,7 @@ import {
   type Reemplazo,
   type VistaPrevia,
 } from '../analitica/cargues';
+import { PanelExportacionHechos } from '../analitica/PanelExportacionHechos';
 import { subirArchivo, type Avance } from '../analitica/subida';
 import { api, descargar, ErrorApi, marcarActividad } from '../shared/api';
 import { BotonConMotivo } from '../shared/BotonConMotivo';
@@ -223,6 +224,8 @@ export function CarguesOpl() {
       {datos && datos.total > datos.tamanoPagina && (
         <Pagination total={Math.ceil(datos.total / datos.tamanoPagina)} value={pagina} onChange={setPagina} />
       )}
+      {/* A7.2 (duda AN.14): los hechos por periodo, un archivo por mes; solo el Administrador (el servidor responde 403 a los demás) */}
+      {datos?.exportaHechos && <PanelExportacionHechos />}
       {subiendo && (
         <AsistenteCargue
           parteBytes={datos?.parteMaxBytes}

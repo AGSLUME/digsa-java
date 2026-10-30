@@ -78,7 +78,10 @@ public final class Exportacion {
             "ana_ref_versiones", "ana_ref_filas",
             // V64 · predicción (A5): bitácora de entrenamientos (serie agregada, método, errores, versión y huella) y la proyección de cada
             // uno con su IC 95 %; sin datos personales
-            "ana_pred_entrenamientos", "ana_pred_proyecciones");
+            "ana_pred_entrenamientos", "ana_pred_proyecciones",
+            // V66 · exportación de los hechos por periodo (A7.2, AN.14): quién pidió qué periodo, con qué corte, y la huella y las filas
+            // de cada mes (traza; los archivos están en el almacén y vencen)
+            "ana_exportaciones_hechos", "ana_exportaciones_hechos_meses");
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
     public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes",
@@ -87,7 +90,8 @@ public final class Exportacion {
             "ana_staging_dispensacion",
             // Fuera de la exportación completa (duda AN.14; EXCLUIDAS es por columnas, así que la tabla entera se excluye aquí): los hechos
             // de dispensación (unos 2 M de filas por mes, 24 M al año) no caben en el límite de 10 minutos de la exportación completa
-            // (digsa.exportacion.limite-minutos); se entregan por la exportación analítica por periodo (fase A7). ana_llaves es el índice
+            // (digsa.exportacion.limite-minutos); se entregan por la exportación de hechos por periodo (A7.2, AnaliticaExportacionHechos:
+            // un .csv.gz por mes, cada mes en su propia transacción, desde «Cargues del OPL», solo Administrador). ana_llaves es el índice
             // de llaves naturales de esos mismos hechos (se reconstruye de ellos).
             "ana_dispensaciones", "ana_llaves",
             // Tablas de apoyo de los tableros (V62): copia angosta de los hechos, numeración de pacientes y valores de filtro por cargue; se
@@ -313,7 +317,8 @@ public final class Exportacion {
         linea(sb, "No se exportan las tablas técnicas: " + TECNICAS.stream().sorted().collect(Collectors.joining(", ")) + ".");
         // --- Analítica (rama analitica) ---
         linea(sb, "Los hechos de dispensación de analítica (ana_dispensaciones, ana_llaves) NO van en este ZIP: por su volumen se entregan");
-        linea(sb, "aparte, en la exportación analítica por periodo (un archivo por mes), con su propia huella.");
+        linea(sb, "aparte, en la exportación de hechos por periodo (pantalla «Cargues del OPL», solo el Administrador): un archivo .csv.gz");
+        linea(sb, "por mes, con el mismo formato, el paciente solo como seudónimo, su SHA-256 y su propio LEEME (periodo, corte y filas).");
         linea(sb, "Las imágenes de las firmas salen como PNG en la carpeta firmas/ de cada visita.");
         linea(sb, "");
         linea(sb, "SOPORTES");

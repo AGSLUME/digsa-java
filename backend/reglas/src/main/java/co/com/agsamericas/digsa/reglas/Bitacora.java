@@ -122,7 +122,13 @@ public final class Bitacora {
             Map.entry("analitica_alerta_parametro", Operacion.ACTUALIZACION), Map.entry("analitica_alerta_consulta", Operacion.CONSULTA),
             Map.entry("analitica_alerta_descarga", Operacion.CONSULTA), Map.entry("analitica_alerta_referencia", Operacion.INSERCION),
             // Predicción (A5 4.7.4 «ejecuciones y actualizaciones de modelos predictivos»): serie, corte, método y estado; sin datos personales
-            Map.entry("analitica_prediccion_entrenamiento", Operacion.INSERCION));
+            Map.entry("analitica_prediccion_entrenamiento", Operacion.INSERCION),
+            // Exportación de los hechos por periodo (A7.2, duda AN.14): id, periodo, meses y filas; sin datos personales
+            Map.entry("analitica_hechos_exportacion_solicitada", Operacion.INSERCION),
+            Map.entry("analitica_hechos_exportacion_generada", Operacion.INSERCION),
+            Map.entry("analitica_hechos_exportacion_fallida", Operacion.INSERCION),
+            Map.entry("analitica_hechos_exportacion_descarga", Operacion.CONSULTA),
+            Map.entry("analitica_hechos_exportacion_vencida", Operacion.ELIMINACION));
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

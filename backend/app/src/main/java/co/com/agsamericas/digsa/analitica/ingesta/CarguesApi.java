@@ -1,5 +1,6 @@
 package co.com.agsamericas.digsa.analitica.ingesta;
 
+import co.com.agsamericas.digsa.analitica.exportacion.PermisosExportacionHechos;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
 import co.com.agsamericas.digsa.plataforma.Accion;
 import co.com.agsamericas.digsa.reglas.Bitacora.Declarada;
@@ -35,9 +36,11 @@ public class CarguesApi {
 
     private static final String CSV = "text/csv;charset=UTF-8";
     private final ServicioCargues servicio;
+    private final PermisosExportacionHechos permisosHechos;
 
-    CarguesApi(ServicioCargues servicio) {
+    CarguesApi(ServicioCargues servicio, PermisosExportacionHechos permisosHechos) {
         this.servicio = servicio;
+        this.permisosHechos = permisosHechos;
     }
 
     private static UsuarioSesion quien() {
@@ -120,7 +123,10 @@ public class CarguesApi {
                                       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
                                       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
                                       @RequestParam(required = false) Integer pagina) {
-        return servicio.listar(new ServicioCargues.Filtros(fuente, estado, desde, hasta, pagina));
+        Map<String, Object> m = servicio.listar(new ServicioCargues.Filtros(fuente, estado, desde, hasta, pagina));
+        // A7.2: la sección de la exportación de hechos se muestra con la misma regla que la autoriza (@permisosHechos.exportar())
+        m.put("exportaHechos", permisosHechos.exportar());
+        return m;
     }
 
     /** Estado y progreso de un cargue. La pantalla lo consulta cada 2 s: como el latido, no deja fila en la bitácora. */

@@ -75,7 +75,10 @@ public final class Exportacion {
             // referencias cargables (interacciones, indicaciones, huérfanas). La membresía (paciente por mes) va en TECNICAS
             "ana_cohortes", "ana_cohortes_versiones", "ana_cohortes_resultados", "ana_cohortes_serie", "ana_cohortes_conteos", "ana_cohortes_ejecuciones",
             "ana_alertas_parametros", "ana_alertas_parametros_historial", "ana_alertas", "ana_alertas_historial", "ana_alertas_ejecuciones",
-            "ana_ref_versiones", "ana_ref_filas");
+            "ana_ref_versiones", "ana_ref_filas",
+            // V64 · predicción (A5): bitácora de entrenamientos (serie agregada, método, errores, versión y huella) y la proyección de cada
+            // uno con su IC 95 %; sin datos personales
+            "ana_pred_entrenamientos", "ana_pred_proyecciones");
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
     public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes",

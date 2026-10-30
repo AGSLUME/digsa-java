@@ -2,6 +2,8 @@ package co.com.agsamericas.digsa.identidad;
 
 import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
+import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Bitacora;
@@ -46,7 +48,7 @@ public class ServicioClaves {
     private static final Logger LOG = LoggerFactory.getLogger(ServicioClaves.class);
 
     private final RepositorioUsuarios usuarios;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final PasswordEncoder codificador;
     private final RegistroBitacora bitacora;
     private final ConfiguracionDigsa cfg;
@@ -57,7 +59,7 @@ public class ServicioClaves {
     private final ThreadPoolExecutor hilosOlvido = new ThreadPoolExecutor(1, 1, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(100),
             Thread.ofPlatform().name("digsa-olvido").daemon(true).factory());
 
-    public ServicioClaves(RepositorioUsuarios usuarios, Correo correo, PasswordEncoder codificador, RegistroBitacora bitacora,
+    public ServicioClaves(RepositorioUsuarios usuarios, EnvioRegistrado correo, PasswordEncoder codificador, RegistroBitacora bitacora,
                           ConfiguracionDigsa cfg, Clock reloj, ApplicationEventPublisher eventos, CsrfTokenRepository csrf) {
         this.eventos = eventos;
         this.csrf = csrf;
@@ -88,8 +90,10 @@ public class ServicioClaves {
         String token = Huellas.secreto(32);
         usuarios.guardarToken(u.id(), Huellas.sha256(token), ahora.plus(Duration.ofMinutes(Claves.MINUTOS_ENLACE)), exigirCambio, ahora);
         String enlace = cfg.enlace("definir-clave?tkn=" + token);
-        Correo.Resultado r = correo.enviar(Correo.Mensaje.simple(u.correo(), asunto,
-                PlantillasCorreo.enlaceClave(u.nombre(), motivo, enlace, Claves.MINUTOS_ENLACE)));
+        // En la bitácora de envíos el enlace queda oculto (módulo Correos)
+        Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("clave_enlace", "usuario:" + u.id())
+                .secreto(PlantillasCorreo.enlaceClave(u.nombre(), motivo, PlantillaCorreo.ENLACE_OCULTO, Claves.MINUTOS_ENLACE)),
+                Correo.Mensaje.simple(u.correo(), asunto, PlantillasCorreo.enlaceClave(u.nombre(), motivo, enlace, Claves.MINUTOS_ENLACE)));
         return new EnvioEnlace(r.ok(), r.error(), !correo.real() && cfg.esLocal() ? enlace : null);
     }
 

@@ -208,7 +208,7 @@ class OplApiTest extends EscenariosVisita {
         try {
             Escenario e = escenario();
             String token = cerrarConHallazgos(e, 1);
-            reloj.adelantar(Duration.ofDays(9)); // más de 5 días hábiles
+            reloj.adelantar(Duration.ofDays(14)); // más de 5 días hábiles aunque haya festivos (con 9, el 30-oct cae en 4 por el 2-nov)
             Navegador admin = entrar(crearUsuario("admin", Perfil.ADMINISTRADOR));
             // Sin correo de la DIGSA no queda «reportado» aunque el líder sí tenga correo: sigue vencido y se reintenta
             Respuesta sinDigsa = admin.post("/api/opl/tarea-diaria", null);

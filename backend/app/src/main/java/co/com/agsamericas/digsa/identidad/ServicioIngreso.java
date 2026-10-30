@@ -2,6 +2,8 @@ package co.com.agsamericas.digsa.identidad;
 
 import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
+import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Bitacora;
@@ -49,7 +51,7 @@ public class ServicioIngreso {
     private final RepositorioUsuarios usuarios;
     private final ServicioClaves claves;
     private final Captcha captcha;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final PasswordEncoder codificador;
     private final RegistroBitacora bitacora;
     private final SecurityContextRepository contextos;
@@ -65,7 +67,7 @@ public class ServicioIngreso {
     private final ParametrosSeguridad parametros;
     private final CsrfTokenRepository csrf;
 
-    public ServicioIngreso(RepositorioUsuarios usuarios, ServicioClaves claves, Captcha captcha, Correo correo, PasswordEncoder codificador,
+    public ServicioIngreso(RepositorioUsuarios usuarios, ServicioClaves claves, Captcha captcha, EnvioRegistrado correo, PasswordEncoder codificador,
                            RegistroBitacora bitacora, SecurityContextRepository contextos, ConfiguracionDigsa cfg, JdbcClient jdbc, Clock reloj,
                            @org.springframework.beans.factory.annotation.Value("${digsa.mfa.codigos-por-hora:5}") int codigosPorHora,
                            org.springframework.context.ApplicationEventPublisher eventos, ParametrosSeguridad parametros, CsrfTokenRepository csrf) {
@@ -314,8 +316,10 @@ public class ServicioIngreso {
                 INSERT INTO mfa_codigos (usuario_id, codigo_hash, creado, vence, ip) VALUES (:u, :h, :creado, :vence, :ip) RETURNING id""")
                 .param("u", u.id()).param("h", Huellas.sha256(codigo)).param("creado", ahora.atOffset(ZoneOffset.UTC))
                 .param("vence", Mfa.vence(ahora).atOffset(ZoneOffset.UTC)).param("ip", req.getRemoteAddr()).query(Long.class).single();
-        Correo.Resultado r = correo.enviar(Correo.Mensaje.simple(u.correo(), "Código de verificación · Suite DIGSA",
-                PlantillasCorreo.codigoMfa(u.nombre(), codigo, Mfa.MINUTOS_VIGENCIA)));
+        // En la bitácora de envíos el código queda oculto (módulo Correos)
+        Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("mfa_codigo", "usuario:" + u.id())
+                .secreto(PlantillasCorreo.codigoMfa(u.nombre(), PlantillaCorreo.OCULTO, Mfa.MINUTOS_VIGENCIA)),
+                Correo.Mensaje.simple(u.correo(), "Código de verificación · Suite DIGSA", PlantillasCorreo.codigoMfa(u.nombre(), codigo, Mfa.MINUTOS_VIGENCIA)));
         if (!r.ok()) {
             jdbc.sql("UPDATE mfa_codigos SET usado = :ahora WHERE id = :id").param("ahora", ahora.atOffset(ZoneOffset.UTC)).param("id", id).update();
             bitacora.escribir(Bitacora.Operacion.INGRESO, "mfa_enviado", "sesion", "El código de verificación NO salió: " + r.error(), u.id(),

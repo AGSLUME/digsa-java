@@ -14,6 +14,8 @@ import org.springframework.boot.SpringApplication;
  * Solo para desarrollo y para las pruebas de Playwright; no va en el paquete de producción (está en las fuentes de prueba).
  *
  * <pre>cd backend && ./mvnw -pl app spring-boot:test-run -Dspring-boot.run.main-class=co.com.agsamericas.digsa.DigsaLocal</pre>
+ *
+ * <p>Con Mailpit (guía en docs/guia_mailpit.md): {@code -Dspring-boot.run.jvmArguments=-Ddigsa.local.correo=mailpit}.
  */
 public final class DigsaLocal {
 
@@ -45,8 +47,6 @@ public final class DigsaLocal {
                 "--spring.datasource.username=postgres",
                 "--spring.datasource.password=",
                 "--digsa.entorno=local",
-                "--digsa.correo.modo=archivo",
-                "--digsa.correo.carpeta=" + raiz.resolve(".local/correos"),
                 "--digsa.archivos.carpeta=" + raiz.resolve(".local/archivos"),
                 "--server.port=" + puertoHttp,
                 "--digsa.url=http://localhost:" + puertoHttp + "/",
@@ -54,6 +54,14 @@ public final class DigsaLocal {
                 // La SPA compilada se sirve desde el mismo origen (CSP y cookies reales en las pruebas de Playwright)
                 // frontend/dist primero: es la compilación más reciente (target/classes/static puede tener una vieja del último package)
                 "--spring.web.resources.static-locations=file:" + raiz.resolve("frontend/dist").toString().replace('\\', '/') + "/,classpath:/static/"));
+        // Correo: a archivo (.local/correos) por defecto; con -Ddigsa.local.correo=mailpit sale por SMTP a Mailpit (localhost:1025, se ve
+        // en http://localhost:8025; módulo Correos, fase C4, docs/guia_mailpit.md)
+        if ("mailpit".equalsIgnoreCase(System.getProperty("digsa.local.correo", "archivo"))) {
+            a.add("--spring.profiles.active=mailpit");
+        } else {
+            a.add("--digsa.correo.modo=archivo");
+            a.add("--digsa.correo.carpeta=" + raiz.resolve(".local/correos"));
+        }
         a.addAll(List.of(args));
         var ctx = SpringApplication.run(DigsaApplication.class, a.toArray(String[]::new));
         asegurarAdministradorDePruebas(ctx);

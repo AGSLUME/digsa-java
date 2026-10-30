@@ -5,7 +5,10 @@ import co.com.agsamericas.digsa.alertas.ServicioAlertas;
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
 import co.com.agsamericas.digsa.ejecucion.EnlaceOpl;
 import co.com.agsamericas.digsa.ejecucion.ServicioArchivos;
+import co.com.agsamericas.digsa.plataforma.CatalogoPlantillas;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Alertas;
@@ -57,18 +60,20 @@ public class TareaDiariaOpl {
     }
 
     private final ServicioOpl opl;
+    private final CatalogoPlantillas plantillas;
     private final JdbcClient jdbc;
     private final DataSource ds;
     private final RepositorioVisitas visitas;
     private final ServicioCatalogos catalogos;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final RegistroBitacora bitacora;
     private final TransactionTemplate tx;
     private final ObjectMapper json;
     private final ServicioAlertas alertas;
 
-    public TareaDiariaOpl(ServicioOpl opl, JdbcClient jdbc, DataSource ds, RepositorioVisitas visitas, ServicioCatalogos catalogos, Correo correo,
-                          RegistroBitacora bitacora, TransactionTemplate tx, ObjectMapper json, ServicioAlertas alertas) {
+    public TareaDiariaOpl(ServicioOpl opl, JdbcClient jdbc, DataSource ds, RepositorioVisitas visitas, ServicioCatalogos catalogos, EnvioRegistrado correo,
+                          RegistroBitacora bitacora, TransactionTemplate tx, ObjectMapper json, ServicioAlertas alertas, CatalogoPlantillas plantillas) {
+        this.plantillas = plantillas;
         this.alertas = alertas;
         this.opl = opl;
         this.jdbc = jdbc;
@@ -194,7 +199,7 @@ public class TareaDiariaOpl {
                 if (a == null) {
                     continue;
                 }
-                String r = opl.avisarOpl(a, "Plan de mejoramiento cerrado · visita " + a.numero(), "El plan de mejoramiento de la visita " + a.numero() + " quedó cerrado.");
+                String r = opl.avisarOpl(a, PlantillasOpl.CERRADO, Map.of());
                 jdbc.sql("UPDATE opl_avisos SET resultado = :r, fecha = :ahora WHERE visita_id = :v AND acta_id = :a AND tipo = 'plan_cerrado'")
                         .param("r", r == null ? "enviado" : Bitacora.cortar(r, 500)).param("ahora", opl.ahora()).param("v", f.get("visita_id"))
                         .param("a", f.get("acta_id")).update();
@@ -283,9 +288,8 @@ public class TareaDiariaOpl {
         if (automaticos == 0) {
             r = "sin pendientes";
         } else {
-            String aviso = opl.avisarLider(a, "Aceptación automática de hallazgos · visita " + a.numero(), automaticos
-                    + " hallazgo(s) de la visita " + a.numero() + " quedaron aceptados automáticamente: el operador logístico no los objetó en los "
-                    + EnlaceOpl.DIAS_OBJECIONES + " días hábiles.");
+            String aviso = opl.avisarLider(a, PlantillasOpl.ACEPTACION_AUTOMATICA, Map.of("cantidad", String.valueOf(automaticos),
+                    "dias", String.valueOf(EnlaceOpl.DIAS_OBJECIONES)));
             r = aviso == null ? "enviado" : Bitacora.cortar(aviso, 500);
             bitacora.registrar("opl_aceptacion_automatica", "Visita " + a.numero() + ": " + automaticos + " hallazgo(s) aceptados automáticamente", null, "sistema");
         }
@@ -453,22 +457,24 @@ public class TareaDiariaOpl {
                         .append(PlantillaCorreo.e(String.valueOf(h.get("texto")))).append("</td><td>").append(PlantillaCorreo.e(String.valueOf(h.get("estado"))))
                         .append("</td><td>").append(h.get("soportes")).append("</td></tr>");
             }
-            String html = PlantillaCorreo.marco("Reporte N° " + consecutivo + " · " + textoMotivo(motivo),
-                    "<p>" + PlantillaCorreo.e(String.valueOf(c.get("falto"))) + " Visita <strong>" + PlantillaCorreo.e(a.numero()) + "</strong> ("
-                            + PlantillaCorreo.e(a.punto()) + ").</p>"
-                            + "<p>Acta enviada: " + PlantillaCorreo.e(String.valueOf(c.get("actaEnviada"))) + " · plazo para objetar: "
-                            + PlantillaCorreo.e(String.valueOf(c.get("venceObjeciones"))) + " · plazo del plan: " + PlantillaCorreo.e(String.valueOf(c.get("vencePlan")))
-                            + "</p><table border=\"1\" cellpadding=\"4\" style=\"border-collapse:collapse\"><tr><th>Hallazgo</th><th>Descripción</th><th>Estado</th>"
-                            + "<th>Soportes del OPL</th></tr>" + filas + "</table>"
-                            + "<p style=\"color:#6b7280;font-size:11px\">Huella SHA-256 del acta adjunta: " + PlantillaCorreo.e(String.valueOf(c.get("actaSha256")))
-                            + "</p><p>Este reporte es informativo para la DIGSA; la aplicación no inicia ninguna multa.</p>");
+            Map<String, String> valores = new java.util.HashMap<>();
+            valores.put("consecutivo", consecutivo);
+            valores.put("motivo", textoMotivo(motivo));
+            valores.put("numero", a.numero());
+            valores.put("punto", a.punto());
+            valores.put("falto", String.valueOf(c.get("falto")));
+            valores.put("acta_enviada", String.valueOf(c.get("actaEnviada")));
+            valores.put("vence_objeciones", String.valueOf(c.get("venceObjeciones")));
+            valores.put("vence_plan", String.valueOf(c.get("vencePlan")));
+            valores.put("hallazgos", filas.toString());
+            valores.put("huella", String.valueOf(c.get("actaSha256")));
+            Plantilla.Renderizada reporte = plantillas.render(PlantillasOpl.REPORTE_DIGSA, valores);
             ServicioArchivos.Archivo acta = opl.acta(a);
             byte[] pdf;
             try (InputStream in = opl.abrir(acta)) {
                 pdf = in.readAllBytes();
             }
-            Correo.Resultado r = correo.enviar(new Correo.Mensaje(para, List.of(), "Reporte N° " + consecutivo + " · " + textoMotivo(motivo) + " · visita "
-                    + a.numero(), html, List.of(new Correo.Adjunto(acta.nombre(), "application/pdf", pdf))));
+            Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("opl_reporte_digsa", "visita:" + a.visitaId()), new Correo.Mensaje(para, List.of(), reporte.asunto(), reporte.html(), List.of(new Correo.Adjunto(acta.nombre(), "application/pdf", pdf))));
             if (!r.ok()) {
                 return String.valueOf(r.error());
             }

@@ -25,6 +25,7 @@ const Dashboard = perezosa(() => import('./paginas/Dashboard'), 'Dashboard');
 const Exportacion = perezosa(() => import('./paginas/Exportacion'), 'Exportacion');
 const Hallazgos = perezosa(() => import('./paginas/Hallazgos'), 'Hallazgos');
 const Logs = perezosa(() => import('./paginas/Logs'), 'Logs');
+const Correos = perezosa(() => import('./paginas/Correos'), 'Correos');
 const Reportes = perezosa(() => import('./paginas/Reportes'), 'Reportes');
 const Riesgo = perezosa(() => import('./paginas/Riesgo'), 'Riesgo');
 const Solicitudes = perezosa(() => import('./paginas/Solicitudes'), 'Solicitudes');
@@ -136,6 +137,7 @@ export function App() {
             <Route path="/alertas" element={<Protegida ruta="alertas"><Alertas /></Protegida>} />
             <Route path="/logs" element={<Protegida ruta="logs"><Logs /></Protegida>} />
             <Route path="/exportacion" element={<Protegida ruta="exportacion"><Exportacion /></Protegida>} />
+            <Route path="/correos" element={<Protegida ruta="correos"><Correos /></Protegida>} />
             <Route path="/reportes" element={<Protegida ruta="reportes"><Reportes /></Protegida>} />
             <Route path="/riesgo" element={<Protegida ruta="riesgo"><Riesgo /></Protegida>} />
             <Route path="/dashboard" element={<Protegida ruta="dashboard"><Dashboard /></Protegida>} />

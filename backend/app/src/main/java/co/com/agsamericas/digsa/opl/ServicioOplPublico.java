@@ -2,7 +2,9 @@ package co.com.agsamericas.digsa.opl;
 
 import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Bitacora;
@@ -46,14 +48,14 @@ public class ServicioOplPublico {
 
     private final ServicioOpl opl;
     private final JdbcClient jdbc;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final RegistroBitacora bitacora;
     private final ConfiguracionDigsa cfg;
     private final TransactionTemplate tx;
     /** Códigos por hora desde una misma IP (digsa.opl.codigos-por-hora-ip; 3 por defecto). Las pruebas de punta a punta lo suben. */
     private final int codigosPorHoraIp;
 
-    public ServicioOplPublico(ServicioOpl opl, JdbcClient jdbc, Correo correo, RegistroBitacora bitacora, ConfiguracionDigsa cfg, TransactionTemplate tx,
+    public ServicioOplPublico(ServicioOpl opl, JdbcClient jdbc, EnvioRegistrado correo, RegistroBitacora bitacora, ConfiguracionDigsa cfg, TransactionTemplate tx,
                               @org.springframework.beans.factory.annotation.Value("${digsa.opl.codigos-por-hora-ip:3}") int codigosPorHoraIp) {
         this.codigosPorHoraIp = codigosPorHoraIp > 0 ? codigosPorHoraIp : CODIGOS_POR_HORA_IP;
         this.opl = opl;
@@ -120,10 +122,9 @@ public class ServicioOplPublico {
         }
         Correo.Resultado r;
         try {
-            r = correo.enviar(Correo.Mensaje.simple(para, "Código de verificación · visita " + a.numero(),
-                    PlantillaCorreo.marco("Código de verificación", "<p>Su código para responder el acta de la visita " + PlantillaCorreo.e(a.numero())
-                            + " es:</p><p style=\"font-size:24px;letter-spacing:4px\"><strong>" + codigo + "</strong></p><p>Vence en " + MINUTOS_CODIGO
-                            + " minutos. Si usted no lo pidió, ignore este correo.</p>")));
+            // En la bitácora de envíos el código queda oculto (módulo Correos; duda CO-3)
+            r = correo.enviar(EnvioRegistrado.Registro.de("opl_codigo", "visita:" + a.visitaId()).secreto(htmlCodigo(a.numero(), PlantillaCorreo.OCULTO)),
+                    Correo.Mensaje.simple(para, PlantillasOpl.CODIGO.render(Map.of("numero", a.numero())).asunto(), htmlCodigo(a.numero(), codigo)));
         } catch (RuntimeException e) {
             r = null;
         }
@@ -258,5 +259,10 @@ public class ServicioOplPublico {
             return ts.toInstant().atOffset(java.time.ZoneOffset.UTC);
         }
         return OffsetDateTime.parse(String.valueOf(o));
+    }
+
+    /** Plantilla no editable (código de un solo uso): siempre el texto de fábrica. */
+    static String htmlCodigo(String numero, String codigo) {
+        return PlantillasOpl.CODIGO.render(Map.of("numero", numero, "codigo", codigo, "minutos", String.valueOf(MINUTOS_CODIGO))).html();
     }
 }

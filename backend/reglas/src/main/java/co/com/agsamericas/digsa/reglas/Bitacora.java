@@ -122,7 +122,13 @@ public final class Bitacora {
             Map.entry("analitica_alerta_parametro", Operacion.ACTUALIZACION), Map.entry("analitica_alerta_consulta", Operacion.CONSULTA),
             Map.entry("analitica_alerta_descarga", Operacion.CONSULTA), Map.entry("analitica_alerta_referencia", Operacion.INSERCION),
             // Predicción (A5 4.7.4 «ejecuciones y actualizaciones de modelos predictivos»): serie, corte, método y estado; sin datos personales
-            Map.entry("analitica_prediccion_entrenamiento", Operacion.INSERCION));
+            Map.entry("analitica_prediccion_entrenamiento", Operacion.INSERCION),
+            // --- Correos (sesión de correos): bitácora de envíos, plantillas y destinatarios ---
+            Map.entry("correo_reintentado", Operacion.INSERCION), Map.entry("correo_destinatarios_vistos", Operacion.CONSULTA),
+            Map.entry("correo_plantilla_editada", Operacion.ACTUALIZACION), Map.entry("correo_plantilla_restaurada", Operacion.ACTUALIZACION),
+            Map.entry("correo_destinatarios_editados", Operacion.ACTUALIZACION)
+            // --- fin correos ---
+            );
 
     /** Datos de la petición que pueden ir al detalle: identificadores y filtros. No "motivo": es texto libre. */
     public static final Set<String> CLAVES_DETALLE = Set.of("id", "archivo", "acta", "revision", "tipo", "estado",

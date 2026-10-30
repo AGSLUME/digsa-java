@@ -4,8 +4,10 @@ import co.com.agsamericas.digsa.agenda.RepositorioVisitas;
 import co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda;
 import co.com.agsamericas.digsa.alertas.ServicioAlertas;
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
+import co.com.agsamericas.digsa.plataforma.CatalogoPlantillas;
 import co.com.agsamericas.digsa.plataforma.BandejaSalida;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.reglas.Alertas;
 import co.com.agsamericas.digsa.reglas.Correos;
@@ -44,6 +46,7 @@ public class TareaRecordatorioSeguimiento {
     }
 
     private final JdbcClient jdbc;
+    private final CatalogoPlantillas plantillas;
     private final RepositorioVisitas visitas;
     private final ServicioConsultaAgenda consulta;
     private final ServicioCatalogos catalogos;
@@ -54,7 +57,8 @@ public class TareaRecordatorioSeguimiento {
     private final ServicioAlertas alertas;
 
     public TareaRecordatorioSeguimiento(JdbcClient jdbc, RepositorioVisitas visitas, ServicioConsultaAgenda consulta, ServicioCatalogos catalogos,
-                                        BandejaSalida bandeja, Clock reloj, javax.sql.DataSource ds, TransactionTemplate tx, ServicioAlertas alertas) {
+                                        BandejaSalida bandeja, Clock reloj, javax.sql.DataSource ds, TransactionTemplate tx, ServicioAlertas alertas, CatalogoPlantillas plantillas) {
+        this.plantillas = plantillas;
         this.ds = ds;
         this.tx = tx;
         this.alertas = alertas;
@@ -155,15 +159,20 @@ public class TareaRecordatorioSeguimiento {
             filas.append("<li>").append(PlantillaCorreo.e(String.valueOf(a.get("codigo")))).append(": ").append(PlantillaCorreo.e(String.valueOf(a.get("texto"))))
                     .append(a.get("fin") == null ? "" : " (fin del plan " + PlantillaCorreo.e(String.valueOf(a.get("fin"))) + ")").append("</li>");
         }
-        String titulo = Seguimiento.ordinal(v.seguimientoN()) + " visita de seguimiento · " + v.numero();
-        String html = PlantillaCorreo.marco(titulo, "<p>Le recordamos la " + PlantillaCorreo.e(Seguimiento.ordinal(v.seguimientoN()).toLowerCase())
-                + " visita de seguimiento al plan de mejoramiento de la visita " + PlantillaCorreo.e(o.numero()) + ": <strong>" + PlantillaCorreo.e(v.numero())
-                + "</strong>, el " + PlantillaCorreo.e(Plazos.fechaLarga(v.fecha())) + (v.hora() == null ? "" : " a las " + v.hora()) + " en "
-                + PlantillaCorreo.e(v.puntoNombre()) + ".</p><p>Acciones abiertas por verificar:</p><ul>" + filas + "</ul>");
+        Map<String, String> valores = new java.util.HashMap<>();
+        valores.put("ordinal", Seguimiento.ordinal(v.seguimientoN()));
+        valores.put("ordinal_minuscula", Seguimiento.ordinal(v.seguimientoN()).toLowerCase());
+        valores.put("numero", v.numero());
+        valores.put("origen", o.numero());
+        valores.put("fecha", Plazos.fechaLarga(v.fecha()));
+        valores.put("hora", v.hora() == null ? "" : " a las " + v.hora());
+        valores.put("punto", v.puntoNombre());
+        valores.put("acciones", filas.toString());
+        Plantilla.Renderizada aviso = plantillas.render(PlantillasEjecucion.RECORDATORIO_SEGUIMIENTO, valores);
         try {
             // La marca y el correo en la misma transacción: o quedan los dos o ninguno (y se reintenta mañana)
             tx.executeWithoutResult(t -> {
-                bandeja.encolar("recordatorio_seguimiento", "visita:" + id, new Correo.Mensaje(para, List.of(), "Recordatorio: " + titulo, html, List.of()));
+                bandeja.encolar("recordatorio_seguimiento", "visita:" + id, new Correo.Mensaje(para, List.of(), aviso.asunto(), aviso.html(), List.of()));
                 visitas.historial(id, null, "sistema", MARCA, "Seguimiento del " + v.fecha() + " (correo en la bandeja de salida)");
             });
             return true;

@@ -53,6 +53,9 @@ public final class Exportacion {
             "correos_salida", "sms_salida", "alertas_criticas", "alertas_eventos",
             // V50 · sesión de reportes: registro de los reportes generados (código de verificación y huellas, Anexo 5 2.10)
             "reportes_generados",
+            // --- Correos (sesión de correos): V91 · versiones editadas de las plantillas de correo (quién, cuándo y motivo) ---
+            "correo_plantillas_versiones",
+            // --- fin correos ---
             // --- Presupuesto (rama presupuesto): V40 ---
             "presupuesto_vigencias", "presupuesto_modalidades", "presupuesto_lineas", "presupuesto_saldos", "presupuesto_soportes",
             "presupuesto_lotes", "presupuesto_movimientos", "presupuesto_movimientos_lineas", "presupuesto_ejecucion", "presupuesto_proyeccion",

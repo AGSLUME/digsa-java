@@ -5,10 +5,12 @@ import co.com.agsamericas.digsa.ejecucion.EnlaceOpl;
 import co.com.agsamericas.digsa.ejecucion.ServicioArchivos;
 import co.com.agsamericas.digsa.ejecucion.ServicioFormulario;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
+import co.com.agsamericas.digsa.plataforma.CatalogoPlantillas;
 import co.com.agsamericas.digsa.plataforma.Almacen;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
-import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.plataforma.ValidadorArchivos;
 import co.com.agsamericas.digsa.reglas.Bitacora;
@@ -73,19 +75,21 @@ public class ServicioOpl {
     }
 
     private final JdbcClient jdbc;
+    private final CatalogoPlantillas plantillas;
     private final RepositorioVisitas visitas;
     private final ValidadorArchivos validador;
     private final Almacen almacen;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final RegistroBitacora bitacora;
     private final TransactionTemplate tx;
     private final Clock reloj;
     private final co.com.agsamericas.digsa.agenda.ServicioAgenda agenda;
     private final co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta;
 
-    public ServicioOpl(JdbcClient jdbc, RepositorioVisitas visitas, ValidadorArchivos validador, Almacen almacen, Correo correo, RegistroBitacora bitacora,
+    public ServicioOpl(JdbcClient jdbc, RepositorioVisitas visitas, ValidadorArchivos validador, Almacen almacen, EnvioRegistrado correo, RegistroBitacora bitacora,
                        TransactionTemplate tx, Clock reloj, co.com.agsamericas.digsa.agenda.ServicioAgenda agenda,
-                       co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta) {
+                       co.com.agsamericas.digsa.agenda.ServicioConsultaAgenda consulta, CatalogoPlantillas plantillas) {
+        this.plantillas = plantillas;
         this.consulta = consulta;
         this.agenda = agenda;
         this.jdbc = jdbc;
@@ -422,8 +426,7 @@ public class ServicioOpl {
                 actor.usuarioId(), actor.usuarioId() == null ? Correos.enmascarar(actor.correo()) : actor.usuario(), actor.ip());
         String aviso = null;
         if (objeto) {
-            aviso = avisarLider(a, "Objeción del OPL en la visita " + a.numero(), "El operador logístico objetó el hallazgo " + r.clave().substring(3)
-                    + " de la visita " + a.numero() + ". Revíselo en la Suite DIGSA y ratifíquelo o levántelo.");
+            aviso = avisarLider(a, PlantillasOpl.OBJECION, Map.of("hallazgo", r.clave().substring(3)));
         }
         return ("objeta".equals(decision) ? "Objeción registrada. El auditor líder la revisará." : "Hallazgo aceptado.") + (aviso == null ? "" : " " + aviso);
     }
@@ -601,8 +604,7 @@ public class ServicioOpl {
         });
         bitacora.escribir(Bitacora.Operacion.ACTUALIZACION, "opl_firma", "opl", "Visita " + a.numero() + ": plan de mejoramiento firmado", actor.usuarioId(),
                 actor.usuarioId() == null ? Correos.enmascarar(actor.correo()) : actor.usuario(), actor.ip());
-        String aviso = avisarLider(a, "Plan de mejoramiento firmado · visita " + a.numero(), "El operador logístico firmó el plan de mejoramiento de la visita "
-                + a.numero() + ".");
+        String aviso = avisarLider(a, PlantillasOpl.PLAN_FIRMADO, Map.of());
         return "Plan de mejoramiento firmado." + (aviso == null ? "" : " " + aviso);
     }
 
@@ -664,13 +666,11 @@ public class ServicioOpl {
             return false;
         }));
         bitacora.registrar("opl_resolucion", "Visita " + a.numero() + ": " + clave + " " + resolucion, quien.id(), quien.usuario());
-        String aviso = avisarOpl(a, "ratifica".equals(resolucion) ? "Hallazgo ratificado · visita " + a.numero() : "Hallazgo levantado · visita " + a.numero(),
-                "El auditor líder " + ("ratifica".equals(resolucion) ? "ratificó" : "levantó") + " el hallazgo " + clave.substring(3) + " de la visita " + a.numero()
-                        + ". Motivo: " + m + ("ratifica".equals(resolucion) ? "\n\nDiligencie quién y cómo de este hallazgo en el plan de mejoramiento." : ""));
+        String aviso = avisarOpl(a, "ratifica".equals(resolucion) ? PlantillasOpl.RATIFICADO : PlantillasOpl.LEVANTADO,
+                Map.of("hallazgo", clave.substring(3), "motivo", String.valueOf(m)));
         if (cerrado) {
             // Decisión 11.7: al levantar el último hallazgo el plan se cierra y se notifica solo al OPL
-            String r = avisarOpl(a, "Plan de mejoramiento cerrado · visita " + a.numero(), "Se levantaron todos los hallazgos de la visita " + a.numero()
-                    + ": el plan de mejoramiento queda cerrado.");
+            String r = avisarOpl(a, PlantillasOpl.CERRADO_LEVANTADOS, Map.of());
             jdbc.sql("UPDATE opl_avisos SET resultado = :r WHERE visita_id = :v AND acta_id = :a AND tipo = 'plan_cerrado'")
                     .param("r", r == null ? "enviado" : Bitacora.cortar(r, 500)).param("v", visitaId).param("a", a.actaId()).update();
             if (r != null) {
@@ -728,8 +728,7 @@ public class ServicioOpl {
                 return c;
             });
             if (n > 0) {
-                String r = avisarOpl(a.get(), "Plan de mejoramiento cerrado · visita " + a.get().numero(), "El seguimiento " + e.numero()
-                        + " verificó que todas las acciones del plan de mejoramiento de la visita " + a.get().numero() + " quedaron cerradas: el plan queda cerrado.");
+                String r = avisarOpl(a.get(), PlantillasOpl.CERRADO_SEGUIMIENTO, Map.of("seguimiento", e.numero()));
                 jdbc.sql("UPDATE opl_avisos SET resultado = :r WHERE acta_id = :a AND tipo = 'plan_cerrado'").param("r", r == null ? "enviado" : Bitacora.cortar(r, 500))
                         .param("a", a.get().actaId()).update();
             }
@@ -751,23 +750,28 @@ public class ServicioOpl {
     }
 
     /** Aviso al OPL (nunca al punto: decisiones 11.2 y 12.2). @return advertencia si no salió, o null */
-    String avisarOpl(Acceso a, String asunto, String cuerpo) {
-        return avisar(a, correosOpl(), asunto, cuerpo, "Aviso al OPL");
+    /** @param plantilla una de {@link PlantillasOpl} (los avisos); número y punto de la visita los pone este método */
+    String avisarOpl(Acceso a, Plantilla plantilla, Map<String, String> valores) {
+        return avisar(a, correosOpl(), plantilla, valores, "Aviso al OPL");
     }
 
-    String avisarLider(Acceso a, String asunto, String cuerpo) {
+    String avisarLider(Acceso a, Plantilla plantilla, Map<String, String> valores) {
         List<String> para = jdbc.sql("SELECT correo FROM usuarios WHERE id = :id AND activo").param("id", a.liderId()).query(String.class).list();
-        return avisar(a, para.stream().filter(Correos::valido).toList(), asunto, cuerpo, "Aviso al auditor líder");
+        return avisar(a, para.stream().filter(Correos::valido).toList(), plantilla, valores, "Aviso al auditor líder");
     }
 
-    private String avisar(Acceso a, List<String> para, String asunto, String cuerpo, String evento) {
+    private String avisar(Acceso a, List<String> para, Plantilla plantilla, Map<String, String> valores, String evento) {
         try {
             if (para.isEmpty()) {
                 visitas.historial(a.visitaId(), null, "sistema", evento + " no enviado", "No hay correos registrados");
                 return evento + " no enviado: no hay correos registrados.";
             }
-            Correo.Resultado r = correo.enviar(new Correo.Mensaje(para, List.of(), asunto,
-                    PlantillaCorreo.marco("Visita " + a.numero() + " · " + a.punto(), "<p>" + PlantillaCorreo.texto(cuerpo) + "</p>"), List.of()));
+            Map<String, String> v = new java.util.HashMap<>(valores);
+            v.put("numero", a.numero());
+            v.put("punto", a.punto());
+            Plantilla.Renderizada aviso = plantillas.render(plantilla, v);
+            Correo.Resultado r = correo.enviar(EnvioRegistrado.Registro.de("opl_aviso", "visita:" + a.visitaId()), new Correo.Mensaje(para, List.of(), aviso.asunto(),
+                    aviso.html(), List.of()));
             if (!r.ok()) {
                 visitas.historial(a.visitaId(), null, "sistema", evento + " fallido", Bitacora.cortar(Bitacora.sinCorreos(String.valueOf(r.error())), 300));
                 return evento + " fallido.";

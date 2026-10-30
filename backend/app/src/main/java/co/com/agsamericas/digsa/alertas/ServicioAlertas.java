@@ -3,12 +3,14 @@ package co.com.agsamericas.digsa.alertas;
 import co.com.agsamericas.digsa.catalogos.ServicioCatalogos;
 import co.com.agsamericas.digsa.identidad.CuentaBloqueada;
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
+import co.com.agsamericas.digsa.plataforma.CatalogoPlantillas;
 import co.com.agsamericas.digsa.plataforma.ArchivoIntegridadFallida;
 import co.com.agsamericas.digsa.plataforma.BandejaSalida;
 import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.plataforma.Correo;
 import co.com.agsamericas.digsa.plataforma.CorreoAgotado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.plataforma.Sms;
@@ -79,6 +81,7 @@ public class ServicioAlertas {
     }
 
     private final JdbcClient jdbc;
+    private final CatalogoPlantillas plantillas;
     private final BandejaSalida bandeja;
     private final RegistroBitacora bitacora;
     private final ServicioCatalogos catalogos;
@@ -99,7 +102,8 @@ public class ServicioAlertas {
     private volatile Duration duracionBloqueo = Duration.ofMinutes(15);
 
     public ServicioAlertas(JdbcClient jdbc, BandejaSalida bandeja, RegistroBitacora bitacora, ServicioCatalogos catalogos, ConfiguracionDigsa cfg,
-                           Correo correo, Sms sms, Clock reloj, PlatformTransactionManager transacciones) {
+                           Correo correo, Sms sms, Clock reloj, PlatformTransactionManager transacciones, CatalogoPlantillas plantillas) {
+        this.plantillas = plantillas;
         this.jdbc = jdbc;
         this.bandeja = bandeja;
         this.bitacora = bitacora;
@@ -266,7 +270,7 @@ public class ServicioAlertas {
             if (para.isEmpty()) {
                 LOG.error("[alertas] La alerta {} no tiene destinatarios con correo: revise el catálogo de alertas", tipo);
             } else {
-                bandeja.encolar("alerta:" + tipo, "alerta:" + id, mensaje(t, det, ahora, para), List.of(), id, t.critica());
+                bandeja.encolar("alerta:" + tipo, "alerta:" + id, mensaje(t, det, ahora, para, true), List.of(), id, t.critica());
                 correos = para.size();
             }
         }
@@ -292,14 +296,15 @@ public class ServicioAlertas {
         return new Disparo(id, true, correos, enviados, sinTelefono);
     }
 
-    private Correo.Mensaje mensaje(Tipo t, String detalle, OffsetDateTime ahora, List<String> para) {
+    /**
+     * @param conBase false en el aviso directo sin base de datos: sale con el texto de fábrica (no se consulta la plantilla editada)
+     */
+    private Correo.Mensaje mensaje(Tipo t, String detalle, OffsetDateTime ahora, List<String> para, boolean conBase) {
         String hora = ahora.atZoneSameInstant(Fechas.BOGOTA).format(HORA);
-        String titulo = (t.critica() ? "Alerta crítica · " : "Aviso · ") + t.nombre();
-        String cuerpo = "<p><strong>" + PlantillaCorreo.e(t.nombre()) + "</strong> (" + PlantillaCorreo.e(hora) + ")</p>"
-                + "<p>" + PlantillaCorreo.texto(detalle) + "</p>"
-                + (t.critica() && t.sms() ? "<p>Es una alerta crítica: también se envió un SMS a los destinatarios con móvil registrado.</p>" : "")
-                + "<p>Revise la Suite DIGSA: <a href=\"" + PlantillaCorreo.e(cfg.enlace("")) + "\">" + PlantillaCorreo.e(cfg.enlace("")) + "</a></p>";
-        return new Correo.Mensaje(para, List.of(), titulo + " · " + hora, PlantillaCorreo.marco(titulo, cuerpo), List.of());
+        Map<String, String> valores = Map.of("titulo", (t.critica() ? "Alerta crítica · " : "Aviso · ") + t.nombre(), "hora", hora, "alerta", t.nombre(),
+                "detalle", PlantillaCorreo.texto(detalle), "aviso_sms", t.critica() && t.sms() ? PlantillasAlertas.AVISO_SMS : "", "enlace", cfg.enlace(""));
+        Plantilla.Renderizada r = conBase ? plantillas.render(PlantillasAlertas.ALERTA, valores) : PlantillasAlertas.ALERTA.render(valores);
+        return new Correo.Mensaje(para, List.of(), r.asunto(), r.html(), List.of());
     }
 
     /** Destinatarios activos del tipo: los usuarios elegidos y los de los perfiles elegidos. */
@@ -360,7 +365,7 @@ public class ServicioAlertas {
         OffsetDateTime hora = OffsetDateTime.now(reloj);
         List<String> para = dest.stream().map(d -> Correos.normalizar(d.correo())).filter(Correos::valido).distinct().toList();
         if (!para.isEmpty()) {
-            Correo.Resultado r = correo.enviar(mensaje(t, detalle, hora, para));
+            Correo.Resultado r = correo.enviar(mensaje(t, detalle, hora, para, false));
             if (!r.ok()) {
                 LOG.error("[alertas] El aviso directo de {} no salió: {}", tipo, r.error());
             }

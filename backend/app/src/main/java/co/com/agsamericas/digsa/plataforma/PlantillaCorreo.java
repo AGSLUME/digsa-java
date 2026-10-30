@@ -5,6 +5,11 @@ import org.springframework.web.util.HtmlUtils;
 /** Marco común de los correos de la Suite DIGSA, con todo valor escapado. */
 public final class PlantillaCorreo {
 
+    /** Lo que queda en la bitácora de envíos en lugar de un código de un solo uso (MFA, QR del OPL). */
+    public static final String OCULTO = "••••••";
+    /** Lo que queda en la bitácora de envíos en lugar de un enlace con token (contraseña, respuesta del OPL). */
+    public static final String ENLACE_OCULTO = "[enlace oculto]";
+
     private PlantillaCorreo() {
     }
 

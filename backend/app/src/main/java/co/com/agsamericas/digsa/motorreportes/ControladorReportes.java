@@ -1,12 +1,14 @@
 package co.com.agsamericas.digsa.motorreportes;
 
 import co.com.agsamericas.digsa.identidad.UsuarioSesion;
+import co.com.agsamericas.digsa.plataforma.CatalogoPlantillas;
 import co.com.agsamericas.digsa.plataforma.Accion;
 import co.com.agsamericas.digsa.plataforma.Almacen;
 import co.com.agsamericas.digsa.plataforma.ConfiguracionDigsa;
 import co.com.agsamericas.digsa.plataforma.Correo;
+import co.com.agsamericas.digsa.plataforma.EnvioRegistrado;
 import co.com.agsamericas.digsa.plataforma.ErrorNegocio;
-import co.com.agsamericas.digsa.plataforma.PlantillaCorreo;
+import co.com.agsamericas.digsa.plataforma.Plantilla;
 import co.com.agsamericas.digsa.plataforma.RegistroBitacora;
 import co.com.agsamericas.digsa.reglas.Alcance;
 import co.com.agsamericas.digsa.reglas.Bitacora.Declarada;
@@ -76,17 +78,19 @@ public class ControladorReportes {
     static final int MAX_EN_BITACORA = 20;
 
     private final MotorReportes motor;
+    private final CatalogoPlantillas plantillas;
     private final ServicioGeneracion generacion;
     private final Almacen almacen;
-    private final Correo correo;
+    private final EnvioRegistrado correo;
     private final RegistroBitacora bitacora;
     private final ConfiguracionDigsa cfg;
     private final ConfiguracionReportes cfgReportes;
     private final RegistroGenerados registro;
     private final Clock reloj;
 
-    public ControladorReportes(MotorReportes motor, ServicioGeneracion generacion, Almacen almacen, Correo correo, RegistroBitacora bitacora,
-                               ConfiguracionDigsa cfg, ConfiguracionReportes cfgReportes, RegistroGenerados registro, Clock reloj) {
+    public ControladorReportes(MotorReportes motor, ServicioGeneracion generacion, Almacen almacen, EnvioRegistrado correo, RegistroBitacora bitacora,
+                               ConfiguracionDigsa cfg, ConfiguracionReportes cfgReportes, RegistroGenerados registro, Clock reloj, CatalogoPlantillas plantillas) {
+        this.plantillas = plantillas;
         this.cfgReportes = cfgReportes;
         this.registro = registro;
         this.reloj = reloj;
@@ -364,9 +368,9 @@ public class ControladorReportes {
         String titulo = s.definicion().titulo();
         Correo.Resultado res;
         try {
-            res = correo.enviar(new Correo.Mensaje(destinos, List.of(), titulo + " · Suite DIGSA",
-                    PlantillaCorreo.marco(titulo, "<p>Adjunto el reporte generado en la Suite DIGSA.</p><p>Archivo: " + PlantillaCorreo.e(a.nombre())
-                            + "</p><p>Código de verificación: <strong>" + PlantillaCorreo.e(a.codigo()) + "</strong></p>"),
+            Plantilla.Renderizada p = plantillas.render(PlantillasReportes.REPORTE, Map.of("titulo", titulo, "archivo", a.nombre(), "codigo", a.codigo()));
+            res = correo.enviar(EnvioRegistrado.Registro.de("reporte_motor", "reporte:" + a.codigo()).reenvio("Se reenvía desde Reportes con «Enviar por correo»."), new Correo.Mensaje(destinos, List.of(), p.asunto(),
+                    p.html(),
                     List.of(new Correo.Adjunto(a.nombre(), a.tipo(), contenido))));
         } catch (RuntimeException e) {
             // Un error inesperado del canal también queda en la bitácora como «NO salió» y se responde 502, no 500

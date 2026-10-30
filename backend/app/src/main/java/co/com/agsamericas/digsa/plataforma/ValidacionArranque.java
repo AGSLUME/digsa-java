@@ -5,6 +5,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
 /**
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
  *   <li>Fuera de local: la URL pública con https (cookies Secure y enlaces de los correos), SMTP y remitente configurados, y los
  *       dominios permitidos para enviar reportes. El SMS a archivo nunca; en producción, un proveedor de SMS (alertas críticas, GMI
  *       P77 b): sin él la aplicación no arranca.</li>
+ *   <li>El perfil mailpit (C4 del módulo Correos) solo en local y con el SMTP en este equipo.</li>
  *   <li>En local: la URL debe ser localhost. Las ayudas de desarrollo (código del segundo factor en pantalla, captcha desactivado,
  *       correo a archivo) no pueden quedar expuestas en un servidor real por una variable mal puesta.</li>
  * </ul>
@@ -30,10 +32,31 @@ public class ValidacionArranque {
 
     @PostConstruct
     void validar() {
-        List<String> problemas = problemas(cfg, entorno.getProperty("spring.mail.host"));
+        List<String> problemas = new ArrayList<>(problemas(cfg, entorno.getProperty("spring.mail.host")));
+        String mailpit = problemaMailpit(entorno.acceptsProfiles(Profiles.of("mailpit")), cfg.esLocal(), entorno.getProperty("spring.mail.host"));
+        if (mailpit != null) {
+            problemas.add(mailpit);
+        }
         if (!problemas.isEmpty()) {
             throw new IllegalStateException("Configuración no válida para arrancar: " + String.join(" ", problemas));
         }
+    }
+
+    /**
+     * Módulo Correos, fase C4: el perfil «mailpit» (SMTP sin usuario ni STARTTLS) es solo de desarrollo: exige digsa.entorno=local y un
+     * Mailpit en este mismo equipo, para que una variable mal puesta no mande correos sin cifrar a otro servidor.
+     */
+    static String problemaMailpit(boolean perfilMailpit, boolean local, String hostSmtp) {
+        if (!perfilMailpit) {
+            return null;
+        }
+        if (!local) {
+            return "El perfil mailpit solo se permite con digsa.entorno=local.";
+        }
+        if (!"localhost".equals(hostSmtp) && !"127.0.0.1".equals(hostSmtp)) {
+            return "Con el perfil mailpit el SMTP debe ser localhost o 127.0.0.1 (es '" + hostSmtp + "').";
+        }
+        return null;
     }
 
     static List<String> problemas(ConfiguracionDigsa cfg, String hostSmtp) {

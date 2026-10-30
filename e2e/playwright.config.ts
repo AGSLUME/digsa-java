@@ -24,6 +24,10 @@ const ADMIN = process.env.DIGSA_E2E_ADMIN ?? 'admin.e2e:Admin.E2E.Prueba.2026';
 
 const canales = (process.env.DIGSA_E2E_CANALES ?? '').split(',').filter(Boolean);
 
+// Módulo Correos · C4: DIGSA_E2E_CORREO=mailpit arranca el servidor con el perfil «mailpit» (SMTP a Mailpit en localhost:1025; solo
+// para pruebas/mailpit.spec.ts, docs/guia_mailpit.md). Sin la variable, el correo va a archivo como siempre.
+const CORREO_MAILPIT = process.env.DIGSA_E2E_CORREO === 'mailpit' ? ' -Ddigsa.local.correo=mailpit' : '';
+
 // Puertos de la aplicación y del PostgreSQL embebido. Varias corridas a la vez en el mismo equipo usan puertos distintos
 // (DIGSA_E2E_PUERTO / DIGSA_E2E_PGPUERTO); la limpieza solo detiene lo que escuche en los puertos de esta corrida.
 const PUERTO = Number(process.env.DIGSA_E2E_PUERTO ?? 8080);
@@ -74,7 +78,7 @@ export default defineConfig({
       `-Dspring-boot.run.main-class=co.com.agsamericas.digsa.DigsaLocal ` +
       `"-Dspring-boot.run.jvmArguments=-Duser.timezone=America/Bogota -Ddigsa.local.admin=${ADMIN} ` +
       `-Ddigsa.local.puerto=${PUERTO} -Ddigsa.local.pgpuerto=${PGPUERTO} ` +
-      `-Ddigsa.local.raiz=${process.cwd().replace(/\\/g, '/')}/.." ` +
+      `-Ddigsa.local.raiz=${process.cwd().replace(/\\/g, '/')}/..${CORREO_MAILPIT}" ` +
       `"-Dspring-boot.run.arguments=--digsa.sesion-minutos=1 --digsa.mfa.codigos-por-hora=1000 --digsa.opl.codigos-por-hora-ip=1000"`,
     url: `http://localhost:${PUERTO}/actuator/health`,
     timeout: 240_000,

@@ -124,7 +124,9 @@ test('M8-1, M8-5 y M8-8: recorre los 12 tableros con filtros, compara con la API
   await page.getByTestId('chip-atipicos').click();
   await expect(page.getByTestId('panel-atipicos')).toBeVisible();
   await page.getByTestId('chip-predictivo').click();
-  await expect(page.getByTestId('siguiente-fase')).toContainText('Disponible en la siguiente fase');
+  // Tablero 12 (A5): el panel de proyección reemplaza el aviso de «siguiente fase»; su recorrido está en analitica-prediccion.spec.ts
+  await expect(page.getByTestId('panel-prediccion')).toBeVisible();
+  await expect(page.getByTestId('siguiente-fase')).toHaveCount(0);
 
   // «Ver tabla» de las barras con aria-expanded
   await page.getByTestId('chip-territorial').click();

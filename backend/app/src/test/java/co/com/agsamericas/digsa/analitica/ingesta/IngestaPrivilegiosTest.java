@@ -67,6 +67,7 @@ class IngestaPrivilegiosTest extends PruebaIntegracion {
             s.execute(bloque("/db/migration/V61__analitica_homologacion.sql"));
             s.execute(bloque("/db/migration/V62__analitica_tableros.sql"));
             s.execute(bloque("/db/migration/V63__analitica_cohortes_alertas.sql"));
+            s.execute(bloque("/db/migration/V64__analitica_prediccion.sql"));
         }
     }
 
@@ -158,6 +159,23 @@ class IngestaPrivilegiosTest extends PruebaIntegracion {
         }
         // El aviso de severidad alta es operativo: solo correo
         assertThat(jdbc.sql("SELECT critica OR sms FROM alertas_criticas WHERE tipo = 'analitica_alerta_alta'").query(Boolean.class).single()).isFalse();
+    }
+
+    @Test
+    @DisplayName("V64: la bitácora de entrenamientos y sus proyecciones solo se consultan y se agregan (sin UPDATE ni DELETE: son traza)")
+    void privilegiosPrediccion() {
+        for (String t : List.of("ana_pred_entrenamientos", "ana_pred_proyecciones")) {
+            for (String p : List.of("SELECT", "INSERT")) {
+                assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, :p)").param("r", ROL).param("t", t).param("p", p).query(Boolean.class).single())
+                        .as(p + " sobre " + t).isTrue();
+            }
+            for (String p : List.of("UPDATE", "DELETE")) {
+                assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, :p)").param("r", ROL).param("t", t).param("p", p).query(Boolean.class).single())
+                        .as("sin " + p + " sobre " + t).isFalse();
+            }
+        }
+        assertThat(jdbc.sql("SELECT has_sequence_privilege(:r, 'ana_pred_entrenamientos_id_seq', 'USAGE')").param("r", ROL).query(Boolean.class).single())
+                .isTrue();
     }
 
     @Test

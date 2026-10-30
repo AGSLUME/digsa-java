@@ -352,16 +352,18 @@ Al crearse una alerta analítica **nueva** de severidad alta, el motor DEBE llam
 <!-- entidades: Entrenamiento, Proyeccion -->
 <!-- impuesto_en: A4 L708–726 §11.1 f («horizonte mínimo de proyección de seis (6) meses y comparación permanente entre valores proyectados y observados») | A4 L806 11.2.7 | A4 L865 entregable 6 | A5 L647 tablero 12 -->
 <!-- decision: diseño 2026-10-22 -->
+<!-- decision: A5 2026-10-29 — la serie sale de ServicioConsultaAnalitica.consultar (ana_hechos_tablero, corte y alcance de los tableros, supresión k); fecha de corte = fin del periodo cubierto por los cargues visibles, nacional: el mayor entre la última fecha con dispensación y el fin del periodo declarado al confirmar el cargue, acotado al día del corte (revisión A5). Dimensiones implementadas: ATC (prefijo; nivel por el largo), principio activo y CIE-10 (prefijo), con Top 20 por gasto como lista de valores; cohorte, GCF y GRC quedan pendientes (AN.30). Pacientes con alguna celda mensual bajo k: la serie no se muestra ni se entrena. -->
+<!-- verificado_por: PrediccionApiTest#historiaInsuficiente, #unAnioSinEstacionalidad, #alcancePorPerfil, #mesDeclaradoCompletoYArranque, #entrenamientoGuardadoSoloEnSuAlcance -->
 
 El tablero 12 DEBE proyectar, por mes y con horizonte parametrizable ≥ 6 (por defecto 6), gasto, dispensaciones y pacientes distintos, a nivel nacional, Fuerza y ESM (según el alcance), y por ATC (nivel elegido), principio activo, CIE-10, cohorte, GCF y GRC (Top N por gasto, N = 20). El mes del corte, si está incompleto, NO DEBE entrar al entrenamiento: se muestra como observado parcial. **Poca historia** (RESP L2001, L2227–2235: calibración con el histórico que entregue la DIGSA; RESP L299; A5 L948: insumo de un año): con menos de 6 meses completos NO DEBE proyectar y muestra «Historia insuficiente: n meses (mínimo 6)», registrando el entrenamiento como `historia_insuficiente`; con 6 a 23 meses no hay estacionalidad y la pantalla dice «sin componente estacional: menos de 24 meses»; con 6 a 8 meses el backtesting usa 1 mes en lugar de 3 y lo indica.
 
 #### Scenario: Corte a mitad de mes
-<!-- test: M8-11; por escribir: AnaliticaPrediccionTest#mesIncompletoFuera -->
+<!-- test: M8-11; AnaliticaPrediccionTest#mesIncompletoFuera -->
 - **CUANDO** el corte es 21/10/2026
 - **ENTONCES** se entrena hasta septiembre y se proyecta de octubre 2026 a marzo 2027
 
 #### Scenario: Prueba con un año
-<!-- test: M8-11; por escribir: PrediccionApiTest#unAnioSinEstacionalidad -->
+<!-- test: M8-11; PrediccionApiTest#unAnioSinEstacionalidad; e2e analitica-prediccion.spec.ts -->
 - **CUANDO** el insumo cubre 2024-2025 (12 meses) y ningún mes es parcial
 - **ENTONCES** se proyectan 6 meses con Holt o regresión, el backtesting usa 3 meses y la nota de estacionalidad es visible
 
@@ -376,7 +378,7 @@ El tablero 12 DEBE proyectar, por mes y con horizonte parametrizable ≥ 6 (por 
 `reglas/AnaliticaPrediccion` (sin librerías ni azar) DEBE evaluar: Holt-Winters aditivo con estacionalidad 12 si hay ≥ 24 meses, Holt con tendencia si hay ≥ 6, y regresión lineal como respaldo; los parámetros se ajustan por búsqueda en rejilla fija minimizando el error a un paso. Elige el de menor WMAPE en el backtesting de los últimos 3 meses (entrena sin ellos, proyecta y compara); empate → el más simple. Reentrena el elegido con toda la serie. IC 95 % = proyección ± 1,96 · σ · √h (σ = desviación de los residuos a un paso, h = meses adelante), con límite inferior en 0. Misma serie + misma versión del algoritmo = mismo resultado.
 
 #### Scenario: Serie con tendencia
-<!-- test: por escribir: AnaliticaPrediccionTest#tendenciaLineal -->
+<!-- test: AnaliticaPrediccionTest#tendenciaLineal -->
 - **CUANDO** la serie es 100, 110, …, 210 (12 meses)
 - **ENTONCES** se elige Holt o regresión con WMAPE ≈ 0, la proyección de h = 1 es 220 ± 1 y el IC es angosto
 
@@ -387,18 +389,19 @@ El tablero 12 DEBE proyectar, por mes y con horizonte parametrizable ≥ 6 (por 
 <!-- entidades: Entrenamiento, Proyeccion -->
 <!-- impuesto_en: A5 L647 tablero 12 («periodo histórico, fecha de entrenamiento y comparación entre valores proyectados y observados») | A4 L726 | A4 L806 («escenarios y precisión del modelo») | caso M8-11 | mockup «Proyección del gasto · 6 meses» -->
 <!-- decision: diseño 2026-10-22 -->
+<!-- decision: A5 2026-10-29 — consultar una serie sin entrenamiento guardado para su corte y horizonte la proyecta al vuelo y NO la guarda (la respuesta dice registrado = false; la pantalla lo indica); con uno guardado se muestra lo guardado y se advierte si la huella de la serie no coincide. «Proyectado vs observado»: por cada mes completo ya observado, la proyección del entrenamiento guardado más reciente que lo cubría (último mes de entrenamiento anterior al mes; a igualdad, el más nuevo) entre los de cortes no posteriores al consultado. Automático: nacional y por Fuerza, las tres métricas, cuando el último mes completo del corte es posterior al del último automático nacional. Escenarios: totales del horizonte solo para gasto y dispensaciones (los pacientes no se suman entre meses). Revisión A5: cada entrenamiento guarda su alcance y solo lo ven perfiles del mismo alcance (la vista de su Fuerza ve también los nacionales, misma serie); lo guardado solo se usa si su huella coincide con la serie calculada; proyectado vs observado solo con entrenamientos creados hasta el instante del corte; al arrancar se revisa el automático pendiente del corte vigente. -->
 
 La pantalla DEBE mostrar el gráfico (línea continua observada, discontinua proyectada, banda IC 95 %, marca del corte) con su tabla accesible, y la tabla de metadatos: método real y parámetros, métodos evaluados con su error, periodo histórico, fecha de entrenamiento, corte, MAPE y WMAPE del backtesting. Escenarios: base, inferior y superior (límites del IC) y ajustado por un % que escribe el usuario (no se guarda como entrenamiento). Comparación permanente: cada entrenamiento guarda su proyección; cuando llegan los meses reales, la pantalla muestra lo que proyectó el entrenamiento anterior frente a lo observado y su error real.
 
 **Bitácora de entrenamientos** (A5 L743–765 4.7.4: «ejecuciones y actualizaciones de modelos predictivos»): cada entrenamiento (al aplicar un cargue que completa un mes, o bajo demanda por ADMINISTRADOR, COORDINADOR o ANALISTA) DEBE quedar en `ana_pred_entrenamientos` (serie, nivel, corte, origen, método, parámetros, evaluados, historia, errores, versión del algoritmo, SHA-256 de la serie, duración, estado) y en la bitácora (`analitica_prediccion_entrenamiento`); la pantalla los lista.
 
 #### Scenario: Llega el mes proyectado
-<!-- test: M8-11; por escribir: PrediccionApiTest#observadoVsProyectado -->
+<!-- test: M8-11; PrediccionApiTest#observadoVsProyectado -->
 - **CUANDO** el entrenamiento de septiembre proyectó octubre en 7,9 mil M y el cargue de noviembre trae octubre completo con 8,1 mil M
 - **ENTONCES** la tabla «proyectado vs observado» muestra octubre: 7,9 / 8,1 / error 2,47 % y la fecha del entrenamiento que lo proyectó
 
 #### Scenario: Reentrenamiento manual
-<!-- test: por escribir: PrediccionApiTest#entrenarRegistra -->
+<!-- test: PrediccionApiTest#entrenarRegistra; e2e analitica-prediccion.spec.ts -->
 - **CUANDO** un ANALISTA pulsa «Reentrenar» en el gasto nacional
 - **ENTONCES** aparece un entrenamiento con su usuario, y la bitácora tiene el evento con la serie y el método
 
@@ -407,7 +410,7 @@ La pantalla DEBE mostrar el gráfico (línea continua observada, discontinua pro
 ### Invariant: Ninguna salida de cohortes, alertas o predicción identifica a un paciente
 <!-- entidades: Cohorte, AlertaAnalitica, Proyeccion -->
 <!-- impuesto_en: A5 L739 4.7.3 («deberán identificarse mediante resultados consolidados y agregados») | A5 L962 14.6 («nunca individualizada») | RESP L2209 | RESP L4551–4577 -->
-<!-- verificado_por: cohortes y alertas: PruebaRiesgo#sinIndividualizacion en CohortesApiTest y AlertasApiTest (JSON, descargas y aviso); SupresionRiesgoApiTest (k = 5: lista, detalle, CSV, correo, tarjeta, serie, comparación, composición, particiones); CohortesApiTest#sensibleEnNivelEsm; predicción en A5 -->
+<!-- verificado_por: cohortes y alertas: PruebaRiesgo#sinIndividualizacion en CohortesApiTest y AlertasApiTest (JSON, descargas y aviso); SupresionRiesgoApiTest (k = 5: lista, detalle, CSV, correo, tarjeta, serie, comparación, composición, particiones); CohortesApiTest#sensibleEnNivelEsm; predicción: PrediccionApiTest#sinIndividualizacion (JSON, bitácora de entrenamientos, Top 20 y descargas CSV, Excel y PDF) -->
 <!-- decision: revisión A4 2026-10-24 — supresión completa: los conteos de pacientes de causa, valoración y detalle se guardan marcados y se escriben al mostrarlos (AnaliticaAlertas.mostrar); en «pacientes» también el observado y la referencia; una celda oculta oculta su gasto, registros, dispensaciones, unidades, ingresos y salidas; ingresos y salidas también por su propio valor; supresión complementaria en particiones, niveles y composición. VIH y huérfanas en nivel ESM: k ≥ 5 aunque el general sea 0, sin ingresos ni salidas ni composición clínica para el ESM (AN.24). -->
 
 Las respuestas y descargas de cohortes, consola, tablero 11 y predicción DEBEN tener solo cifras agregadas; el seudónimo vive en `ana_cohortes_miembros` y en los hechos y solo sale en la trazabilidad 14.9 para perfiles autorizados. Al correo de alertas y al modelo de IA nunca van seudónimos.
@@ -444,7 +447,7 @@ Cada alerta DEBE guardar su selección (jsonb con regla, versión, filtros y per
 ### Invariant: Resultados reproducibles por corte y versión
 <!-- entidades: CohorteVersion, ParametroAlerta, Entrenamiento -->
 <!-- impuesto_en: A5 L723–731 (reproducible) | A4 L883 | RESP L5361–5367 -->
-<!-- verificado_por: CohortesApiTest#cargueActualizaSerieYCorteAnteriorReproducible, AnaliticaPrediccionTest#mismaEntradaMismaSalida -->
+<!-- verificado_por: CohortesApiTest#cargueActualizaSerieYCorteAnteriorReproducible, AnaliticaPrediccionTest#mismaEntradaMismaSalida, PrediccionApiTest#reproducibilidad -->
 
 Mismo corte + misma versión de cohorte, de parámetros de alerta o del algoritmo + mismo alcance DEBEN dar las mismas cifras, alertas y proyecciones, hoy o después de nuevos cargues.
 
@@ -488,6 +491,6 @@ Mismo corte + misma versión de cohorte, de parámetros de alerta o del algoritm
 
 **Generador:** `GeneradorSintetico.generar(…, patrones = true)` siembra un caso por tipo (duplicidad B01AF, alto costo DMBOG y concentración de adalimumab BAS10 que crecen con el volumen, polimedicados DMBAQ, cambio de marca de carbamazepina en el BAS02 también para 3 pacientes de la Armada —ESM compartido—, formulación de losartán, presentación de amlodipino, incrementos de N02 y de gasto por precio de alopurinol, e interacción, fuera de indicación y desabastecimiento con referencias ficticias), renal, VIH y huérfanas, y escribe las esperadas, los conteos por cohorte y `version_patrones` (sin patrones el archivo es el de siempre). Decisión revisión A4 2026-10-24: un solo umbral de alto costo, el de la cohorte, también en el tablero 8 (AN.26).
 
-**V64 (A5, predicción):** `ana_pred_entrenamientos` (métrica, nivel, dimensión, corte, origen, usuario, método, parámetros, evaluados, historia, backtest, MAPE/WMAPE, versión del algoritmo, SHA-256 de la serie, estado `ok`/`historia_insuficiente`/`error`, duración) y `ana_pred_proyecciones` (entrenamiento, mes, valor, IC); `AnaliticaPrediccion` y `analitica_prediccion_entrenamiento`. El chip «Predictivo» sigue en «Disponible en la siguiente fase».
+**V64 (A5, predicción):** `ana_pred_entrenamientos` (métrica, nivel, dimensión, corte, origen, usuario, método, parámetros, evaluados, historia, backtest, MAPE/WMAPE, versión del algoritmo, SHA-256 de la serie, estado `ok`/`historia_insuficiente`/`error`, duración) y `ana_pred_proyecciones` (entrenamiento, mes, valor, IC), con el alcance de cada entrenamiento; `AnaliticaPrediccion` y `analitica_prediccion_entrenamiento`. Solo SELECT e INSERT para el rol de la aplicación (traza; IngestaPrivilegiosTest#privilegiosPrediccion). **Servicio** (`analitica.prediccion`): `ServicioPrediccion` (serie por el servicio de consulta, entrenamiento, vista, proyectado vs observado, bitácora, Top 20 y descarga), `EntrenamientoAutomatico` (oyente de `CargueAplicado`, un hilo de fondo), `PermisosPrediccion` y `PropiedadesPrediccion` (`digsa.analitica.prediccion.*`: `entrenar-al-aplicar`, `horizonte`, `por-pagina`). **Endpoints** (pantalla ANALITICA): `GET /api/analitica/prediccion` (serie: `metrica`, `nivel`, `valor`, `dimension`, `valorDimension`; además `corte`, `horizonte`, `ajuste`), `POST /prediccion/reentrenar` (Administrador, Coordinador, Analista; 201), `GET /prediccion/entrenamientos?pagina`, `GET /prediccion/top?dimension&nivelAtc` y `GET /prediccion/descarga?formato` (Excel, CSV o PDF con los metadatos de 14.8, el modelo y proyectado vs observado). **Pantalla:** el chip «Predictivo» abre `PanelPrediccion` (selector de serie, vista, dimensión con Top 20 y horizonte; gráfico SVG propio con banda IC 95 % y su tabla; KPI; metadatos y evaluados; escenarios con ajuste por %; proyectado vs observado; bitácora paginada y «Reentrenar» solo para quien opera).
 
 <!-- pendiente: cohorte como filtro de los tableros 1–12 (AN.22); recálculo incremental en lugar de toda la historia (A7, AN.23); documento entregable de metodología de GCF, GRC y alertas (la pantalla muestra la metodología). -->

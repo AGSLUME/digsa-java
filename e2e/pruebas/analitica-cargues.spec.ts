@@ -70,9 +70,12 @@ test('el administrador sube un archivo, mapea, ve la bitácora con rechazados y 
   expect(texto).not.toContain('81000006');
   await page.keyboard.press('Escape');
 
-  // Bitácora: la fila aparece arriba con los ocho atributos y los rechazados en rojo, sin separador de miles
-  const tabla = page.getByTestId('bitacora-cargues');
-  const fila = tabla.locator('tbody tr').first();
+  // Bitácora: la fila del cargue con los ocho atributos y los rechazados en rojo, sin separador de miles. Se ubica por su id (no la
+  // primera fila): con la base compartida entre navegadores, otra prueba puede haber cargado un archivo después de este
+  const lista = await api<{ filas: { id: number; nombreArchivo: string }[] }>(page, 'GET', '/api/analitica/cargues');
+  const propio = lista.datos.filas.find((c) => c.nombreArchivo === archivo.nombre);
+  expect(propio, 'el cargue en la bitácora').toBeDefined();
+  const fila = page.getByTestId('bitacora-cargues').getByTestId(`cargue-${propio!.id}`);
   await expect(fila).toContainText('Archivo CSV (;) UTF-8');
   await expect(fila).toContainText('14/03/2025 – 21/06/2025');
   await expect(fila.getByTestId('rechazados')).toHaveText('2');

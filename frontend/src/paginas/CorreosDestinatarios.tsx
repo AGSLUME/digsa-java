@@ -206,7 +206,7 @@ function EditorBuzones({ edicion, actuales, alCerrar }: { edicion: Edicion | nul
     const largo = [...m].length;
     if (
       !v.validar({
-        correos: malo ?? (edicion.tipo === 'digsa' && correos.length === 0 ? 'Escriba al menos un correo de la DIGSA.' : null),
+        correos: malo,
         motivo: largo < MOTIVO_MIN || largo > MOTIVO_MAX ? `Escriba el motivo (entre ${MOTIVO_MIN} y ${MOTIVO_MAX} caracteres).` : null,
       })
     )

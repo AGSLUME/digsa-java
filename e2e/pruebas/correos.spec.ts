@@ -123,10 +123,10 @@ test('el administrador ve a quién le llega cada correo y edita con motivo el bu
   await expect(page.getByText('Buzón de la DIGSA guardado: 2 correo(s).')).toBeVisible();
   await expect(buzon).toHaveText('digsa.e2e@example.com, segundo.e2e@example.com');
 
-  // Vuelve al valor de antes
+  // Vuelve exactamente al valor de antes (también vacío: otras pruebas dependen de que falte el buzón)
   await page.getByRole('button', { name: 'Editar el buzón de la DIGSA' }).click();
   dialogo = page.getByRole('dialog', { name: 'Buzón de la DIGSA' });
-  await dialogo.getByRole('textbox', { name: 'Correos' }).fill(original.includes('@') ? original : 'digsa@example.com');
+  await dialogo.getByRole('textbox', { name: 'Correos' }).fill(original.includes('@') ? original : '');
   await dialogo.getByRole('textbox', { name: 'Motivo' }).fill('Restaurar el buzón de la prueba');
   await dialogo.getByRole('button', { name: 'Guardar' }).click();
   await expect(dialogo).toBeHidden();

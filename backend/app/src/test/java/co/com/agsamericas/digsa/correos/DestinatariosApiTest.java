@@ -54,8 +54,6 @@ class DestinatariosApiTest extends PruebaIntegracion {
         try {
             assertThat(n.put("/api/correos/destinatarios/digsa", Map.of("correos", List.of("no-es-correo"), "motivo", "Cambio del buzón de la DIGSA"))
                     .estado()).isEqualTo(422);
-            assertThat(n.put("/api/correos/destinatarios/digsa", Map.of("correos", List.of(), "motivo", "Cambio del buzón de la DIGSA")).estado())
-                    .isEqualTo(422);
             assertThat(n.put("/api/correos/destinatarios/digsa", Map.of("correos", List.of("digsa.nueva@example.com"), "motivo", "corto")).estado())
                     .isEqualTo(422);
 

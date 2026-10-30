@@ -125,7 +125,7 @@ public class ControladorDestinatarios {
     @Accion(modulo = "correos", accion = "editar_buzon_digsa", operacion = Declarada.ACTUALIZACION)
     public Map<String, Object> editarDigsa(@RequestBody Buzones b) {
         String motivo = motivo(b);
-        List<String> correos = validar(b.correos(), true);
+        List<String> correos = validar(b.correos());
         UsuarioSesion u = UsuarioSesion.actual().orElseThrow();
         // Primero el registro propio: la bitácora junta los de la petición en una fila con el tipo del primero
         bitacora.registrar("correo_destinatarios_editados", "Buzón de la DIGSA: " + correos.size() + " correo(s). Motivo: " + motivo, u.id(), u.usuario());
@@ -137,7 +137,7 @@ public class ControladorDestinatarios {
     @Accion(modulo = "correos", accion = "editar_buzon_fuerza", operacion = Declarada.ACTUALIZACION)
     public Map<String, Object> editarFuerza(@PathVariable String codigo, @RequestBody Buzones b) {
         String motivo = motivo(b);
-        List<String> correos = validar(b.correos(), false);
+        List<String> correos = validar(b.correos());
         Map<String, Object> f = catalogos.fuerzas().stream().filter(x -> codigo.equals(x.get("codigo"))).findFirst()
                 .orElseThrow(() -> ErrorNegocio.noEncontrado("La fuerza no existe."));
         UsuarioSesion u = UsuarioSesion.actual().orElseThrow();
@@ -160,8 +160,11 @@ public class ControladorDestinatarios {
         return r;
     }
 
-    /** Correos válidos, sin repetir. La DIGSA necesita al menos uno (recibe actas, reportes y notificaciones). */
-    static List<String> validar(List<String> correos, boolean alMenosUno) {
+    /**
+     * Correos válidos, sin repetir. Vacío se permite, como en Catálogos (la fuente de verdad): la pantalla avisa qué deja de llegar y la
+     * notificación presupuestal queda «falta el buzón».
+     */
+    static List<String> validar(List<String> correos) {
         List<String> r = new ArrayList<>();
         List<String> malos = new ArrayList<>();
         for (String c : correos == null ? List.<String>of() : correos) {
@@ -177,9 +180,6 @@ public class ControladorDestinatarios {
         }
         if (!malos.isEmpty()) {
             throw ErrorNegocio.validacion("Estos correos no son válidos: " + String.join(", ", malos) + ".", "correos");
-        }
-        if (alMenosUno && r.isEmpty()) {
-            throw ErrorNegocio.validacion("Escriba al menos un correo de la DIGSA: recibe todas las actas, los reportes y las notificaciones.", "correos");
         }
         if (r.size() > MAX_CORREOS) {
             throw ErrorNegocio.validacion("Máximo " + MAX_CORREOS + " correos.", "correos");

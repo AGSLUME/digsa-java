@@ -7,6 +7,7 @@ import { FiltrosAnalitica } from '../analitica/FiltrosAnalitica';
 import { GraficoTabla, TACTIL, type AccionesFila } from '../analitica/GraficosAnalitica';
 import { PanelAtipicos } from '../analitica/PanelAtipicos';
 import { PanelCohortes } from '../analitica/PanelCohortes';
+import { PanelDescargasDiferidas } from '../analitica/PanelDescargasDiferidas';
 import { PanelPrediccion } from '../analitica/PanelPrediccion';
 import { PanelTraza } from '../analitica/PanelTraza';
 import {
@@ -264,6 +265,9 @@ export function Analitica() {
       <Card withBorder>
         <FiltrosAnalitica estado={estado} catalogo={c} alCambiar={cambiar} extra={extra} aplicados={r?.metadatos?.filtros} />
       </Card>
+
+      {/* CSV de registros de origen grandes que se generan en segundo plano (A7.3, AN.16) */}
+      <PanelDescargasDiferidas />
 
       {!c.hayCargues && (
         <Alert color="blue" title="Aún no hay cargues aplicados">

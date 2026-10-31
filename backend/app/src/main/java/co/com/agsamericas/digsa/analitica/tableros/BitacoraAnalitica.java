@@ -68,7 +68,7 @@ class BitacoraAnalitica {
     /** Registra sin tumbar la consulta (consultas en pantalla y descargas de tableros agregados). */
     void registrar(Entrada e) {
         try {
-            insertar(e);
+            insertar(e, deSesion());
         } catch (RuntimeException ex) {
             LOG.error("[analitica] No se pudo registrar la {} en ana_consultas: {}", e.accion(), e.objeto(), ex);
         }
@@ -80,15 +80,67 @@ class BitacoraAnalitica {
      */
     void registrarAntes(Entrada e) {
         try {
-            propia.executeWithoutResult(s -> insertar(e));
+            propia.executeWithoutResult(s -> insertar(e, deSesion()));
         } catch (RuntimeException ex) {
             LOG.error("[analitica] No se pudo registrar la {} en ana_consultas: no se entregan los registros", e.accion(), ex);
             throw new ErrorNegocio(HttpStatus.SERVICE_UNAVAILABLE, NO_REGISTRADA);
         }
     }
 
-    private void insertar(Entrada e) {
+    /** Quién hizo la operación: el usuario y el perfil de la sesión, o los congelados en una descarga diferida (A7.3). */
+    record Quien(Long id, String usuario, String perfil) {
+    }
+
+    private Quien deSesion() {
         UsuarioSesion u = UsuarioSesion.actual().orElse(null);
+        return new Quien(u == null ? null : u.id(), u == null ? null : u.usuario(), perfiles.nombres());
+    }
+
+    /**
+     * Registra la generación de una descarga diferida (A7.3) a nombre de quien la pidió (el ejecutor no tiene sesión), en su propia
+     * transacción y fallando cerrado: si no se puede escribir, el archivo no queda disponible.
+     */
+    void registrarPor(Entrada e, Quien q) {
+        try {
+            propia.executeWithoutResult(s -> insertar(e, q));
+        } catch (RuntimeException ex) {
+            LOG.error("[analitica] No se pudo registrar la {} diferida en ana_consultas: no se entrega el archivo", e.accion(), ex);
+            throw new ErrorNegocio(HttpStatus.SERVICE_UNAVAILABLE, NO_REGISTRADA);
+        }
+    }
+
+    /** La falla de una descarga diferida (A7.3), a nombre de quien la pidió; nunca tumba al ejecutor (si no se puede, queda en el registro). */
+    void registrarFallaPor(Entrada e, Quien q) {
+        try {
+            propia.executeWithoutResult(s -> insertar(e, q));
+        } catch (RuntimeException ex) {
+            LOG.error("[analitica] No se pudo registrar la falla de la {} diferida en ana_consultas", e.accion(), ex);
+        }
+    }
+
+    /**
+     * Fila de una falla: «tiempo_agotado», «rechazada» (validación, 4xx) o «error» (falla técnica). Sin el mensaje (puede repetir el valor
+     * que escribió el usuario) ni el texto técnico: solo la causa genérica y, si la hay, la variable.
+     */
+    static Entrada falla(String accion, ConsultaAnalitica q, String formato, long ms, Exception e) {
+        String resultado;
+        String advertencia;
+        if (e instanceof ErrorNegocio n && Boolean.TRUE.equals(n.datos().get("tiempoAgotado"))) {
+            resultado = "tiempo_agotado";
+            advertencia = "Tiempo agotado";
+        } else if (e instanceof ErrorNegocio n && n.estado().is4xxClientError()) {
+            resultado = "rechazada";
+            Object v = n.datos().get("variable");
+            advertencia = v == null ? "Consulta rechazada por validación" : "Filtro rechazado: " + v + " (valor inexistente o fuera del alcance)";
+        } else {
+            resultado = "error";
+            advertencia = "Error técnico (" + e.getClass().getSimpleName() + ")";
+        }
+        return new Entrada(accion, q, ParametrosConsulta.objeto(q, null), null, formato, null, null, ms, resultado, List.of(advertencia), null);
+    }
+
+    private void insertar(Entrada e, Quien q) {
+        Long uid = q.id();
         String tipo = switch (e.accion()) {
             case "descarga" -> "analitica_descarga";
             case "traza" -> "analitica_traza";
@@ -102,8 +154,8 @@ class BitacoraAnalitica {
                                            huella, duracion_ms, resultado, advertencias, creado)
                 VALUES (:u, :usuario, :perfil, :alcance, :accion, :tablero, :objeto, CAST(:filtros AS jsonb), :corte, :formato, :registros,
                         :huella, :duracion, :resultado, CAST(:advertencias AS text[]), :creado)""")
-                .param("u", u == null ? null : u.id()).param("usuario", u == null ? "sistema" : cortar(u.usuario(), 60))
-                .param("perfil", cortar(perfiles.nombres(), 200)).param("alcance", cortar(e.alcance() == null ? "—" : e.alcance(), 120))
+                .param("u", uid).param("usuario", q.usuario() == null ? "sistema" : cortar(q.usuario(), 60))
+                .param("perfil", cortar(q.perfil(), 200)).param("alcance", cortar(e.alcance() == null ? "—" : e.alcance(), 120))
                 .param("accion", accion).param("tablero", e.consulta() == null || e.consulta().tablero() == null ? null : e.consulta().tablero().codigo())
                 .param("objeto", e.objeto() == null ? null : cortar(e.objeto(), 300)).param("filtros", filtros(e.consulta(), resuelta))
                 .param("corte", e.corte()).param("formato", e.formato()).param("registros", e.registros()).param("huella", e.huella())
@@ -114,7 +166,7 @@ class BitacoraAnalitica {
                 + (e.corte() == null ? "" : " · corte cargue " + e.corte()) + (e.formato() == null ? "" : " · " + e.formato())
                 + (e.registros() == null ? "" : " · " + e.registros() + " registros") + (e.huella() == null ? "" : " · huella " + e.huella().substring(0, 12))
                 + " · " + e.duracionMs() + " ms" + (resuelta ? "" : " · " + e.resultado());
-        bitacora.registrar(tipo, cortar(desc, 500), u == null ? null : u.id(), u == null ? null : u.usuario());
+        bitacora.registrar(tipo, cortar(desc, 500), uid, q.usuario());
     }
 
     /**

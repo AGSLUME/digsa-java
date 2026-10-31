@@ -129,6 +129,12 @@ public final class Bitacora {
             Map.entry("analitica_hechos_exportacion_fallida", Operacion.INSERCION),
             Map.entry("analitica_hechos_exportacion_descarga", Operacion.CONSULTA),
             Map.entry("analitica_hechos_exportacion_vencida", Operacion.ELIMINACION),
+            // Descarga diferida de analítica (A7.3, duda AN.16): id, tipo, tablero, formato y registros; sin filtros ni datos personales
+            Map.entry("analitica_descarga_diferida_solicitada", Operacion.INSERCION),
+            Map.entry("analitica_descarga_diferida_generada", Operacion.INSERCION),
+            Map.entry("analitica_descarga_diferida_fallida", Operacion.INSERCION),
+            Map.entry("analitica_descarga_diferida_descarga", Operacion.CONSULTA),
+            Map.entry("analitica_descarga_diferida_vencida", Operacion.ELIMINACION),
             // --- Correos (sesión de correos): bitácora de envíos, plantillas y destinatarios ---
             Map.entry("correo_reintentado", Operacion.INSERCION), Map.entry("correo_destinatarios_vistos", Operacion.CONSULTA),
             Map.entry("correo_plantilla_editada", Operacion.ACTUALIZACION), Map.entry("correo_plantilla_restaurada", Operacion.ACTUALIZACION),

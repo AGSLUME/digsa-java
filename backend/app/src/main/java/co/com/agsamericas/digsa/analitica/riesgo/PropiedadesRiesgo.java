@@ -19,13 +19,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param supresionSensibles  umbral k de celdas pequeñas para las cohortes sensibles a nivel ESM aunque el general (tableros) esté en 0
  *                            (recomendación de la duda de supresión; 0 la apaga)
  * @param cohortesSensibles   códigos de las cohortes sensibles (VIH, huérfanas)
+ * @param incremental         A7.4 (AN.23): al aplicar un cargue recalcula solo los meses afectados y copia lo demás de la versión anterior del
+ *                            corte (resultado idéntico al recorrido completo); false = siempre recorrido completo
  * @param mesesAviso          el aviso por correo de severidad alta sale solo para alertas de los últimos N meses del corte; las de periodos
  *                            anteriores (primer cargue histórico) van en un resumen por ejecución
  */
 @ConfigurationProperties(prefix = "digsa.analitica.riesgo")
 public record PropiedadesRiesgo(Boolean recalcularAlAplicar, Integer tiempoMaximoMinutos, Integer memoriaTrabajoMb, Integer porPagina,
                                 Integer cortesConMembresia, Integer mesesGracia, Integer supresionSensibles, List<String> cohortesSensibles,
-                                Integer mesesAviso) {
+                                Integer mesesAviso, Boolean incremental) {
 
     public PropiedadesRiesgo {
         rango("tiempo-maximo-minutos", tiempoMaximoMinutos, 1, 240);
@@ -77,5 +79,10 @@ public record PropiedadesRiesgo(Boolean recalcularAlAplicar, Integer tiempoMaxim
 
     public int avisoMeses() {
         return mesesAviso == null ? 3 : mesesAviso;
+    }
+
+    /** A7.4: recálculo incremental al aplicar un cargue (por defecto encendido). */
+    public boolean usarIncremental() {
+        return incremental == null || incremental;
     }
 }

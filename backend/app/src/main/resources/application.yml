@@ -154,6 +154,7 @@ digsa:
       supresion-sensibles: ${DIGSA_ANALITICA_SUPRESION_SENSIBLES:5}       # k de las cohortes sensibles a nivel ESM (0 la apaga; duda AN de supresión)
       cohortes-sensibles: ${DIGSA_ANALITICA_COHORTES_SENSIBLES:vih,huerfanas}
       meses-aviso: ${DIGSA_ANALITICA_MESES_AVISO:3}                       # avisos por correo solo para alertas de los últimos N meses del corte
+      incremental: ${DIGSA_ANALITICA_RIESGO_INCREMENTAL:true}             # A7.4 (AN.23): al aplicar un cargue recalcula solo los meses afectados (false = siempre completo)
     # --- Predicción (A5, tablero 12; PropiedadesPrediccion) ---
     prediccion:
       entrenar-al-aplicar: ${DIGSA_ANALITICA_ENTRENAR_PREDICCION:true}  # nacional y por Fuerza al aplicar un cargue que completa un mes (segundo plano)
@@ -165,6 +166,18 @@ digsa:
       limite-minutos-mes: ${DIGSA_ANALITICA_HECHOS_LIMITE_MINUTOS:10}     # tope de cada mes (su propia transacción; AGS-75: 10 min)
       meses-max: ${DIGSA_ANALITICA_HECHOS_MESES_MAX:60}                   # meses por solicitud (todo el contrato y la entrega final)
       lote: 5000                                                          # filas por lote del cursor
+      revision-ms: 60000                                                  # revisión de vencidas y pendientes
+    # --- Descarga diferida (A7.3, duda AN.16; PropiedadesDescargasDiferidas) ---
+    # Solo el CSV de registros de origen se difiere (las descargas de los tableros son agregadas y siguen en la petición). Más registros que
+    # el umbral: 202 y se genera en segundo plano («Mis descargas del día»). Desde A7.3, tableros.max-registros-traza es lo que ese CSV
+    # entrega EN LA PETICIÓN (junto con el umbral, el menor de los dos); por encima va a diferido (ya no 422) hasta max-registros-traza
+    # de este bloque.
+    descargas-diferidas:
+      umbral-filas: ${DIGSA_ANALITICA_DESCARGA_UMBRAL_FILAS:100000}       # registros de origen desde los que el CSV va a diferido
+      max-registros-traza: ${DIGSA_ANALITICA_DESCARGA_MAX_TRAZA:2000000}  # tope del CSV de registros de origen en diferido (más: 422)
+      limite-minutos: ${DIGSA_ANALITICA_DESCARGA_LIMITE_MINUTOS:10}       # presupuesto de cada descarga diferida (A5 2.7: 10 min)
+      vigencia-horas: ${DIGSA_ANALITICA_DESCARGA_VIGENCIA_HORAS:24}       # luego se borra el archivo (Ley 1581)
+      edad-maxima-minutos: 60                                             # pendiente o generando desde hace más: fallida
       revision-ms: 60000                                                  # revisión de vencidas y pendientes
 
 logging:

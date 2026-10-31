@@ -84,7 +84,10 @@ public final class Exportacion {
             "ana_pred_entrenamientos", "ana_pred_proyecciones",
             // V66 · exportación de los hechos por periodo (A7.2, AN.14): quién pidió qué periodo, con qué corte, y la huella y las filas
             // de cada mes (traza; los archivos están en el almacén y vencen)
-            "ana_exportaciones_hechos", "ana_exportaciones_hechos_meses");
+            "ana_exportaciones_hechos", "ana_exportaciones_hechos_meses",
+            // V67 · descarga diferida (A7.3, AN.16): quién pidió qué descarga grande, con qué corte, alcance, perfil y registros, y la
+            // huella y el SHA-256 del archivo (traza; los archivos están en el almacén y vencen a las 24 h)
+            "ana_descargas_diferidas");
 
     /** Técnicas: no son datos de la aplicación (sesiones y control de migraciones). */
     public static final Set<String> TECNICAS = Set.of("flyway_schema_history", "spring_session", "spring_session_attributes",
@@ -103,6 +106,9 @@ public final class Exportacion {
             // Membresía de las cohortes (V63): número de paciente por mes y versión, solo del último corte; se deriva de los hechos y no
             // sale de la base salvo como conteos (A5 14.6 «nunca individualizada»)
             "ana_cohortes_miembros",
+            // Versión utilizable para el recálculo incremental (V68, A7.4, AN.23): firma, alertas de secuencia por mes y puntos de cada ESM
+            // de los dos últimos cortes; se derivan de los hechos y un recálculo completo las reconstruye
+            "ana_riesgo_inc_cortes", "ana_riesgo_inc_secuencia", "ana_riesgo_inc_puntos",
             // Staging de la carga del CUM del INVIMA (UNLOGGED, se vacía al terminar cada versión)
             "ref_cum_staging");
 

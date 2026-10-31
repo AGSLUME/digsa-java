@@ -179,6 +179,11 @@ abstract class PruebaRiesgo extends PruebaIntegracion {
 
     /** Sube el insumo por partes, confirma la propuesta de mapeo y espera el fin (como la pantalla «Cargues del OPL»). */
     static JsonNode cargarInsumo(Navegador n, String nombre, byte[] datos) {
+        return cargarInsumo(n, nombre, datos, "agregar", null, null);
+    }
+
+    /** Ídem con el modo («agregar» o «reemplazar») y el periodo declarado (A7.4: «Reemplazar el periodo»). */
+    static JsonNode cargarInsumo(Navegador n, String nombre, byte[] datos, String modo, String periodoDesde, String periodoHasta) {
         Map<String, Object> s = new LinkedHashMap<>();
         s.put("nombre", nombre);
         s.put("tamano", datos.length);
@@ -196,7 +201,11 @@ abstract class PruebaRiesgo extends PruebaIntegracion {
         n.get("/api/analitica/cargues/" + id + "/mapeo").json().path("propuesta").forEach(x -> columnas.add(x.asText()));
         Map<String, Object> conf = new LinkedHashMap<>();
         conf.put("columnas", columnas);
-        conf.put("modo", "agregar");
+        conf.put("modo", modo);
+        if (periodoDesde != null) {
+            conf.put("periodoDesde", periodoDesde);
+            conf.put("periodoHasta", periodoHasta);
+        }
         conf.put("guardarPlantilla", false);
         Navegador.Respuesta r = n.post("/api/analitica/cargues/" + id + "/mapeo", conf);
         assertThat(r.estado()).as(r.texto()).isEqualTo(202);

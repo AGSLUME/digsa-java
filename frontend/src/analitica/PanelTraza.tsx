@@ -1,11 +1,12 @@
 import { Alert, Button, Group, Loader, Stack, Table, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, descargar, ErrorApi } from '../shared/api';
+import { api, ErrorApi } from '../shared/api';
 import { cifra as cifraTexto, conteo, fecha, monto } from '../shared/formato';
 import { TablaAdaptable } from '../shared/TablaAdaptable';
 import { useValidacion } from '../shared/validacion';
+import { CLAVE_DESCARGAS_DIFERIDAS, descargarODiferir, mensajeDiferida } from './descargasDiferidas';
 import { rutaTraza, rutaTrazaCsv, seudonimoCorto, type EstadoAnalitica, type Traza } from './tableros';
 
 /** Cómo se muestra «la cifra» en el desglose según lo que se rastreó (gasto, unidades, dispensaciones o pacientes). */
@@ -46,6 +47,7 @@ export function PanelTraza({
   const ruta = rutaTraza(estado, rastreo, pagina, cursores[pagina - 1]);
   const traza = useQuery({ queryKey: ['analitica', 'traza', ruta], queryFn: () => api<Traza>(ruta), placeholderData: keepPreviousData });
   const [bajando, setBajando] = useState(false);
+  const qc = useQueryClient();
   // El error de la descarga queda fijo junto al botón (Anexo 5 num. 2.4)
   const v = useValidacion({ testid: 'error-descarga-traza' });
   const bajar = async () => {
@@ -53,8 +55,14 @@ export function PanelTraza({
     v.reiniciar();
     const id = notifications.show({ loading: true, autoClose: false, message: 'Generando el CSV de los registros…' });
     try {
-      await descargar(rutaTrazaCsv(estado, rastreo));
-      notifications.update({ id, loading: false, autoClose: 4000, color: 'green', message: 'CSV de los registros descargado.' });
+      // Más registros que el límite de la petición: el servidor la difiere (202) y queda en «Mis descargas del día» (A7.3, AN.16)
+      const diferida = await descargarODiferir(rutaTrazaCsv(estado, rastreo));
+      if (diferida) {
+        notifications.update({ id, loading: false, autoClose: 10000, color: 'blue', message: mensajeDiferida(diferida) });
+        await qc.invalidateQueries({ queryKey: CLAVE_DESCARGAS_DIFERIDAS });
+      } else {
+        notifications.update({ id, loading: false, autoClose: 4000, color: 'green', message: 'CSV de los registros descargado.' });
+      }
     } catch (e) {
       notifications.hide(id);
       v.errorServidor(e, 'No se pudo descargar la lista.');

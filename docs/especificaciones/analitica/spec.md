@@ -43,10 +43,21 @@ Cada fase cierra con:
 | **A3 · Tableros, descargas y trazabilidad** | Servicio de consulta común (capa semántica que también usa el asistente). Agregados refrescados por cargue. Los 12 tableros: 9 completos, y cohortes, atípicos y predictivo como enlace a A4/A5. Vistas gerencial, por Fuerza y por ESM. Filtros con selección múltiple y granularidades, comparación entre periodos, Top 20, descargas Excel/CSV/PDF con todos los metadatos, reproducibilidad, recorrido de una cifra hasta el registro de origen y bitácora de consultas y descargas | V62 | **Cuadre** contra los totales del generador, por dimensión y entre dimensiones. Alcance por perfil. Reproducibilidad entre dos usuarios. Metadatos completos. Tiempo por tablero sobre 2 M de filas |
 | **A4 · Cohortes y alertas** | Cohortes persistentes y parametrizables (las 10 del A4, GCF y GRC), siempre agregadas y con criterio visible. Motor de alertas tempranas con contexto (umbral, periodo, dimensión y severidad), análisis técnico y validación humana. Consola con perfiles autorizados, umbrales parametrizables y aviso por correo con `ServicioAlertas` | V63 | Detecta **todos** los errores sembrados del generador. Sin individualización. Contexto completo. Perfiles |
 | **A5 · Predicción** | Proyección a 6 meses (Holt-Winters o Holt con tendencia, según la historia disponible), validación temporal, IC 95 %, metadatos, observado frente a proyectado y bitácora de entrenamientos | V64 | Series conocidas con resultado esperado. Poca historia (1 año). Metadatos visibles |
-| **A6 · Asistente IA** | Puerto `AsistenteAnalitico` con los adaptadores Claude (por defecto `claude-opus-5-5`), compatible con OpenAI (modelo en Colombia o local) y «no disponible». Consulta estructurada validada contra la capa semántica, advertencia ante filtros inexistentes o ambiguos, auditoría, límites, tiempo de espera y defensa contra inyección. Sugeridor de homologación por el mismo puerto | V65 | Cifras iguales a las del tablero. Filtro inexistente → advertencia. Auditoría con herramientas ejecutadas. Inyección. Modo sin IA. Evals con adaptador simulado |
-| **A7 · Rendimiento y simulacro M8** | Prueba de carga documentada (ingesta, tableros, exportación y asistente, repetida). Recorrido e2e del simulacro (orden 14: M8-1 a M8-10 seguidos), afinamiento, documentación de operación y metodología (GCF, GRC, modelos y reglas) | V66 si hace falta | `docs/rendimiento_analitica.md`. Simulacro en 5 navegadores |
+| **A6 · Asistente IA** · *en pausa (IA)* | Puerto `AsistenteAnalitico` con los adaptadores Claude (por defecto `claude-opus-5-5`), compatible con OpenAI (modelo en Colombia o local) y «no disponible». Consulta estructurada validada contra la capa semántica, advertencia ante filtros inexistentes o ambiguos, auditoría, límites, tiempo de espera y defensa contra inyección. Sugeridor de homologación por el mismo puerto | V65 | Cifras iguales a las del tablero. Filtro inexistente → advertencia. Auditoría con herramientas ejecutadas. Inyección. Modo sin IA. Evals con adaptador simulado |
+| **A7 · Rendimiento y simulacro M8** · *terminada (A7.1–A7.5)* | Prueba de carga documentada (ingesta, tableros, exportación y asistente, repetida). Recorrido e2e del simulacro (orden 14: M8-1 a M8-10 seguidos), afinamiento, documentación de operación y metodología (GCF, GRC, modelos y reglas) | V66 si hace falta | `docs/rendimiento_analitica.md`. Simulacro en 5 navegadores |
 
 V67–V69 quedan de reserva.
+
+> **Nota del 2026-10-31 (cierre de la hoja de ruta de analítica por decisión del usuario):**
+> - **A6 queda en pausa (IA)** desde el 2026-10-28, sin construir. AN.1 la decide el usuario.
+> - **A7 queda terminada** en cinco subfases:
+>   - A7.1 `4803936`: cohorte, GCF y GRC como filtro (V65).
+>   - A7.2 `742af84`: exportación de los hechos por periodo (V66).
+>   - A7.3 `80a4b8c`: descarga diferida de los registros de origen (V67).
+>   - A7.4 `3e6417d`: recálculo incremental (V68).
+>   - A7.5: documentación, con `docs/rendimiento_analitica.md` y `docs/analitica_traspaso.md`; sin commit al escribir esta nota.
+> - Las migraciones reales fueron V65–V68 para A7 (V65 ya no es de A6); V69 queda libre.
+> - Del alcance de A7 quedan sin hacer la prueba de carga y el recorrido del simulacro M8, aplazados por el usuario. Su plan está en `docs/rendimiento_analitica.md`.
 
 ## Aprobación
 

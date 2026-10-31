@@ -24,7 +24,7 @@ const ADMIN = process.env.DIGSA_E2E_ADMIN ?? 'admin.e2e:Admin.E2E.Prueba.2026';
 
 const canales = (process.env.DIGSA_E2E_CANALES ?? '').split(',').filter(Boolean);
 
-// Módulo Correos · C4: DIGSA_E2E_CORREO=mailpit arranca el servidor con el perfil «mailpit» (SMTP a Mailpit en localhost:1025; solo
+// Módulo Correos · C4: DIGSA_E2E_CORREO=mailpit arranca el servidor con el perfil «mailpit» (SMTP a Mailpit en 127.0.0.1:1025; solo
 // para pruebas/mailpit.spec.ts, docs/guia_mailpit.md). Sin la variable, el correo va a archivo como siempre.
 const CORREO_MAILPIT = process.env.DIGSA_E2E_CORREO === 'mailpit' ? ' -Ddigsa.local.correo=mailpit' : '';
 

@@ -6,8 +6,8 @@ Mailpit es un servidor de correo de pruebas. Recibe todo lo que envía la aplica
 
 | Qué | Dónde |
 |---|---|
-| SMTP (la aplicación envía aquí) | `localhost:1025`, sin usuario y sin STARTTLS |
-| Página para ver los correos | <http://localhost:8025> |
+| SMTP (la aplicación envía aquí) | `127.0.0.1:1025`, sin usuario y sin STARTTLS |
+| Página para ver los correos | <http://127.0.0.1:8025> |
 | Perfil de la aplicación | `mailpit` (archivo `backend/app/src/main/resources/application-mailpit.yml`) |
 
 El perfil `mailpit` **solo arranca con `digsa.entorno=local`** y con el SMTP en `localhost` o `127.0.0.1`. Si no se cumple, la aplicación no inicia y dice por qué (`ValidacionArranque`). Así una variable mal puesta en un servidor no puede mandar correos sin cifrar a otra parte.
@@ -27,7 +27,7 @@ Este equipo no tiene Docker; esta es la forma recomendada.
    ```
 
    Déjelo abierto mientras prueba. Para detenerlo, pulse `Ctrl+C`.
-4. Abra <http://localhost:8025>: debe verse la bandeja vacía.
+4. Abra <http://127.0.0.1:8025>: debe verse la bandeja vacía.
 
 ## Arrancar la aplicación con el perfil mailpit
 
@@ -42,9 +42,11 @@ $env:JAVA_HOME = "$env:LOCALAPPDATA\Programs\jdk21"
 
 `-Ddigsa.local.correo=mailpit` hace que el arranque local active el perfil `mailpit` en lugar del correo a archivo. Para volver a los archivos, quite ese argumento.
 
-Pruebe con el ingreso: el código de verificación llega a <http://localhost:8025>. En la pantalla **Correos › Envíos** de la aplicación queda el mismo envío, con el código oculto.
+Pruebe con el ingreso: el código de verificación llega a <http://127.0.0.1:8025>. En la pantalla **Correos › Envíos** de la aplicación queda el mismo envío, con el código oculto.
 
-Para usar otro equipo o puerto (por ejemplo, Mailpit en otro puerto), use las variables `DIGSA_MAILPIT_HOST` (solo `localhost` o `127.0.0.1`) y `DIGSA_MAILPIT_PUERTO`.
+Para usar otro puerto, use la variable `DIGSA_MAILPIT_PUERTO`. El equipo se cambia con `DIGSA_MAILPIT_HOST`, que solo acepta `localhost` o `127.0.0.1`.
+
+**Por qué `127.0.0.1` y no `localhost` (por defecto desde el 2026-10-31):** Java resuelve `localhost` primero a la dirección IPv6 `::1`, y Mailpit, arrancado como dice el paso 3, escucha solo en IPv4 (`127.0.0.1`). Con `localhost` cada envío espera a que falle el intento por IPv6 y la pantalla de ingreso queda más de 10 s esperando el código. Por eso el perfil usa `127.0.0.1` por defecto. Solo cambie a `localhost` si arranca Mailpit también en IPv6.
 
 ## Opción 2 · Docker (en equipos que lo tengan)
 

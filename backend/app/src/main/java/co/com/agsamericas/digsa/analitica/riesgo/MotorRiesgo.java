@@ -69,11 +69,17 @@ final class MotorRiesgo {
     /** Acumulado de una alerta de secuencia: pacientes distintos, registros distintos, gasto, ESM, Fuerzas y CUM involucrados. */
     static final class Acum {
         final Set<Integer> pacientes = new HashSet<>();
+        /** Pacientes distintos que trae la versión anterior del corte (A7.4: el mes no se recalculó y se copia). */
+        long pacientesPrevios;
         long registros;
         long gasto;
         final TreeSet<String> esms = new TreeSet<>();
         final TreeSet<String> fuerzas = new TreeSet<>();
         final TreeSet<String> cums = new TreeSet<>();
+
+        long numPacientes() {
+            return pacientes.size() + pacientesPrevios;
+        }
     }
 
     private static final class Fila {
@@ -143,6 +149,17 @@ final class MotorRiesgo {
     private final Map<String, String[]> cronicoCie = new HashMap<>();
     private final int[] inicioIngresos;
 
+    // ---------- Recálculo incremental (A7.4, AN.23) ----------
+    /** Meses (ordinales) cuyos resultados se acumulan; fuera de ellos el recorrido solo arma la historia que las ventanas necesitan. */
+    private int emitirDesde = Integer.MIN_VALUE;
+    private int emitirHasta = Integer.MAX_VALUE;
+    /** Tipos de secuencia de esta pasada (nulo: todos los activos). */
+    private Set<Tipo> pase;
+    /** ¿La pasada anota los puntos de cada ESM? (la de estrecho margen lee solo esos medicamentos: no). */
+    private boolean anotarPuntos = true;
+    /** Mes ⇒ ESM ⇒ puntos distintos con que llegó (A7.4: ubican las alertas de nivel ESM sin recorrer toda la historia). */
+    final Map<Integer, Map<String, TreeSet<Long>>> puntos = new TreeMap<>();
+
     MotorRiesgo(CatalogoClinico cat, List<VersionCohorte> versiones, Map<String, Map<Integer, Long>> umbrales, Map<Tipo, Parametros> parametros,
                 Set<Tipo> evaluables, Corte corte, int gracia, RecalculoRiesgo.Sonda sonda) {
         this.cat = cat;
@@ -169,6 +186,22 @@ final class MotorRiesgo {
         }
     }
 
+    /** Solo se acumulan los resultados de los meses [desde, hasta] (A7.4); el resto lo trae la versión anterior del corte. */
+    void emitir(int desde, int hasta) {
+        this.emitirDesde = desde;
+        this.emitirHasta = hasta;
+    }
+
+    boolean emite(int mes) {
+        return mes >= emitirDesde && mes <= emitirHasta;
+    }
+
+    /** Pasada solo con estos tipos de secuencia, y si anota los puntos de cada ESM (la de estrecho margen de toda la historia no, A7.4). */
+    void pase(Set<Tipo> tipos, boolean puntosEsm) {
+        this.pase = tipos;
+        this.anotarPuntos = puntosEsm;
+    }
+
     /** Cierra la membresía acumulada (borra los archivos temporales de los lotes, AN.32). */
     void liberar() {
         miembros.forEach(Volcado::close);
@@ -185,29 +218,60 @@ final class MotorRiesgo {
 
     /** Recorre los hechos del corte en un cursor (dentro de la transacción de lectura de quien llama). */
     void recorrer(JdbcTemplate t, List<Long> cargues) {
+        recorrer(t, cargues, null, null, null);
+    }
+
+    /**
+     * Recorre los hechos del corte. A7.4: opcionalmente solo las fechas [desde, hasta] o solo los medicamentos {@code meds}; con
+     * medicamentos solo corren los detectores de secuencia de la pasada (sin cohortes).
+     */
+    void recorrer(JdbcTemplate t, List<Long> cargues, LocalDate desde, LocalDate hasta, Long[] meds) {
         List<Fila> paciente = new ArrayList<>();
         int[] actual = {Integer.MIN_VALUE};
+        boolean soloSecuencia = meds != null;
         t.query(con -> {
             var ps = con.prepareStatement("""
                     SELECT x.paciente_id, x.fecha, x.fuerza, x.esm_codigo, x.punto_id, x.modalidad, x.medicamento_id, x.cum, x.cie10,
                            x.cantidad_milesimas, x.valor_centavos
-                    FROM ana_hechos_tablero x WHERE x.cargue_id = ANY(?)
-                    ORDER BY x.paciente_id, x.fecha, x.medicamento_id, x.cantidad_milesimas, x.valor_centavos, x.esm_codigo, x.cum""");
+                    FROM ana_hechos_tablero x WHERE x.cargue_id = ANY(?)""" + (desde == null ? "" : " AND x.fecha BETWEEN ? AND ?")
+                    + (meds == null ? "" : " AND x.medicamento_id = ANY(?)")
+                    // Orden total (A7.4): el recorrido de una ventana ve las filas en el mismo orden que el completo
+                    + " ORDER BY x.paciente_id, x.fecha, x.medicamento_id, x.cantidad_milesimas, x.valor_centavos, x.esm_codigo, x.cum, x.fuerza,"
+                    + " x.modalidad, x.cie10, x.punto_id");
             ps.setFetchSize(FETCH);
-            ps.setArray(1, con.createArrayOf("bigint", cargues.toArray()));
+            int i = 1;
+            ps.setArray(i++, con.createArrayOf("bigint", cargues.toArray()));
+            if (desde != null) {
+                ps.setObject(i++, desde);
+                ps.setObject(i++, hasta);
+            }
+            if (meds != null) {
+                ps.setArray(i, con.createArrayOf("bigint", meds));
+            }
             return ps;
         }, (ResultSet rs) -> {
             Fila f = leer(rs);
-            filas++;
+            if (!soloSecuencia) {
+                // La pasada de estrecho margen (A7.4) no cuenta: los registros leídos son los del recorrido
+                filas++;
+            }
             if (f.paciente != actual[0] && !paciente.isEmpty()) {
-                paciente(actual[0], paciente);
+                paciente(actual[0], paciente, soloSecuencia);
                 paciente.clear();
             }
             actual[0] = f.paciente;
             paciente.add(f);
         });
         if (!paciente.isEmpty()) {
-            paciente(actual[0], paciente);
+            paciente(actual[0], paciente, soloSecuencia);
+        }
+    }
+
+    private void paciente(int pid, List<Fila> filas, boolean soloSecuencia) {
+        if (soloSecuencia) {
+            secuencia(pid, filas);
+        } else {
+            paciente(pid, filas);
         }
     }
 
@@ -228,8 +292,13 @@ final class MotorRiesgo {
         f.cie = cat.cie(rs.getString(9));
         f.cantidad = rs.getLong(10);
         f.valor = rs.getLong(11);
-        if (f.punto != null && !puntoDeEsm.containsKey(f.esm)) {
-            puntoDeEsm.put(f.esm, f.punto);
+        if (f.punto != null && anotarPuntos) {
+            if (!puntoDeEsm.containsKey(f.esm)) {
+                puntoDeEsm.put(f.esm, f.punto);
+            }
+            if (emite(f.mes)) {
+                puntos.computeIfAbsent(f.mes, x -> new TreeMap<>()).computeIfAbsent(f.esm, x -> new TreeSet<>()).add(f.punto);
+            }
         }
         return f;
     }
@@ -322,6 +391,9 @@ final class MotorRiesgo {
         if (v.particion()) {
             for (int i = 0; i < meses.size(); i++) {
                 MesBase mb = meses.get(i);
+                if (!emite(mb.mes)) {
+                    continue;
+                }
                 // A7.1: la membresía de la partición (grupo del paciente en el mes) para filtrar los tableros y la predicción por GCF o GRC
                 miembroParticion(v, pid, mb, r.grupo()[i]);
                 for (Map.Entry<String, long[]> c : mb.celdas.entrySet()) {
@@ -344,13 +416,13 @@ final class MotorRiesgo {
             }
             MesBase mb = meses.get(i);
             for (Map.Entry<String, long[]> c : mb.celdas.entrySet()) {
-                long[] s = serie.computeIfAbsent(new Llave(v.indice(), mb.mes, c.getKey(), ""), x -> new long[6]);
+                long[] s = celda(v, mb.mes, c.getKey());
                 s[0]++;
                 Integer u0 = ultimo.get(c.getKey());
                 boolean nuevoEpisodio = u0 == null || mb.mes - u0 > gracia + 1;
                 if (u0 != null && nuevoEpisodio) {
                     // El episodio anterior terminó (no volvió dentro de la gracia): salida en el mes siguiente a su último mes
-                    serie.computeIfAbsent(new Llave(v.indice(), u0 + 1, c.getKey(), ""), x -> new long[6])[2]++;
+                    celda(v, u0 + 1, c.getKey())[2]++;
                 }
                 if (nuevoEpisodio && mb.mes >= inicio) {
                     s[1]++;
@@ -363,12 +435,14 @@ final class MotorRiesgo {
                     enPeriodo.add(c.getKey());
                 }
             }
-            miembro(v, pid, mb);
+            if (emite(mb.mes)) {
+                miembro(v, pid, mb);
+            }
         }
         // Episodios que terminan dentro de los datos (sin volver en la gracia); los que podrían seguir quedan abiertos (censura por la derecha)
         for (Map.Entry<String, Integer> e : ultimo.entrySet()) {
             if (e.getValue() + gracia + 1 <= ultimoMes) {
-                serie.computeIfAbsent(new Llave(v.indice(), e.getValue() + 1, e.getKey(), ""), x -> new long[6])[2]++;
+                celda(v, e.getValue() + 1, e.getKey())[2]++;
             }
         }
         if (!enPeriodo.isEmpty()) {
@@ -379,12 +453,18 @@ final class MotorRiesgo {
         }
     }
 
+    /** Acumulador de la serie de una celda; fuera de los meses que se emiten, uno desechable (A7.4). */
+    private long[] celda(VersionCohorte v, int mes, String celda) {
+        return emite(mes) ? serie.computeIfAbsent(new Llave(v.indice(), mes, celda, ""), x -> new long[6]) : new long[6];
+    }
+
     /** Línea COPY de la membresía (texto, tabulador): versión, corte, mes, paciente, Fuerzas, ESM y pares Fuerza|ESM. */
     private void miembro(VersionCohorte v, int pid, MesBase mb) {
         YearMonth ym = AnaliticaCohortes.deOrdinal(mb.mes);
-        List<String> fu = new ArrayList<>();
+        // Ordenados (A7.4): el arreglo no depende del orden de las filas del mes
+        Set<String> fu = new TreeSet<>();
         Set<String> es = new TreeSet<>();
-        List<String> pares = new ArrayList<>();
+        Set<String> pares = new TreeSet<>();
         for (String c : mb.celdas.keySet()) {
             if (c.startsWith("F|")) {
                 fu.add(c.substring(2));
@@ -396,7 +476,7 @@ final class MotorRiesgo {
         }
         Volcado d = miembros.get(v.indice());
         d.linea().append(v.id()).append('\t').append(corte).append('\t').append(ym.atDay(1)).append('\t').append(pid).append('\t')
-                .append(arreglo(fu)).append('\t').append(arreglo(new ArrayList<>(es))).append('\t').append(arreglo(pares)).append("\t\n");
+                .append(arreglo(new ArrayList<>(fu))).append('\t').append(arreglo(new ArrayList<>(es))).append('\t').append(arreglo(new ArrayList<>(pares))).append("\t\n");
         d.fin();
         filasMiembros++;
     }
@@ -516,7 +596,7 @@ final class MotorRiesgo {
 
     /** Corre un tipo de secuencia aislado: si lanza, queda en error y se apaga para el resto del recorrido. */
     private void aislado(Tipo t, Runnable r) {
-        if (!activo(t)) {
+        if (!activo(t) || pase != null && !pase.contains(t)) {
             return;
         }
         try {
@@ -614,6 +694,9 @@ final class MotorRiesgo {
 
     /** Anota las filas del evento en cada nivel configurado (nacional, la Fuerza o el ESM —con su Fuerza— de la dispensación que lo dispara). */
     private void marcar(Map<ClaveAlerta, Set<Integer>> propias, Parametros p, Tipo t, String dimension, String valor, Fila f, int[] filasEvento) {
+        if (!emite(f.mes)) {
+            return;
+        }
         for (String nivel : p.niveles()) {
             String codigo = switch (nivel) {
                 case "fuerza" -> f.fuerza;

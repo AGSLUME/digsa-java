@@ -475,18 +475,18 @@ final class DetectoresAlertas {
                         .thenComparingInt(MotorRiesgo.ClaveAlerta::mes)).toList();
         for (MotorRiesgo.ClaveAlerta k : claves) {
             MotorRiesgo.Acum a = motor.alertas.get(k);
-            Optional<Severidad> sev = AnaliticaAlertas.severidad(BigDecimal.valueOf(a.pacientes.size()), p);
+            Optional<Severidad> sev = AnaliticaAlertas.severidad(BigDecimal.valueOf(a.numPacientes()), p);
             if (sev.isEmpty()) {
                 continue;
             }
             Candidata c = base(t, k.nivel(), k.codigoNivel(), k.dimension(), k.valor(), k.mes());
             c.severidad = sev.get();
             c.umbral = AnaliticaAlertas.umbral(sev.get(), p);
-            c.observado = BigDecimal.valueOf(a.pacientes.size());
+            c.observado = BigDecimal.valueOf(a.numPacientes());
             c.registros = a.registros;
-            c.pacientes = a.pacientes.size();
+            c.pacientes = a.numPacientes();
             c.gasto = BigDecimal.valueOf(a.gasto, 2);
-            String n = AnaliticaAlertas.marca(a.pacientes.size());
+            String n = AnaliticaAlertas.marca(a.numPacientes());
             c.detalle = switch (t) {
                 case DUPLICIDAD -> n + " pacientes recibieron dos principios activos distintos del grupo " + k.valor() + " con cobertura superpuesta ("
                         + p.extra("dias", "30").intValue() + " días; el insumo no trae días de tratamiento), en " + a.esms.size() + " ESM.";

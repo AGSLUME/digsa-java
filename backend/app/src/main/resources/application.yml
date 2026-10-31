@@ -154,6 +154,7 @@ digsa:
       supresion-sensibles: ${DIGSA_ANALITICA_SUPRESION_SENSIBLES:5}       # k de las cohortes sensibles a nivel ESM (0 la apaga; duda AN de supresión)
       cohortes-sensibles: ${DIGSA_ANALITICA_COHORTES_SENSIBLES:vih,huerfanas}
       meses-aviso: ${DIGSA_ANALITICA_MESES_AVISO:3}                       # avisos por correo solo para alertas de los últimos N meses del corte
+      incremental: ${DIGSA_ANALITICA_RIESGO_INCREMENTAL:true}             # A7.4 (AN.23): al aplicar un cargue recalcula solo los meses afectados (false = siempre completo)
     # --- Predicción (A5, tablero 12; PropiedadesPrediccion) ---
     prediccion:
       entrenar-al-aplicar: ${DIGSA_ANALITICA_ENTRENAR_PREDICCION:true}  # nacional y por Fuerza al aplicar un cargue que completa un mes (segundo plano)

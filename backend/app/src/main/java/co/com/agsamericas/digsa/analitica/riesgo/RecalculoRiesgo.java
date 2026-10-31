@@ -17,6 +17,7 @@ import co.com.agsamericas.digsa.reglas.AnaliticaCohortes.Criterio;
 import co.com.agsamericas.digsa.reglas.AnaliticaCohortes.GastoMovil;
 import co.com.agsamericas.digsa.reglas.AnaliticaCohortes.Lista;
 import co.com.agsamericas.digsa.reglas.AnaliticaConsulta;
+import co.com.agsamericas.digsa.reglas.AnaliticaIncremental;
 import co.com.agsamericas.digsa.reglas.Bitacora;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -271,18 +272,20 @@ public class RecalculoRiesgo implements DisposableBean {
                 INSERT INTO ana_alertas_ejecuciones (origen, corte_cargue_id, usuario_id, inicio) VALUES (:o, :c, :u, :a) RETURNING id""")
                 .param("o", origen).param("c", corte).param("u", usuarioId).param("a", ahora).query(Long.class).single() : null;
         Programada p = new Programada(ec, ea, corte);
-        hilo.execute(() -> correrConCandado(p, versiones, usuarioId));
+        // A7.4: solo el recálculo al aplicar un cargue, con todas las versiones, intenta el incremental («Recalcular» y «Ejecutar» son completos)
+        boolean incremental = "cargue".equals(origen) && versiones == null;
+        hilo.execute(() -> correrConCandado(p, versiones, usuarioId, incremental));
         return p;
     }
 
-    private void correrConCandado(Programada p, List<Long> versiones, Long usuarioId) {
+    private void correrConCandado(Programada p, List<Long> versiones, Long usuarioId, boolean incremental) {
         try (Connection c = ds.getConnection()) {
             try (PreparedStatement ps = c.prepareStatement("SELECT pg_advisory_lock(?)")) {
                 ps.setLong(1, CANDADO);
                 ps.execute();
             }
             try {
-                correr(p, versiones, usuarioId);
+                correr(p, versiones, usuarioId, incremental);
             } finally {
                 try (PreparedStatement ps = c.prepareStatement("SELECT pg_advisory_unlock(?)")) {
                     ps.setLong(1, CANDADO);
@@ -301,16 +304,27 @@ public class RecalculoRiesgo implements DisposableBean {
 
     // ---------- Corrida ----------
 
-    /** Lo leído en la foto del corte. */
+    /**
+     * Lo leído en la foto del corte. {@code umbrales}: los que usó el motor; {@code umbralesGuardados}: los que se guardan con el resultado
+     * (en el incremental, los de la versión anterior en los meses que no se recalculan). A7.4: el modo (incremental o completo), la firma y la
+     * huella del catálogo por cargue (la versión utilizable que deja el corte).
+     */
     private record Lectura(Corte corte, List<MotorRiesgo.VersionCohorte> versiones, CatalogoClinico cat, Map<Tipo, Parametros> parametros,
                            Map<Tipo, Integer> versionParametros, Map<String, Map<Integer, Long>> umbrales, MotorRiesgo motor, DetectoresAlertas detectores,
-                           String errorAlertas, Map<String, long[]> cohortes, Map<String, Long> etapas) {
+                           String errorAlertas, Map<String, long[]> cohortes, Map<String, Long> etapas, RecalculoIncremental.Decision modo, String firma,
+                           List<String> huellas, Map<String, Map<Integer, Long>> umbralesGuardados) {
     }
 
     void correr(Programada p, List<Long> soloVersiones, Long usuarioId) {
+        correr(p, soloVersiones, usuarioId, false);
+    }
+
+    void correr(Programada p, List<Long> soloVersiones, Long usuarioId, boolean incremental) {
         long t0 = System.nanoTime();
         boolean alertas = p.ejecucionAlertas() != null;
-        Lectura l = lectura.execute(s -> leer(p, soloVersiones, alertas));
+        String motivo = soloVersiones != null ? "recálculo de versiones puntuales" : !incremental ? "recálculo bajo demanda o tras un reinicio"
+                : !propiedades.usarIncremental() ? "recálculo incremental apagado (digsa.analitica.riesgo.incremental=false)" : null;
+        Lectura l = lectura.execute(s -> leer(p, soloVersiones, alertas, motivo));
         long t1 = System.nanoTime();
         l.etapas().put("lectura", ms(t0, t1));
         try {
@@ -328,15 +342,27 @@ public class RecalculoRiesgo implements DisposableBean {
                         errorAlertas = "Falla técnica al escribir las alertas (" + e.getClass().getSimpleName() + "); revise el registro del servidor";
                     }
                 }
+                boolean versionesFallidas = !l.motor().fallosVersion.isEmpty();
+                // A7.4: la versión utilizable del corte, solo si todo se calculó (todas las versiones y tipos, sin fallas)
+                boolean completa = soloVersiones == null && alertas && resumen != null && !versionesFallidas && l.motor().fallosTipo.isEmpty()
+                        && l.detectores().porTipo.values().stream().noneMatch(x -> "error".equals(x.get("estado")));
+                if (completa) {
+                    long tb = System.nanoTime();
+                    RecalculoIncremental.guardar(jdbc, ds, l.corte(), p.ejecucionCohortes(), l.firma(), l.huellas(), l.motor(), OffsetDateTime.now(reloj));
+                    l.etapas().put("version_utilizable", ms(tb, System.nanoTime()));
+                }
                 l.etapas().put("escritura", ms(t1, System.nanoTime()));
                 long total = ms(t0, System.nanoTime());
-                boolean versionesFallidas = !l.motor().fallosVersion.isEmpty();
+                RecalculoIncremental.Decision modo = l.modo();
                 jdbc.sql("""
                         UPDATE ana_cohortes_ejecuciones SET fin = :f, estado = :estado, versiones = :v, filas = :n, duracion_ms = :d, etapas_ms = CAST(:e AS jsonb),
-                               error = :err WHERE id = :id""").param("f", OffsetDateTime.now(reloj)).param("estado", versionesFallidas ? "con_fallos" : "ok")
+                               error = :err, modo = :modo, meses_recalculados = :meses, motivo_modo = :motivo WHERE id = :id""")
+                        .param("f", OffsetDateTime.now(reloj)).param("estado", versionesFallidas ? "con_fallos" : "ok")
                         .param("v", l.versiones().size()).param("n", l.motor().filas).param("d", total).param("e", aJson(l.etapas()))
                         .param("err", versionesFallidas ? Bitacora.cortar(l.motor().fallosVersion.size() + " versiones no evaluadas por error; revise el registro", 500)
-                                : null).param("id", p.ejecucionCohortes()).update();
+                                : null).param("modo", modo.incremental() ? "incremental" : "completo")
+                        .param("meses", modo.incremental() ? modo.plan().texto() : null).param("motivo", Bitacora.cortar(modo.motivo(), 300))
+                        .param("id", p.ejecucionCohortes()).update();
                 if (alertas) {
                     if (resumen == null) {
                         jdbc.sql("UPDATE ana_alertas_ejecuciones SET fin = :f, estado = 'error', error = :e, duracion_ms = :d WHERE id = :id")
@@ -354,8 +380,9 @@ public class RecalculoRiesgo implements DisposableBean {
                     }
                 }
                 bitacora.registrar("analitica_cohorte_recalculo", "Recálculo " + p.ejecucionCohortes() + " · corte " + p.corte() + " · " + l.versiones().size()
-                        + " versiones · " + l.motor().filas + " registros · " + total + " ms" + (versionesFallidas ? " · con fallos" : ""), usuarioId,
-                        usuario(usuarioId));
+                        + " versiones · " + l.motor().filas + " registros · " + total + " ms" + (versionesFallidas ? " · con fallos" : "")
+                        + (modo.incremental() ? " · incremental " + modo.motivo() + ", meses recalculados " + modo.plan().texto()
+                                : " · completo (" + modo.motivo() + ")"), usuarioId, usuario(usuarioId));
                 if (alertas) {
                     bitacora.registrar("analitica_alerta_generada", "Ejecución " + p.ejecucionAlertas() + " del motor de alertas · corte " + p.corte() + " · "
                             + (resumen == null ? "error" : resumen[0] + " nuevas · " + resumen[1] + " reevaluadas · " + resumen[2] + " avisos de severidad alta"
@@ -366,8 +393,9 @@ public class RecalculoRiesgo implements DisposableBean {
             // A7.1: los archivos temporales de la membresía (AN.32) se borran aunque la escritura falle
             l.motor().liberar();
         }
-        LOG.info("[analitica] Cohortes y alertas del corte {}: {} registros, {} versiones en {} ms {}", p.corte(), l.motor().filas, l.versiones().size(),
-                ms(t0, System.nanoTime()), l.etapas());
+        LOG.info("[analitica] Cohortes y alertas del corte {}: {} registros, {} versiones en {} ms {} · {} {}", p.corte(), l.motor().filas,
+                l.versiones().size(), ms(t0, System.nanoTime()), l.etapas(), l.modo().incremental() ? "incremental " + l.modo().plan().texto() : "completo",
+                l.modo().motivo());
     }
 
     private void fijar(JdbcClient j) {
@@ -375,7 +403,11 @@ public class RecalculoRiesgo implements DisposableBean {
         j.sql("SET LOCAL work_mem = '" + propiedades.memoria() + "MB'").update();
     }
 
-    private Lectura leer(Programada p, List<Long> soloVersiones, boolean alertas) {
+    /**
+     * Lee la foto del corte y recorre los hechos. {@code motivoCompleto} no nulo: recorrido completo por ese motivo; nulo: intenta el
+     * incremental (A7.4) y, si la versión anterior no sirve, hace el completo con el motivo que lo impidió.
+     */
+    private Lectura leer(Programada p, List<Long> soloVersiones, boolean alertas, String motivoCompleto) {
         Map<String, Long> etapas = new LinkedHashMap<>();
         long t = System.nanoTime();
         fijar(jdbc);
@@ -442,13 +474,52 @@ public class RecalculoRiesgo implements DisposableBean {
             }
         }
         etapas.put("catalogo", ms(t, System.nanoTime()));
+        // A7.4: ¿se puede partir de la versión anterior del corte?
         t = System.nanoTime();
-        // Umbral del gasto móvil por mes (percentil de los pacientes con dispensaciones en el mes): una sentencia por (meses, percentil)
+        String firma = RecalculoIncremental.firma(propiedades.gracia(), alertas, versiones, evaluables, versionParametros, parametros, cat);
+        List<String> huellas = RecalculoIncremental.huellas(jdbc, cat, corte.cargues());
+        RecalculoIncremental.Decision modo = RecalculoIncremental.Decision.completo(motivoCompleto);
+        if (motivoCompleto == null) {
+            int dias = 0;
+            for (Tipo tipo : List.of(Tipo.DUPLICIDAD, Tipo.INTERACCION)) {
+                if (evaluables.contains(tipo)) {
+                    dias = Math.max(dias, parametros.get(tipo).extra("dias", "30").intValue());
+                }
+            }
+            modo = RecalculoIncremental.decidir(jdbc, corte, firma, huellas, versiones, propiedades.gracia(), AnaliticaIncremental.mesesDeDias(dias));
+        }
+        AnaliticaIncremental.Plan plan = modo.incremental() ? modo.plan() : null;
+        LocalDate leerDesde = plan == null || plan.vacio() ? null : AnaliticaCohortes.deOrdinal(plan.leerDesde()).atDay(1);
+        LocalDate leerHasta = plan == null || plan.vacio() ? null : AnaliticaCohortes.deOrdinal(plan.leerHasta()).atEndOfMonth();
+        etapas.put("plan", ms(t, System.nanoTime()));
+        t = System.nanoTime();
+        // Umbral del gasto móvil por mes (percentil de los pacientes con dispensaciones en el mes): una sentencia por (meses, percentil). En el
+        // incremental solo con los hechos de la lectura (cubre la ventana de los meses que se recalculan); los demás meses, los guardados
         Map<String, Map<Integer, Long>> umbrales = new HashMap<>();
+        Map<String, Map<Integer, Long>> guardados = new HashMap<>();
         for (MotorRiesgo.VersionCohorte v : versiones) {
             GastoMovil g = v.gasto();
             if (g != null && g.percentil() && !umbrales.containsKey(MotorRiesgo.llaveUmbral(g))) {
-                umbrales.put(MotorRiesgo.llaveUmbral(g), umbralesGasto(jdbc, corte.cargues(), g.meses(), g.valorPercentil()));
+                String k = MotorRiesgo.llaveUmbral(g);
+                if (plan == null) {
+                    umbrales.put(k, umbralesGasto(jdbc, corte.cargues(), g.meses(), g.valorPercentil()));
+                    guardados.put(k, umbrales.get(k));
+                } else {
+                    Map<Integer, Long> nuevos = plan.vacio() ? Map.of() : umbralesGasto(jdbc, corte.cargues(), g.meses(), g.valorPercentil(), leerDesde, leerHasta);
+                    umbrales.put(k, nuevos);
+                    Map<Integer, Long> u = new TreeMap<>();
+                    RecalculoIncremental.umbralesAnteriores(jdbc, modo.anterior(), v.id(), this).forEach((mes, c) -> {
+                        if (!plan.contiene(mes)) {
+                            u.put(mes, c);
+                        }
+                    });
+                    nuevos.forEach((mes, c) -> {
+                        if (plan.contiene(mes)) {
+                            u.put(mes, c);
+                        }
+                    });
+                    guardados.put(k, u);
+                }
             }
         }
         etapas.put("umbrales", ms(t, System.nanoTime()));
@@ -457,8 +528,38 @@ public class RecalculoRiesgo implements DisposableBean {
         MotorRiesgo motor = new MotorRiesgo(cat, versiones, umbrales, parametros, evaluables, corte, propiedades.gracia(), s);
         JdbcTemplate plantilla = new JdbcTemplate(ds);
         plantilla.setFetchSize(MotorRiesgo.FETCH);
-        motor.recorrer(plantilla, corte.cargues());
-        etapas.put("recorrido", ms(t, System.nanoTime()));
+        if (plan == null) {
+            motor.recorrer(plantilla, corte.cargues());
+            etapas.put("recorrido", ms(t, System.nanoTime()));
+        } else {
+            // Recorrido de los meses de la lectura (resultados solo de los meses del plan), sin el cambio de marca en estrecho margen
+            Set<Tipo> sinMarca = EnumSet.copyOf(evaluables.isEmpty() ? EnumSet.noneOf(Tipo.class) : evaluables);
+            sinMarca.remove(Tipo.MARCA_ESTRECHO_MARGEN);
+            motor.emitir(plan.desde(), plan.hasta());
+            motor.pase(sinMarca, true);
+            if (!plan.vacio()) {
+                motor.recorrer(plantilla, corte.cargues(), leerDesde, leerHasta, null);
+            }
+            etapas.put("recorrido", ms(t, System.nanoTime()));
+            // La dispensación anterior del mismo principio no tiene límite hacia atrás: pasada propia de toda la historia, solo de esos medicamentos
+            Long[] estrecho = RecalculoIncremental.medsEstrecho(cat);
+            if (evaluables.contains(Tipo.MARCA_ESTRECHO_MARGEN) && estrecho.length > 0) {
+                t = System.nanoTime();
+                motor.emitir(Integer.MIN_VALUE, Integer.MAX_VALUE);
+                motor.pase(EnumSet.of(Tipo.MARCA_ESTRECHO_MARGEN), false);
+                motor.recorrer(plantilla, corte.cargues(), null, null, estrecho);
+                etapas.put("estrecho_margen", ms(t, System.nanoTime()));
+            }
+            motor.emitir(plan.desde(), plan.hasta());
+            t = System.nanoTime();
+            RecalculoIncremental.cargarAnterior(jdbc, modo, motor, versiones, alertas);
+            etapas.put("version_anterior", ms(t, System.nanoTime()));
+            if (!RecalculoIncremental.rehacerPuntos(motor)) {
+                motor.liberar();
+                LOG.info("[analitica] Un ESM llegó con más de un punto: el corte {} se recalcula completo", corte.cargueId());
+                return leer(p, soloVersiones, alertas, "un ESM llegó con más de un punto en la historia (su punto depende del orden del recorrido)");
+            }
+        }
         DetectoresAlertas detectores = null;
         String errorAlertas = null;
         if (alertas) {
@@ -473,7 +574,8 @@ public class RecalculoRiesgo implements DisposableBean {
             }
             etapas.put("alertas", ms(t, System.nanoTime()));
         }
-        return new Lectura(corte, versiones, cat, parametros, versionParametros, umbrales, motor, detectores, errorAlertas, cohortes, etapas);
+        return new Lectura(corte, versiones, cat, parametros, versionParametros, umbrales, motor, detectores, errorAlertas, cohortes, etapas, modo, firma,
+                huellas, guardados);
     }
 
     /**
@@ -481,15 +583,25 @@ public class RecalculoRiesgo implements DisposableBean {
      * en ese mes (definición única del alto costo: la usan la cohorte, la partición GRC y el tablero 8). Mes ordinal ⇒ centavos.
      */
     static Map<Integer, Long> umbralesGasto(JdbcClient j, List<Long> cargues, int meses, int percentil) {
+        return umbralesGasto(j, cargues, meses, percentil, null, null);
+    }
+
+    /**
+     * Ídem solo con los hechos de [desde, hasta] (A7.4): el umbral de un mes m es exacto si desde ≤ el primer día del mes m − meses + 1 (la
+     * ventana móvil solo mira hacia atrás).
+     */
+    static Map<Integer, Long> umbralesGasto(JdbcClient j, List<Long> cargues, int meses, int percentil, LocalDate desde, LocalDate hasta) {
         Map<Integer, Long> r = new TreeMap<>();
         String fraccion = BigDecimal.valueOf(percentil).movePointLeft(2).toPlainString();
         j.sql("""
                 WITH pm AS (SELECT x.paciente_id AS p, (extract(year FROM x.fecha)::int * 12 + extract(month FROM x.fecha)::int - 1) AS mi,
                                    sum(x.valor_centavos) AS g
-                            FROM ana_hechos_tablero x WHERE x.cargue_id = ANY(:c) GROUP BY 1, 2),
+                            FROM ana_hechos_tablero x WHERE x.cargue_id = ANY(:c)%s GROUP BY 1, 2),
                      r AS (SELECT mi, sum(g) OVER (PARTITION BY p ORDER BY mi RANGE BETWEEN %d PRECEDING AND CURRENT ROW) AS s FROM pm)
-                SELECT mi, percentile_disc(%s) WITHIN GROUP (ORDER BY s) FROM r GROUP BY mi""".formatted(meses - 1, fraccion))
-                .param("c", cargues.toArray(Long[]::new)).query((rs, n) -> r.put(rs.getInt(1), rs.getLong(2))).list();
+                SELECT mi, percentile_disc(%s) WITHIN GROUP (ORDER BY s) FROM r GROUP BY mi"""
+                .formatted(desde == null ? "" : " AND x.fecha BETWEEN :d AND :h", meses - 1, fraccion))
+                .param("c", cargues.toArray(Long[]::new)).params(desde == null ? Map.of() : Map.of("d", desde, "h", hasta))
+                .query((rs, n) -> r.put(rs.getInt(1), rs.getLong(2))).list();
         return r;
     }
 
@@ -499,6 +611,9 @@ public class RecalculoRiesgo implements DisposableBean {
         OffsetDateTime ahora = OffsetDateTime.now(reloj);
         MotorRiesgo m = l.motor();
         Long[] ids = l.versiones().stream().map(MotorRiesgo.VersionCohorte::id).toArray(Long[]::new);
+        // A7.4: cualquier corrida que reescribe el corte invalida su versión utilizable (y sus hijas, en cascada); solo una corrida completa la
+        // vuelve a dejar al final (un «Recalcular» de versiones puntuales o una falla no deja una firma que ya no corresponde a lo guardado)
+        jdbc.sql("DELETE FROM ana_riesgo_inc_cortes WHERE corte_cargue_id = :c").param("c", p.corte()).update();
         jdbc.sql("DELETE FROM ana_cohortes_serie WHERE version_id = ANY(:v) AND corte_cargue_id = :c").param("v", ids).param("c", p.corte()).update();
         jdbc.sql("DELETE FROM ana_cohortes_miembros WHERE version_id = ANY(:v) AND corte_cargue_id = :c").param("v", ids).param("c", p.corte()).update();
         jdbc.sql("DELETE FROM ana_cohortes_conteos WHERE version_id = ANY(:v) AND corte_cargue_id = :c").param("v", ids).param("c", p.corte()).update();
@@ -527,7 +642,8 @@ public class RecalculoRiesgo implements DisposableBean {
             }
             copiar("COPY ana_cohortes_miembros (version_id, corte_cargue_id, mes, paciente_id, fuerzas, esms, fuerzas_esms, grupo) FROM STDIN",
                     m.miembros.get(v.indice()));
-            if (v.particion() || v.noEvaluado() != null) {
+            if (v.particion() || v.noEvaluado() != null || l.modo().incremental()) {
+                // A7.4: en el incremental los conteos salen de la membresía final (abajo)
                 continue;
             }
             // El nivel nacional siempre (0 si nadie): marca que el corte tiene sus conteos precalculados
@@ -540,10 +656,22 @@ public class RecalculoRiesgo implements DisposableBean {
             });
         }
         copiar("COPY ana_cohortes_conteos (version_id, corte_cargue_id, desde, hasta, nivel, fuerza, codigo, pacientes) FROM STDIN", conteos);
+        if (l.modo().incremental()) {
+            // A7.4: la membresía de los meses que no se recalculan viene de la versión anterior; los conteos del periodo, de la membresía final
+            long tc = System.nanoTime();
+            Long[] evaluadas = l.versiones().stream().filter(v -> v.noEvaluado() == null && !m.fallosVersion.containsKey(v.indice()))
+                    .map(MotorRiesgo.VersionCohorte::id).toArray(Long[]::new);
+            RecalculoIncremental.copiarMembresia(jdbc, l.modo(), p.corte(), evaluadas);
+            l.etapas().put("copia_membresia", ms(tc, System.nanoTime()));
+            tc = System.nanoTime();
+            RecalculoIncremental.conteos(jdbc, p.corte(), l.versiones().stream().filter(v -> v.noEvaluado() == null && !v.particion()
+                    && !m.fallosVersion.containsKey(v.indice())).map(MotorRiesgo.VersionCohorte::id).toArray(Long[]::new), pd, ph);
+            l.etapas().put("conteos", ms(tc, System.nanoTime()));
+        }
         for (MotorRiesgo.VersionCohorte v : l.versiones()) {
             Map<String, String> umbral = new TreeMap<>();
             if (v.gasto() != null && v.gasto().percentil()) {
-                l.umbrales().getOrDefault(MotorRiesgo.llaveUmbral(v.gasto()), Map.of()).forEach((mes, centavos) -> umbral.put(
+                l.umbralesGuardados().getOrDefault(MotorRiesgo.llaveUmbral(v.gasto()), Map.of()).forEach((mes, centavos) -> umbral.put(
                         AnaliticaCohortes.deOrdinal(mes).toString(), BigDecimal.valueOf(centavos, 2).toPlainString()));
             } else if (v.gasto() != null) {
                 umbral.put("absoluto", v.gasto().valor().toPlainString());

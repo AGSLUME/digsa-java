@@ -829,7 +829,8 @@ public class ServicioCohortes {
     /** Recálculos recientes (ejecuciones) con su duración. */
     public List<Map<String, Object>> ejecuciones() {
         return jdbc.sql("""
-                SELECT e.id, e.origen, e.corte_cargue_id, e.inicio, e.fin, e.estado, e.versiones, e.filas, e.duracion_ms, e.etapas_ms::text AS etapas, e.error
+                SELECT e.id, e.origen, e.corte_cargue_id, e.inicio, e.fin, e.estado, e.versiones, e.filas, e.duracion_ms, e.etapas_ms::text AS etapas, e.error,
+                       e.modo, e.meses_recalculados, e.motivo_modo
                 FROM ana_cohortes_ejecuciones e ORDER BY e.id DESC LIMIT 50""").query((rs, n) -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", rs.getLong("id"));
@@ -842,6 +843,10 @@ public class ServicioCohortes {
                     m.put("duracionMs", rs.getObject("duracion_ms"));
                     m.put("etapasMs", riesgo.deJson(rs.getString("etapas")));
                     m.put("error", rs.getString("error"));
+                    // A7.4: incremental o completo, meses recalculados y por qué
+                    m.put("modo", rs.getString("modo"));
+                    m.put("mesesRecalculados", rs.getString("meses_recalculados"));
+                    m.put("motivoModo", rs.getString("motivo_modo"));
                     return m;
                 }).list();
     }

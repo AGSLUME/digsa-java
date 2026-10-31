@@ -106,6 +106,9 @@ public final class Exportacion {
             // Membresía de las cohortes (V63): número de paciente por mes y versión, solo del último corte; se deriva de los hechos y no
             // sale de la base salvo como conteos (A5 14.6 «nunca individualizada»)
             "ana_cohortes_miembros",
+            // Versión utilizable para el recálculo incremental (V68, A7.4, AN.23): firma, alertas de secuencia por mes y puntos de cada ESM
+            // de los dos últimos cortes; se derivan de los hechos y un recálculo completo las reconstruye
+            "ana_riesgo_inc_cortes", "ana_riesgo_inc_secuencia", "ana_riesgo_inc_puntos",
             // Staging de la carga del CUM del INVIMA (UNLOGGED, se vacía al terminar cada versión)
             "ref_cum_staging");
 

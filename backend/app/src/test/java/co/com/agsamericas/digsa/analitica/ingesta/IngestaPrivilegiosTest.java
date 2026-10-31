@@ -70,6 +70,7 @@ class IngestaPrivilegiosTest extends PruebaIntegracion {
             s.execute(bloque("/db/migration/V64__analitica_prediccion.sql"));
             s.execute(bloque("/db/migration/V66__analitica_exportacion_hechos.sql"));
             s.execute(bloque("/db/migration/V67__analitica_descargas_diferidas.sql"));
+            s.execute(bloque("/db/migration/V68__analitica_recalculo_incremental.sql"));
         }
     }
 
@@ -102,6 +103,19 @@ class IngestaPrivilegiosTest extends PruebaIntegracion {
         assertThat(jdbc.sql("SELECT has_table_privilege(:r, 'ana_descargas_diferidas', 'DELETE')").param("r", ROL).query(Boolean.class).single()).isFalse();
         assertThat(jdbc.sql("SELECT has_sequence_privilege(:r, 'ana_descargas_diferidas_id_seq', 'USAGE')").param("r", ROL).query(Boolean.class).single())
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("V68: la versión utilizable del recálculo incremental se lee, se escribe y se purga (sin UPDATE: se reescribe completa)")
+    void privilegiosRecalculoIncremental() {
+        for (String t : List.of("ana_riesgo_inc_cortes", "ana_riesgo_inc_secuencia", "ana_riesgo_inc_puntos")) {
+            for (String p : List.of("SELECT", "INSERT", "DELETE")) {
+                assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, :p)").param("r", ROL).param("t", t).param("p", p).query(Boolean.class).single())
+                        .as(p + " sobre " + t).isTrue();
+            }
+            assertThat(jdbc.sql("SELECT has_table_privilege(:r, :t, 'UPDATE')").param("r", ROL).param("t", t).query(Boolean.class).single())
+                    .as("sin UPDATE sobre " + t).isFalse();
+        }
     }
 
     /** Último bloque DO de GRANT de una migración, con el rol de prueba en lugar de ${rol_app}. */

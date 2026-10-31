@@ -385,10 +385,10 @@ class BandejaSalidaTest extends PruebaIntegracion {
     }
 
     @Test
-    @DisplayName("purga: los enviados de más de bandeja_retencion_dias (90) se borran; lo pendiente y lo reciente se conservan")
+    @DisplayName("purga: los enviados de más de bandeja_retencion_dias (365) se borran; lo pendiente y lo reciente se conservan")
     void purga() {
         OffsetDateTime ahora = OffsetDateTime.now(reloj);
-        OffsetDateTime viejo = ahora.minusDays(100);
+        OffsetDateTime viejo = ahora.minusDays(400);
         long enviadoViejo = jdbc.sql("""
                 INSERT INTO correos_salida (origen, para, asunto, html, estado, intentos, proximo, creado, enviado)
                 VALUES ('prueba', ARRAY['purga@example.com'], 'viejo', '<p>x</p>', 'enviado', 1, :t, :t, :t) RETURNING id""").param("t", viejo).query(Long.class).single();

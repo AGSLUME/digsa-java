@@ -3,14 +3,18 @@ package co.com.agsamericas.digsa.correos;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import co.com.agsamericas.digsa.plataforma.BandejaSalida;
+import co.com.agsamericas.digsa.plataforma.CatalogoPlantillas;
 import co.com.agsamericas.digsa.plataforma.Correo;
 import co.com.agsamericas.digsa.plataforma.DespachadorSalida;
+import co.com.agsamericas.digsa.reglas.Fechas;
 import co.com.agsamericas.digsa.reglas.Perfil;
 import co.com.agsamericas.digsa.soporte.Navegador;
 import co.com.agsamericas.digsa.soporte.Navegador.Respuesta;
 import co.com.agsamericas.digsa.soporte.PruebaIntegracion;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +29,8 @@ class CorreosApiTest extends PruebaIntegracion {
     BandejaSalida bandeja;
     @Autowired
     DespachadorSalida despachador;
+    @Autowired
+    CatalogoPlantillas plantillas;
 
     private Navegador admin(String prefijo) {
         String adm = crearUsuario(prefijo, Perfil.ADMINISTRADOR);
@@ -170,6 +176,61 @@ class CorreosApiTest extends PruebaIntegracion {
         // La fila de datos lleva el destinatario enmascarado (el encabezado repite el filtro que escribió el propio administrador)
         String fila = csv.lines().filter(l -> l.contains("Prueba de descarga")).findFirst().orElseThrow();
         assertThat(fila).doesNotContain(para).contains("@example.com");
+    }
+
+    @Test
+    @DisplayName("retención (CO-4): el envío completo, contenido incluido, se ve y se descarga durante el año; al año se purga y queda en la auditoría")
+    void retencion() {
+        String para = unico("rete").toLowerCase() + "@example.com";
+        long enviado = bandeja.encolar("solicitud_nueva", "solicitud:4", new Correo.Mensaje(List.of(para), List.of(), "Prueba de retención",
+                "<p>Cuerpo que se conserva</p>", List.of()));
+        esperar(() -> "enviado".equals(estado(enviado)), "el correo sale");
+        // Pendiente insertado ya con su próximo intento lejano: el despachador no lo toma durante la prueba
+        long pendiente = jdbc.sql("""
+                INSERT INTO correos_salida (origen, referencia, para, asunto, html, proximo, creado)
+                VALUES ('solicitud_nueva', 'solicitud:5', ARRAY[:para], 'Retención pendiente', '<p>Sigue en la cola</p>', :p, :c) RETURNING id""")
+                .param("para", para).param("p", OffsetDateTime.now(reloj).plusYears(2)).param("c", OffsetDateTime.now(reloj)).query(Long.class).single();
+        assertThat(jdbc.sql("SELECT valor FROM par_parametros WHERE clave = 'bandeja_retencion_dias'").query(String.class).single()).isEqualTo("365");
+
+        // A los 364 días el envío sigue completo: la purga no lo toca y el contenido se ve en la vista previa y sale en la descarga
+        reloj.adelantar(Duration.ofDays(364));
+        despachador.purgar();
+        reloj.reiniciar();
+        Navegador n = admin("admcorrt");
+        JsonNode d = n.get("/api/correos/envios/" + enviado).json();
+        assertThat(d.path("html").asText()).contains("Cuerpo que se conserva");
+        assertThat(d.path("asunto").asText()).isEqualTo("Prueba de retención");
+        assertThat(d.path("para").get(0).asText()).isEqualTo(para);
+        LocalDate hoy = LocalDate.now(reloj.withZone(Fechas.BOGOTA));
+        Respuesta x = n.get("/api/reportes/" + ProveedorReporteCorreos.ID + "/exportar?formato=csv&desde=" + hoy.minusDays(364) + "&hasta=" + hoy
+                + "&destinatario=" + para);
+        assertThat(x.estado()).isEqualTo(200);
+        assertThat(new String(x.cuerpo(), StandardCharsets.UTF_8)).contains("Prueba de retención");
+
+        // Pasado el año se purga el envío completo; lo pendiente se conserva. En la auditoría queda solo cuántos, sin direcciones
+        reloj.adelantar(Duration.ofDays(366));
+        assertThat(despachador.purgar()).isGreaterThanOrEqualTo(1);
+        assertThat(jdbc.sql("SELECT id FROM correos_salida WHERE id IN (:a, :b)").param("a", enviado).param("b", pendiente).query(Long.class).list())
+                .containsExactly(pendiente);
+        List<String> purga = jdbc.sql("SELECT operacion || '|' || coalesce(descripcion, '') FROM log_transacciones WHERE tipo = 'correos_purgados'"
+                + " AND usuario_id IS NULL ORDER BY id DESC").query(String.class).list();
+        assertThat(purga).isNotEmpty();
+        assertThat(purga.getFirst()).startsWith("eliminacion|").contains("registros de correo").contains("de más de 365 días").doesNotContain("@");
+        jdbc.sql("DELETE FROM correos_salida WHERE id = :id").param("id", pendiente).update();
+    }
+
+    @Test
+    @DisplayName("peso de la bitácora (CO-4): el peso medio de un envío con las 25 plantillas reales queda anotado y por debajo de 64 KB")
+    void pesoMedio() {
+        // Contenido real: cada plantilla del catálogo con sus valores de ejemplo (el html se guarda así, sin comprimir)
+        List<Integer> cuerpos = plantillas.todas().stream().map(p -> p.ejemplo().html().getBytes(StandardCharsets.UTF_8).length).toList();
+        double cuerpoMedio = cuerpos.stream().mapToInt(Integer::intValue).average().orElse(0);
+        // Lo que pesa la fila sin el cuerpo (fechas, destinatarios, asunto, estado…), medido en la base
+        long resto = jdbc.sql("SELECT coalesce(avg(pg_column_size(c.*) - pg_column_size(c.html)), 0)::bigint FROM correos_salida c").query(Long.class).single();
+        System.out.println("[CO-4] " + cuerpos.size() + " plantillas: cuerpo medio " + Math.round(cuerpoMedio) + " B, máximo "
+                + cuerpos.stream().mapToInt(Integer::intValue).max().orElse(0) + " B; resto de la fila " + resto + " B por envío");
+        assertThat(cuerpos).hasSizeGreaterThanOrEqualTo(25);
+        assertThat(cuerpoMedio + resto).isLessThan(64 * 1024);
     }
 
     private String estado(long id) {

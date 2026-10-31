@@ -5,7 +5,8 @@ import { ADMIN, salir } from './apoyo';
 // arriba en este equipo y DIGSA_E2E_CORREO=mailpit (el servidor de las pruebas arranca con -Ddigsa.local.correo=mailpit); con correo
 // real la pantalla ya no muestra el código, así que se lee de Mailpit. Correr solo este archivo en ese modo:
 //   DIGSA_E2E_CORREO=mailpit npx playwright test pruebas/mailpit.spec.ts --project=chromium
-const MAILPIT = process.env.DIGSA_E2E_MAILPIT_URL ?? 'http://localhost:8025';
+// IPv4 explícito, como el perfil: Mailpit escucha solo en 127.0.0.1
+const MAILPIT = process.env.DIGSA_E2E_MAILPIT_URL ?? 'http://127.0.0.1:8025';
 
 test.skip(process.env.DIGSA_E2E_CORREO !== 'mailpit', 'Requiere Mailpit corriendo y DIGSA_E2E_CORREO=mailpit (docs/guia_mailpit.md).');
 test.afterEach(async ({ page }) => salir(page));

@@ -1,9 +1,9 @@
 # Suite DIGSA · Módulo Correos, fase C4: perfil «mailpit» (solo desarrollo local; guía en docs/guia_mailpit.md).
-# Los correos salen por SMTP a Mailpit (localhost:1025, sin usuario ni STARTTLS) y se ven en http://localhost:8025: nada llega a un
+# Los correos salen por SMTP a Mailpit (127.0.0.1:1025, sin usuario ni STARTTLS) y se ven en http://localhost:8025: nada llega a un
 # buzón real. ValidacionArranque no deja arrancar este perfil si digsa.entorno no es local.
 spring:
   mail:
-    host: ${DIGSA_MAILPIT_HOST:localhost}
+    host: ${DIGSA_MAILPIT_HOST:127.0.0.1}   # IPv4: Java resuelve localhost primero a ::1 y Mailpit escucha solo en 127.0.0.1
     port: ${DIGSA_MAILPIT_PUERTO:1025}
     username:
     password:

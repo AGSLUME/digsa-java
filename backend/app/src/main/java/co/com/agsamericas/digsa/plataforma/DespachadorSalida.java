@@ -52,7 +52,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * {@link #colgado()}, por encima del peor tiempo de un envío según los tiempos máximos del SMTP; si ya agotó los intentos queda
  * «fallido» como cualquier agotado (nunca pasa de 5 intentos). Reintentos a 1, 5, 30 min y 2 h; al quinto intento fallido queda
  * «fallido», con {@code correo_fallido} en la bitácora y, si era el aviso de una alerta crítica, {@link CorreoAgotado}. Los envíos
- * terminados se purgan pasados {@code bandeja_retencion_dias} (90).
+ * terminados se conservan completos, contenido incluido, y se purgan pasados {@code bandeja_retencion_dias} (365, CO-4).
  */
 @Component
 public class DespachadorSalida {
@@ -62,7 +62,7 @@ public class DespachadorSalida {
     static final Duration COLGADO_MINIMO = Duration.ofMinutes(2);
     /** Envíos máximos de un vaciado; lo que quede lo toma el respaldo. */
     private static final int MAX_ENVIOS = 500;
-    static final int RETENCION_DEFECTO = 90;
+    static final int RETENCION_DEFECTO = 365;
 
     private final JdbcClient jdbc;
     private final Correo correo;
@@ -202,21 +202,30 @@ public class DespachadorSalida {
 
     /**
      * Borra los correos (enviados, parciales o fallidos) y los SMS (enviados, omitidos o fallidos) creados hace más de
-     * {@code bandeja_retencion_dias} días (90; 0 = no purgar). Lo pendiente nunca se borra. @return filas borradas
+     * {@code bandeja_retencion_dias} días (365; 0 = no purgar). Lo pendiente nunca se borra. En la auditoría queda solo cuántos.
+     * @return filas borradas
      */
     public int purgar() {
-        int dias = jdbc.sql("SELECT valor FROM par_parametros WHERE clave = 'bandeja_retencion_dias'").query(String.class).optional()
-                .map(String::strip).filter(v -> v.matches("^[0-9]{1,5}$")).map(Integer::parseInt).orElse(RETENCION_DEFECTO);
+        int dias = dias("bandeja_retencion_dias", RETENCION_DEFECTO);
         if (dias <= 0) {
             return 0;
         }
         OffsetDateTime limite = OffsetDateTime.now(reloj).minusDays(dias);
-        int n = jdbc.sql("DELETE FROM correos_salida WHERE estado IN ('enviado', 'parcial', 'fallido') AND creado < :l").param("l", limite).update()
-                + jdbc.sql("DELETE FROM sms_salida WHERE estado IN ('enviado', 'omitido', 'fallido') AND creado < :l").param("l", limite).update();
+        int correos = jdbc.sql("DELETE FROM correos_salida WHERE estado IN ('enviado', 'parcial', 'fallido') AND creado < :l").param("l", limite).update();
+        int mensajes = jdbc.sql("DELETE FROM sms_salida WHERE estado IN ('enviado', 'omitido', 'fallido') AND creado < :l").param("l", limite).update();
+        int n = correos + mensajes;
         if (n > 0) {
             LOG.info("[salida] Purgados {} envíos de más de {} días", n, dias);
+            bitacora.escribir(Bitacora.Operacion.ELIMINACION, "correos_purgados", "salida", "Purga de la bitácora de envíos: " + correos
+                    + " registros de correo y " + mensajes + " de SMS de más de " + dias + " días", null, "sistema", null);
         }
         return n;
+    }
+
+    /** Días de un parámetro de retención (entero de hasta 5 cifras) o el valor por defecto. */
+    private int dias(String clave, int defecto) {
+        return jdbc.sql("SELECT valor FROM par_parametros WHERE clave = :c").param("c", clave).query(String.class).optional()
+                .map(String::strip).filter(v -> v.matches("^[0-9]{1,5}$")).map(Integer::parseInt).orElse(defecto);
     }
 
     /** Envía todo lo vencido de los dos canales (SMS primero). @return cuántos salieron */

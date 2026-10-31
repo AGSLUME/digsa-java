@@ -132,7 +132,8 @@ public final class Bitacora {
             // --- Correos (sesión de correos): bitácora de envíos, plantillas y destinatarios ---
             Map.entry("correo_reintentado", Operacion.INSERCION), Map.entry("correo_destinatarios_vistos", Operacion.CONSULTA),
             Map.entry("correo_plantilla_editada", Operacion.ACTUALIZACION), Map.entry("correo_plantilla_restaurada", Operacion.ACTUALIZACION),
-            Map.entry("correo_destinatarios_editados", Operacion.ACTUALIZACION)
+            Map.entry("correo_destinatarios_editados", Operacion.ACTUALIZACION),
+            Map.entry("correos_purgados", Operacion.ELIMINACION)
             // --- fin correos ---
             );
 
